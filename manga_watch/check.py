@@ -176,7 +176,68 @@ def normalize_item(url: str):
         return {"kind": "comic-walker", "series": m.group(1), "seedUrl": f"https://comic-walker.com/detail/{m.group(1)}"}
     if "comic-action.com/episode/" in url:
         return {"kind": "comic-action", "seedUrl": url}
+    if "kakuyomu.jp/works/" in url and "/episodes/" in url:
+        m = re.search(r'kakuyomu\.jp/works/(\d+)/episodes/(\d+)', url)
+        if not m:
+            raise RuntimeError("kakuyomu: could not parse work/episode id")
+        work_id, episode_id = m.group(1), m.group(2)
+        return {"kind": "kakuyomu", "series": f"kakuyomu:{work_id}", "workId": work_id, "seedEpisodeId": episode_id, "seedUrl": url}
     raise RuntimeError(f"Unsupported URL: {url}")
+
+
+def kakuyomu_latest(work_id: str):
+    """Find latest episode for a Kakuyomu work.
+
+    Kakuyomu work pages embed a Next.js JSON blob ("__NEXT_DATA__") that includes episode
+    entries with title + publishedAt. We select the newest by publishedAt.
+    """
+    work_url = f"https://kakuyomu.jp/works/{work_id}"
+    html = http_get(work_url)
+
+    m = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
+    if not m:
+        raise RuntimeError("kakuyomu: __NEXT_DATA__ not found")
+
+    raw = m.group(1)
+
+    episodes = []
+    # Example fragment:
+    # "Episode:822139844009936710":{...,"id":"822139844009936710","title":"第67話...","publishedAt":"2026-01-27T08:00:03Z"}
+    for mm in re.finditer(
+        r'"Episode:(\d+)"\s*:\s*\{[^\}]*?"id"\s*:\s*"(\d+)"[^\}]*?"title"\s*:\s*"([^"]+)"[^\}]*?"publishedAt"\s*:\s*"([^"]+)"',
+        raw,
+    ):
+        eid = mm.group(2)
+        title = mm.group(3)
+        published_at = mm.group(4)
+        episodes.append((published_at, eid, title))
+
+    if not episodes:
+        raise RuntimeError("kakuyomu: no episodes found in __NEXT_DATA__")
+
+    # newest by publishedAt (ISO8601 Z sorts lexicographically)
+    published_at, latest_eid, latest_title = max(episodes, key=lambda x: x[0])
+    latest_url = f"https://kakuyomu.jp/works/{work_id}/episodes/{latest_eid}"
+
+    # Work title: easiest from the episode page <title>
+    ep_html = http_get(latest_url)
+    t = html_title(ep_html)
+
+    series_title = None
+    episode_title = latest_title
+    if t and " - " in t:
+        parts = [p.strip() for p in t.split(" - ")]
+        if len(parts) >= 2:
+            episode_title = parts[0] or episode_title
+            series_title = parts[1]
+
+    return {
+        "series": f"kakuyomu:{work_id}",
+        "seriesTitle": series_title,
+        "episodeCode": str(latest_eid),
+        "episodeTitle": episode_title,
+        "url": latest_url,
+    }
 
 
 def compute_latest(item):
@@ -184,6 +245,8 @@ def compute_latest(item):
         return comic_walker_latest(item["series"])
     if item["kind"] == "comic-action":
         return comic_action_latest_from_episode(item["seedUrl"])
+    if item["kind"] == "kakuyomu":
+        return kakuyomu_latest(item["workId"])
     raise RuntimeError(f"Unknown kind: {item['kind']}")
 
 
