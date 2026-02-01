@@ -1,0 +1,45 @@
+{
+  "version": 1,
+  "items": {
+    "KC_003913_S": {
+      "latest": {
+        "series": "KC_003913_S",
+        "seriesTitle": "蜘蛛ですが、なにか？",
+        "episodeCode": "KC_0039130008900011_E",
+        "episodeTitle": "第77話その2",
+        "url": "https://comic-walker.com/detail/KC_003913_S/episodes/KC_0039130008900011_E?episodeType=latest"
+      },
+      "seenAt": 1769917010
+    },
+    "KC_007032_S": {
+      "latest": {
+        "series": "KC_007032_S",
+        "seriesTitle": "銀河特急 ミルキー☆サブウェイ",
+        "episodeCode": "KC_0070320000900011_E",
+        "episodeTitle": "コミックス告知",
+        "url": "https://comic-walker.com/detail/KC_007032_S/episodes/KC_0070320000900011_E?episodeType=latest"
+      },
+      "seenAt": 1769917010
+    },
+    "https://comic-action.com/episode/2550689798784879524": {
+      "latest": {
+        "url": "https://comic-action.com/episode/2551460909780695609",
+        "pageTitle": "第50話 / ダンジョンの中のひと - 双見酔 | webアクション",
+        "seriesTitle": "ダンジョンの中のひと",
+        "episodeTitle": "第50話"
+      },
+      "seenAt": 1769917010
+    },
+    "KC_001405_S": {
+      "latest": {
+        "series": "KC_001405_S",
+        "seriesTitle": "航宙軍士官、冒険者になる",
+        "episodeCode": "KC_0014050006700011_E",
+        "episodeTitle": "第61話",
+        "url": "https://comic-walker.com/detail/KC_001405_S/episodes/KC_0014050006700011_E?episodeType=latest"
+      },
+      "seenAt": 1769917010
+    }
+  },
+  "lastRunAt": 1769917010
+}

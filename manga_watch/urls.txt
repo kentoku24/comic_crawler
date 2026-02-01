@@ -1,0 +1,8 @@
+# Manga watch list (seed URLs)
+# comic-walker: any episode URL is OK; we derive series code and fetch /detail/<KC_xxx_S>
+# comic-action: give an episode URL; we follow nextReadableProductUri chain.
+
+https://comic-walker.com/detail/KC_003913_S/episodes/KC_0039130008900011_E?episodeType=latest
+https://comic-walker.com/detail/KC_007032_S/episodes/KC_0070320000900011_E
+https://comic-action.com/episode/2550689798784879524
+https://comic-walker.com/detail/KC_001405_S/episodes/KC_0014050006700011_E?episodeType=latest
