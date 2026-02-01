@@ -72,7 +72,8 @@ Prereqs:
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
-pip install -U pip requests
+pip install -U pip
+pip install -r requirements.txt
 
 python3 manga_watch/check.py manga_watch/urls.txt
 cat manga_watch/state.json
@@ -80,16 +81,17 @@ cat manga_watch/state.json
 
 ## Using with OpenClaw (cron)
 
-This repo does not include OpenClaw config, but the intended wiring is:
+OpenClaw integration docs live in `openclaw/` (no secrets):
+- `openclaw/README.md`
+- `openclaw/example-config.json5` (template)
+- `openclaw/cron-job.md` (schedule + behavior)
 
-- Cron runs `python3 .../manga_watch/check.py .../manga_watch/urls.txt`
-- If updates exist:
-  - Notify a Discord channel
-- Always:
-  - Post a run report (work list + whether notification was sent)
+The intended wiring is:
+- Cron runs the checker (`check.py`)
+- If updates exist: notify a Discord channel
+- Always: post a run report channel message
 
-Example schedule used in development:
-- Test: every 10 minutes
+Example schedule:
 - Production: **daily at 19:00 JST**
 
 ## Security notes

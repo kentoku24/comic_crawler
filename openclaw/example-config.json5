@@ -1,0 +1,45 @@
+// Example OpenClaw config *fragments* for running the crawler.
+//
+// IMPORTANT:
+// - Do NOT commit real tokens.
+// - Replace placeholders like YOUR_*.
+// - This file is documentation; merge into ~/.openclaw/openclaw.json.
+
+{
+  channels: {
+    discord: {
+      enabled: true,
+      // token: "DISCORD_BOT_TOKEN_HERE"  // <-- do NOT commit
+
+      // Recommended: keep guild messages allowlisted
+      groupPolicy: "allowlist",
+
+      dm: { enabled: false },
+
+      guilds: {
+        "YOUR_GUILD_ID": {
+          // Allow only specific users to talk to the bot in this guild
+          users: ["YOUR_USER_ID"],
+
+          // Default in shared channels: mention required
+          requireMention: true,
+
+          channels: {
+            // Main channel where notifications go
+            "YOUR_MAIN_CHANNEL_ID": {
+              allow: true,
+              // If this channel is effectively private (only you + bot), you can disable this:
+              requireMention: false
+            },
+
+            // Run-report channel (always post a short report after each crawl)
+            "YOUR_RUN_REPORT_CHANNEL_ID": {
+              allow: true,
+              requireMention: false
+            }
+          }
+        }
+      }
+    }
+  }
+}
