@@ -220,10 +220,17 @@ def main():
             items_state[item_id] = {"latest": latest, "seenAt": now}
         else:
             # Same episode, but we might have learned better metadata (titles). Update silently.
+            # For title fields, prefer the freshly fetched values when present.
             merged = dict(prev_latest)
             for k2, v2 in latest.items():
                 if v2 is None:
                     continue
+                if k2 in ("seriesTitle", "episodeTitle", "pageTitle"):
+                    # overwrite if we have a non-empty newer value
+                    if v2 and v2 != merged.get(k2):
+                        merged[k2] = v2
+                    continue
+                # for other fields, fill only if missing
                 if not merged.get(k2):
                     merged[k2] = v2
             items_state[item_id] = {"latest": merged, "seenAt": now}
