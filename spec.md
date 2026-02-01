@@ -1,5 +1,17 @@
 # comic_crawler / spec
 
+## Glossary (project naming)
+To avoid confusion, we use these fixed terms:
+
+- **comic_crawler**: the whole project/repository
+- **watchlist**: `manga_watch/urls.txt` (input list)
+- **checker**: `manga_watch/check.py` (the script that checks latest episodes)
+- **state / last_seen**: `manga_watch/state.json` (persisted last-seen snapshot)
+- **run**: a single execution of the checker (scheduled by cron)
+- **diff**: the `updates` array produced by the checker (detected changes)
+- **alert**: notification posted to the main channel when diff is non-empty
+- **run report**: message posted every run to the run-report channel
+
 ## Purpose
 Monitor multiple manga sites, detect when a new episode appears for followed works, and notify via OpenClaw/Discord.
 
