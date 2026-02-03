@@ -1,0 +1,14 @@
+services:
+  gemini-novnc:
+    build: .
+    container_name: gemini-novnc
+    ports:
+      - "6080:6080"   # noVNC in browser
+      - "5900:5900"   # raw VNC (optional)
+    volumes:
+      - chrome-profile:/data/chrome
+    shm_size: "1gb"
+    restart: unless-stopped
+
+volumes:
+  chrome-profile:
