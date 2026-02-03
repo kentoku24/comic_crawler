@@ -12,13 +12,9 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-cjk fonts-noto-color-emoji \
     && rm -rf /var/lib/apt/lists/*
 
-# Install Google Chrome (arm64 supported)
-RUN install -m 0755 -d /etc/apt/keyrings \
-  && curl -fsSL https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /etc/apt/keyrings/google-chrome.gpg \
-  && chmod a+r /etc/apt/keyrings/google-chrome.gpg \
-  && echo "deb [arch=arm64 signed-by=/etc/apt/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" > /etc/apt/sources.list.d/google-chrome.list \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends google-chrome-stable \
+# Install Chromium (arm64 supported - Google Chrome not available for Linux arm64)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends chromium \
   && rm -rf /var/lib/apt/lists/*
 
 # Non-root user
