@@ -64,10 +64,21 @@ Supported URL types:
 Command:
 ```bash
 python3 manga_watch/check.py manga_watch/urls.txt
+python3 manga_watch/check.py manga_watch/urls.txt -j 8    # parallel workers
+python3 manga_watch/check.py --status                      # show monitoring state
 ```
 
 Output:
 - Always prints JSON: `{ "updates": [...] }`
+- If any URLs failed, includes `"errors"` array: `{ "updates": [...], "errors": [...] }`
+
+### CLI options
+- `urls_file` — path to watchlist (positional, required for check mode)
+- `--status` — display current monitoring state from state.json and exit (no HTTP requests)
+- `-j N` / `--jobs N` — number of parallel fetch workers (default: 4)
+
+### Error isolation
+Each URL is processed independently. If one URL fails (HTTP error, parse error, etc.), the error is captured in the `"errors"` array and remaining URLs continue processing normally. This ensures a single site outage does not block the entire run.
 
 ### Latest episode detection
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env python3
-import json, os, re, sys, time
+import argparse, json, os, re, sys, time
+from concurrent.futures import ThreadPoolExecutor, as_completed
+from datetime import datetime, timezone
 from urllib.parse import urlparse
 
 import requests
@@ -250,25 +252,84 @@ def compute_latest(item):
     raise RuntimeError(f"Unknown kind: {item['kind']}")
 
 
+def _process_url(url):
+    """Fetch latest episode for a single URL. Returns (item_id, latest) or raises."""
+    item = normalize_item(url)
+    item_id = item.get("series") or item["seedUrl"]
+    latest = compute_latest(item)
+    return item_id, latest
+
+
+def show_status():
+    """Display current monitoring state from state.json without HTTP requests."""
+    state = load_state()
+    items = state.get("items", {})
+    last_run = state.get("lastRunAt")
+
+    if not items:
+        print("監視中の作品はありません。")
+        return 0
+
+    print(f"監視中の作品 ({len(items)}件):")
+    for item_id, entry in items.items():
+        latest = entry.get("latest", {})
+        series = latest.get("seriesTitle") or item_id
+        episode = latest.get("episodeTitle") or latest.get("episodeCode") or "?"
+        seen_at = entry.get("seenAt")
+        date_str = datetime.fromtimestamp(seen_at, tz=timezone.utc).strftime("%Y-%m-%d") if seen_at else "?"
+        print(f"  {series}\t{episode}\t({date_str})")
+
+    if last_run:
+        dt = datetime.fromtimestamp(last_run, tz=timezone.utc)
+        print(f"最終実行: {dt.isoformat()}")
+
+    return 0
+
+
 def main():
-    if len(sys.argv) < 2:
-        print("usage: check.py <urls.txt>", file=sys.stderr)
+    parser = argparse.ArgumentParser(
+        prog="check.py",
+        description="Manga episode monitor",
+    )
+    parser.add_argument("urls_file", nargs="?", help="path to urls.txt watchlist")
+    parser.add_argument("--status", action="store_true", help="show current monitoring state and exit")
+    parser.add_argument("-j", "--jobs", type=int, default=4, help="parallel fetch workers (default: 4)")
+    args = parser.parse_args()
+
+    if args.status:
+        return show_status()
+
+    if not args.urls_file:
+        parser.print_usage(sys.stderr)
         return 2
 
-    urls_path = sys.argv[1]
-    with open(urls_path, "r", encoding="utf-8") as f:
+    with open(args.urls_file, "r", encoding="utf-8") as f:
         urls = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
 
     state = load_state()
     items_state = state.setdefault("items", {})
 
     updates = []
+    errors = []
     now = int(time.time())
+    workers = max(1, min(args.jobs, len(urls)))
 
+    # Fetch latest episodes in parallel
+    results = {}  # url -> (item_id, latest)
+    with ThreadPoolExecutor(max_workers=workers) as pool:
+        future_to_url = {pool.submit(_process_url, url): url for url in urls}
+        for future in as_completed(future_to_url):
+            url = future_to_url[future]
+            try:
+                results[url] = future.result()
+            except Exception as exc:
+                errors.append({"url": url, "error": str(exc)})
+
+    # Process results in original URL order to keep deterministic output
     for url in urls:
-        item = normalize_item(url)
-        item_id = item.get("series") or item["seedUrl"]
-        latest = compute_latest(item)
+        if url not in results:
+            continue
+        item_id, latest = results[url]
         latest_id = latest.get("episodeCode") or latest.get("url")
 
         prev = items_state.get(item_id)
@@ -282,18 +343,14 @@ def main():
             updates.append({"id": item_id, "from": prev_latest, "to": latest})
             items_state[item_id] = {"latest": latest, "seenAt": now}
         else:
-            # Same episode, but we might have learned better metadata (titles). Update silently.
-            # For title fields, prefer the freshly fetched values when present.
             merged = dict(prev_latest)
             for k2, v2 in latest.items():
                 if v2 is None:
                     continue
                 if k2 in ("seriesTitle", "episodeTitle", "pageTitle"):
-                    # overwrite if we have a non-empty newer value
                     if v2 and v2 != merged.get(k2):
                         merged[k2] = v2
                     continue
-                # for other fields, fill only if missing
                 if not merged.get(k2):
                     merged[k2] = v2
             items_state[item_id] = {"latest": merged, "seenAt": now}
@@ -301,7 +358,10 @@ def main():
     state["lastRunAt"] = now
     save_state(state)
 
-    print(json.dumps({"updates": updates}, ensure_ascii=False))
+    output = {"updates": updates}
+    if errors:
+        output["errors"] = errors
+    print(json.dumps(output, ensure_ascii=False))
     return 0
 
 
