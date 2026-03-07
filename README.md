@@ -73,7 +73,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
-python3 manga_watch/check.py manga_watch/urls.txt
+python3 -m manga_watch.check manga_watch/urls.txt
 ```
 
 runner をローカル起動する場合は Discord 環境変数を入れてから実行します。
@@ -89,7 +89,6 @@ python3 -m manga_watch.runner
 - `manga_watch/runner.py`: スケジューラ + Discord 通知
 - `manga_watch/urls.txt`: watchlist
 - `docker-compose.yml`: 本番想定の単一コンテナ起動定義
-- `openclaw/`: 旧運用の参考資料。現行運用では不要
 
 ## Security notes
 
@@ -99,5 +98,5 @@ python3 -m manga_watch.runner
 
 ## Maintenance tips
 
-- サイトの HTML が変わって検知が止まったら `python3 manga_watch/check.py manga_watch/urls.txt` を直接実行して例外を確認する
+- サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/urls.txt` を実行して例外を確認する
 - 新しいサイトを足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` に登録する

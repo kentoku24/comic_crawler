@@ -1,4 +1,8 @@
+import os
+import subprocess
+import sys
 import unittest
+from pathlib import Path
 
 from manga_watch.runner import RunnerConfig, run_once, split_message
 
@@ -15,6 +19,21 @@ class FakeMessenger:
 
 
 class RunnerTests(unittest.TestCase):
+    def test_runner_module_runs_until_config_validation(self):
+        repo_root = Path(__file__).resolve().parents[1]
+
+        result = subprocess.run(
+            [sys.executable, "-m", "manga_watch.runner"],
+            cwd=repo_root,
+            env=os.environ.copy(),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+        self.assertEqual(2, result.returncode)
+        self.assertIn("[runner] configuration error:", result.stderr)
+
     def make_config(self):
         return RunnerConfig(
             discord_bot_token="token",

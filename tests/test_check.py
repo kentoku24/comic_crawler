@@ -1,7 +1,10 @@
 import json
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
+from pathlib import Path
 from unittest import mock
 
 from manga_watch import check
@@ -36,6 +39,25 @@ class FakeAdapter(SourceAdapter):
 
 
 class CheckTests(unittest.TestCase):
+    def test_check_module_runs_via_python_m(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            urls_path = Path(tmpdir) / "urls.txt"
+            state_path = Path(tmpdir) / "state.json"
+            urls_path.write_text("", encoding="utf-8")
+
+            result = subprocess.run(
+                [sys.executable, "-m", "manga_watch.check", str(urls_path)],
+                cwd=repo_root,
+                env={**os.environ, "MANGA_WATCH_STATE": str(state_path)},
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(0, result.returncode, msg=result.stderr)
+        self.assertEqual({"updates": []}, json.loads(result.stdout))
+
     def test_normalize_item_returns_work_descriptor_fields(self):
         item = check.normalize_item("https://kakuyomu.jp/works/123/episodes/456")
 
