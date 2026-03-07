@@ -1,38 +1,39 @@
 # comic_crawler / spec
 
-## Glossary (project naming)
-To avoid confusion, we use these fixed terms:
+## Glossary
 
-- **comic_crawler**: the whole project/repository
-- **watchlist**: `manga_watch/urls.txt` (input list)
-- **checker**: `manga_watch/check.py` (the script that checks latest episodes)
-- **state / last_seen**: `manga_watch/state.json` (persisted last-seen snapshot)
-- **run**: a single execution of the checker (scheduled by cron)
-- **diff**: the `updates` array produced by the checker (detected changes)
-- **alert**: notification posted to the main channel when diff is non-empty
-- **run report**: message posted every run to the run-report channel
+- **comic_crawler**: このリポジトリ全体
+- **watchlist**: `manga_watch/urls.txt`
+- **checker**: `manga_watch/check.py`
+- **runner**: `manga_watch/runner.py`
+- **state / last_seen**: 永続化された最新話スナップショット
+- **run**: checker の 1 回分の実行
+- **diff**: checker が返す `updates`
+- **alert**: 更新があったとき main channel に送る通知
+- **run report**: 毎回 run-report channel に送る実行結果
 
 ## Purpose
-Monitor multiple manga sites, detect when a new episode appears for followed works, and notify via OpenClaw/Discord.
+
+複数の漫画サイトを監視し、新しいエピソードが公開されたら Discord に通知する。現行の正規運用は Docker コンテナ単体で自己完結する。
 
 ## Inputs
 
 ### Watch list
-- File: `manga_watch/urls.txt`
-- Format: one URL per line
-- Lines starting with `#` are comments
+- ファイル: `manga_watch/urls.txt`
+- 形式: 1 行 1 URL
+- `#` で始まる行はコメント
 
-Supported URL types:
+対応 URL:
 - ComicWalker episode URL
-  - Example: `https://comic-walker.com/detail/KC_003913_S/episodes/KC_0039130008900011_E?...`
 - webアクション episode URL
-  - Example: `https://comic-action.com/episode/2550689798784879524`
+- Kakuyomu episode URL
 
-## State (persistence)
+## State
 
 ### State file
-- Default path: `manga_watch/state.json`
-- Override with env var: `MANGA_WATCH_STATE=/path/to/state.json`
+- ローカル既定値: `manga_watch/state.json`
+- env override: `MANGA_WATCH_STATE=/path/to/state.json`
+- Docker 既定値: `/data/state.json`
 
 ### State schema (v1)
 ```json
@@ -43,9 +44,9 @@ Supported URL types:
       "latest": {
         "seriesTitle": "...",
         "episodeTitle": "...",
-        "episodeCode": "...",  // optional
-        "url": "...",          // optional
-        "pageTitle": "..."     // optional
+        "episodeCode": "...",
+        "url": "...",
+        "pageTitle": "..."
       },
       "seenAt": 1700000000
     }
@@ -55,72 +56,91 @@ Supported URL types:
 ```
 
 ### WorkId rules
-- ComicWalker: `KC_XXXXXX_S` (derived from the seed URL)
-- webアクション: the seed URL itself (currently)
+- ComicWalker: `KC_XXXXXX_S`
+- webアクション: seed episode URL
+- Kakuyomu: `kakuyomu:<work_id>`
 
 ## Core behavior
 
-### Execution
-Command:
+### Checker execution
 ```bash
 python3 manga_watch/check.py manga_watch/urls.txt
 ```
 
-Output:
-- Always prints JSON: `{ "updates": [...] }`
+- 常に JSON を出力する: `{ "updates": [...] }`
+- state を更新する
+- 既知の stable id が変わったときだけ `updates` に積む
+- stable id が同じでタイトルなどの補足情報だけ増えた場合は silent update する
+
+### Runner execution
+```bash
+python3 -m manga_watch.runner
+```
+
+必要な設定:
+- `DISCORD_BOT_TOKEN`
+- `DISCORD_MAIN_CHANNEL_ID`
+- `DISCORD_RUN_REPORT_CHANNEL_ID`
+- `TZ`。既定値は `Asia/Tokyo`
+- `CRAWL_SCHEDULE` または `CRAWL_INTERVAL`
+- `RUN_ON_STARTUP`
+- `MANGA_WATCH_URLS`
+- `MANGA_WATCH_STATE`
 
 ### Latest episode detection
 
 #### ComicWalker
-1. Derive series code (e.g. `KC_003913_S`) from seed URL.
-2. Fetch series page: `https://comic-walker.com/detail/<series_code>`
-3. Parse `__NEXT_DATA__` for episode codes matching the series prefix (e.g. `KC_003913..._E`).
-4. Select the newest episode by comparing the numeric suffix after the prefix.
-5. Build latest episode URL:
-   `https://comic-walker.com/detail/<series_code>/episodes/<episodeCode>?episodeType=latest`
-6. Fetch the latest episode page and parse `<title>` to fill:
-   - `seriesTitle`
-   - `episodeTitle` (usually `第xx話` but may be other formats)
+1. seed URL から `KC_XXXXXX_S` を抽出する
+2. `https://comic-walker.com/detail/<series_code>` を取得する
+3. `__NEXT_DATA__` から episode code を集める
+4. 数値 suffix が最大の episode を最新話とみなす
+5. 最新話 URL と `<title>` から `seriesTitle` と `episodeTitle` を取る
 
 #### webアクション
-1. Start from a seed episode URL.
-2. Fetch page HTML and read `nextReadableProductUri`.
-3. Follow the chain until `nextReadableProductUri` is absent.
-4. Parse the final page `<title>` to fill:
-   - `seriesTitle`
-   - `episodeTitle` (e.g. `第50話`)
+1. seed episode URL から開始する
+2. `nextReadableProductUri` を辿れるだけ辿る
+3. 最後のページの `<title>` から `seriesTitle` と `episodeTitle` を取る
+4. 最終到達 URL を stable id とする
 
-### Update detection
-- A work is considered updated when the stable id changes:
-  - ComicWalker: `episodeCode`
-  - webアクション: final resolved episode URL
+#### Kakuyomu
+1. work page の `__NEXT_DATA__` を読む
+2. episode 一覧から `publishedAt` が最大のものを選ぶ
+3. 最新 episode page の `<title>` から `seriesTitle` を補完する
+4. 最新 episode id を stable id とする
 
-### Metadata merge (no-notify)
-If the stable id is unchanged but additional metadata becomes available (titles, etc.), the script updates `state.json` silently without reporting an update.
+## Notification behavior
 
-## Notification behavior (OpenClaw wiring)
+runner は以下を担当する:
 
-This repo provides the checker only. In OpenClaw, cron jobs are configured to:
+1. checker を実行する
+2. 更新があるときだけ main channel に alert を送る
+3. 毎回 run-report channel に run report を送る
+4. checker 失敗時または Discord 投稿失敗時は run-report channel に error summary を送ろうとする
+5. error summary 投稿にも失敗した場合は container log に落とす
 
-1. Run the checker
-2. If updates exist:
-   - Post a notification to the main channel (mentioning the user)
-3. Always:
-   - Post a run report to a separate channel containing:
-     - that the crawl ran
-     - current list (titles + latest episode)
-     - whether a notification was sent
+run report には最低限これを含める:
+- 実行時刻
+- 更新件数
+- main channel 通知を送ったか
+- 現在の一覧
 
 ## Scheduling
-- Production schedule requirement: **daily at 19:00 JST**
-  - Cron expression: `0 19 * * *`
-  - Timezone: `Asia/Tokyo`
 
-## Non-goals (current)
-- Authenticated crawling (cookies/login) is not implemented.
-- Robust anti-bot / JS-rendered pages beyond the current techniques is not implemented.
-- web_search-based discovery is not used.
+- 既定の本番スケジュール: `CRAWL_SCHEDULE=0 19 * * *`
+- 既定 timezone: `TZ=Asia/Tokyo`
+- 代替として `CRAWL_INTERVAL=<seconds>` を使える
+- `CRAWL_SCHEDULE` と `CRAWL_INTERVAL` の同時指定は不可
+- `RUN_ON_STARTUP=true` のとき起動直後に 1 回実行する
+
+## Non-goals
+
+- 認証付きサイト対応
+- JS レンダリング必須サイトへの全面対応
+- Web UI 提供
+- OpenClaw への依存
 
 ## Security
-- Do not store or commit secrets (tokens, passwords, cookies).
-- If authentication is added later, use a separate secrets mechanism.
+
+- token / password / cookie はコミットしない
+- Discord 設定は環境変数で注入する
+- state には last-seen メタデータだけを保存する
