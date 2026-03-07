@@ -20,6 +20,11 @@ description: >
 
 Issue に既存の Chief Engineer レビューがある前提で始め、`maker` が実装し、親セッションが結果を統合して PR を作成または更新し、その PR を `$spacex-chief-reviewer` が gate として判定する。reviewer が `NG` を返した場合は、その指摘を次 cycle の maker packet に変換して再実装する。
 
+この skill には 2 つの完了モードがある。
+
+- `standalone`: reviewer gate が `APPROVE` になり、PR が最新化された時点でこの skill は完了してよい
+- `orchestrated-child`: 親 orchestrator から terminal state が指定されている。reviewer `APPROVE` は中間状態であり、merge / issue close まで追うか、少なくとも `merge_pending` を返して親に control を戻す
+
 この loop でいう `APPROVE` / `NG` gate は、**親セッションや maker と別 agent の context で reviewer が判定したときだけ有効**とする。親セッションが reviewer 手順を自己適用して得た結論は、evidence 整理や事前点検には使えても gate 完了には数えない。
 
 この skill は、呼び出し時に進め方を毎回指定しなくてよい。Issue を指定されたら、この標準ループをデフォルト動作として実行する。
@@ -65,6 +70,17 @@ Issue に既存の Chief Engineer レビューがある前提で始め、`maker`
 - `$gh-issue-maker-chief-engineer-loop を使って <Issue URL> を進めて`
 
 上のような短い指定を受けたら、workflow の詳細を user に確認し直さず、この skill の標準 loop を採用する。
+
+親 orchestrator から渡される packet では、次の追加情報が入ってよい。
+
+- `Execution mode: orchestrated-child`
+- `Parent issue`
+- `Run id`
+- `Existing PR`
+- `Existing branch / worktree`
+- `Requested terminal state`
+
+これらがある場合は、standalone ではなく orchestrated-child として扱う。
 
 ## Workflow
 
@@ -153,6 +169,11 @@ reviewer への packet には次を含める。
 
 ### 7. `APPROVE` で完了する
 
+`APPROVE` の意味は execution mode で変わる。
+
+- `standalone`: この step の条件を満たせば完了してよい
+- `orchestrated-child`: `APPROVE` は merge / issue close phase への遷移条件であり、まだ完了ではない
+
 次をすべて満たしたときだけ完了とする。
 
 - **別 agent として起動された** `$spacex-chief-reviewer` が `APPROVE` を返した。
@@ -160,6 +181,13 @@ reviewer への packet には次を含める。
 - Issue の acceptance criteria が evidence 付きで満たされている。
 - main regression risk と test gaps が明示されている。
 - 親セッションが、Issue のどの約束をどの変更で満たしたか説明できる。
+
+`orchestrated-child` の場合、さらに次を満たしたときだけ `done` とみなす。
+
+- closing PR が default branch に merge 済み、または親 orchestrator が同等の delivery evidence を明示的に受け入れている
+- issue が `CLOSED`
+
+reviewer `APPROVE` 後に merge や issue close が未完了なら、この skill は `success` と言わず、`merge_pending` または `issue_close_pending` として親へ返す。
 
 ## Tooling Guidance
 
@@ -194,4 +222,5 @@ rg <pattern>
 - PR gate は必ず `$spacex-chief-reviewer` を通し、review は実コードと検証結果に対して行い、口頭の説明だけで通さない。
 - 親セッションの自己レビューや reviewer checklist の自己適用を、`APPROVE` / `NG` gate とみなしてはいけない。
 - reviewer gate は必ず実装 agent と別 context で行い、別 agent を起動できない場合は completion ではなく pending / degraded として止める。
+- `orchestrated-child` では reviewer `APPROVE` だけで `done` を返してはいけない。
 - この skill は「Issue 起点の実装 loop」に特化している。探索が主目的なら `$codex-mission-control` に戻る。

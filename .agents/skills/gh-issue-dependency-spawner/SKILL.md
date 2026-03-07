@@ -1,56 +1,140 @@
 ---
 name: gh-issue-dependency-spawner
 description: >
-  comic_crawler の Epic / 管理 Issue を起点に、依存関係つき sub-issue 群を
-  dependency wave ごとに並列 Spawn するオーケストレーション skill。
-  親セッションは実装・編集・PR 操作を行わず、ready な sub-issue ごとに
-  `$gh-issue-maker-chief-engineer-loop` を使う child agent を起動して待機する。
-  Use when: #6 のように sub-issue と依存関係が整理された GitHub Issue を入力に、
-  dependency order を守りながら可能な限り並列で処理したいとき。
+  comic_crawler の Epic / 管理 Issue を起点に、開始時点の child issue 群を
+  1 つの tracked set として固定し、dependency order を守りながら各 child issue を
+  `$gh-issue-maker-chief-engineer-loop` に委譲して、全 child issue の DoD が
+  満たされるまで進める parent-issue orchestrator。親セッションは実装せず、
+  GitHub state と run ledger を source of truth に spawn / resume / merge follow-up を
+  管理する。Use when: #6 のように child issue と依存関係が整理された管理 Issue を、
+  wave 単位の一回きり spawn ではなく、sub-issue 完了まで継続運転したいとき。
 ---
 
-# GitHub Issue Dependency Spawner
+# GitHub Parent Issue Orchestrator
 
 ## Overview
 
-この skill の責務は orchestration だけに限定する。親セッションは dependency graph を読み、
-ready な sub-issue を wave ごとに Spawn し、各 wave の完了を待って次へ進める。
+この skill は `dependency wave spawner` ではなく、**1 つの parent issue にぶら下がる child issue 群の実行オーケストレーター**である。
+開始時点の child issue 一覧を tracked set として固定し、その集合に含まれる issue がすべて terminal state `done` に到達するまで進める。
+
+この skill の終了条件は明確に次である。
+
+- 呼び出し開始時に tracked set として確定した child issue がすべて `done`
+- parent issue 自身の DoD を child issue 完了状態と矛盾なく説明できる
+
+ここで `done` は単なる `CLOSED` でも child agent の `success` でもない。少なくとも次を満たす。
+
+- issue が GitHub 上で `CLOSED`
+- その issue を closing する PR が default branch に merge 済み、または同等の delivery evidence がある
+- child loop が `reviewer gate pending` / `merge pending` / `blocked` を残していない
+
+## Parent Responsibilities
+
+親セッションは worker ではなく orchestrator であり、次に責務を限定する。
+
+- parent issue から tracked child snapshot を確定する
+- GitHub dependency と linked PR state を読み、child issue の state machine を継続的に reconcile する
+- run ledger を維持し、child ごとの branch / worktree / PR / session / lease を管理する
+- ready な child issue だけを spawn または resume する
+- reviewer approve 後の merge / issue close follow-up が必要なら、それを child へ戻すか parent が安全に補助する
+- 全 child issue が `done` になるまで続ける
 
 親セッションは次をしてはならない。
 
 - 実装
-- ファイル編集
-- テストや lint の実行
-- PR 作成や更新
-- issue の仕様判断
-
-それらはすべて child agent に委譲する。
+- repo ファイル編集
+- child issue の代わりにテストを作ること
+- dependency graph が曖昧なまま推測で downstream を開けること
 
 ## Preconditions
 
 次を満たすときだけこの skill を使う。
 
 - 対象は comic_crawler の GitHub Issue である
-- 親 Issue に child issue 一覧がある
-- 親 Issue か child issues から dependency graph を復元できる
+- parent issue に child issue 一覧がある
 - `$gh-issue-maker-chief-engineer-loop` が使える
-- native な agent spawn が使える
+- native な agent spawn / resume が使える
+- parallel child を分離する worktree 運用が使える
 
-agent spawn が使えない場合は、この skill を擬似実行してはならない。親セッションだけで実装に入らず、そこで止まる。
+次のどれかに当てはまる場合は止まる。
 
-## Inputs
+- tracked child issue を一意に特定できない
+- GitHub dependency を安全に復元できない
+- run ledger を作れない、または既存 ledger と GitHub state が矛盾している
+- child loop を別 context で起動できない
 
-入力は次のいずれかでよい。
+## Source Of Truth
 
-- Issue URL
-- `owner/repo#number`
-- `#number`
+この skill が優先する source of truth は次の順序で固定する。
 
-`#number` を受け取った場合は、現在の repo を `gh repo view` で解決する。
+1. GitHub issue dependency events (`BlockedByAddedEvent` / `BlockingAddedEvent`)
+2. GitHub issue / PR state (`OPEN` / `CLOSED`, merged PR, review state, merge state)
+3. run ledger
+4. parent issue body に書かれた child list と依存図
+
+parent issue body の mermaid や順序リストは **宣言** としては有用だが、GitHub 実状態と矛盾したら GitHub を優先する。
+ただし GitHub dependency event を取得できず、body 依存図とも整合しない場合は止まる。
+
+## Tracked Child Snapshot
+
+この skill は呼び出し開始時に child issue 一覧を snapshot として固定する。
+
+- tracked set は start 時点の child issue 群
+- run 中に新しい child issue が parent に追加されたら、その run は自動取り込みしない
+- tracked set が途中で変わったら `snapshot drift` として止め、parent issue を再計画してから再実行する
+
+「終了時に全部終わっているべき対象」は、**start 時点の tracked set** である。
+
+## Child State Machine
+
+各 child issue は少なくとも次の state を取る。
+
+- `done`
+- `blocked_by_dependencies`
+- `blocked_by_external_dependency`
+- `ready`
+- `agent_active`
+- `pr_draft`
+- `pr_review_pending`
+- `pr_changes_requested`
+- `pr_approved_pending_merge`
+- `pr_merge_blocked`
+- `merged_pending_issue_close`
+- `closed_without_delivery_evidence`
+- `failed`
+
+次のものは `done` ではない。
+
+- issue が `OPEN`
+- issue が `CLOSED` だが merged closing PR がない
+- reviewer が `APPROVE` を返しただけで merge されていない
+- child agent が `success` と言っただけで GitHub state が追随していない
+
+## Run Ledger
+
+親セッションは run ごとに ledger を持つ。
+推奨パスは `.codex/orchestrator-runs/issue-<parent-number>.json` とする。
+
+ledger には少なくとも次を持つ。
+
+- `parent_issue`
+- `run_id`
+- `tracked_child_numbers`
+- `dependency_edges`
+- `children.<issue>.state`
+- `children.<issue>.branch`
+- `children.<issue>.worktree`
+- `children.<issue>.pr`
+- `children.<issue>.agent_session`
+- `children.<issue>.lease_state`
+- `children.<issue>.updated_at`
+
+同じ child issue に active lease が残っている間は、同じ issue を再 spawn してはならない。
+再開時は `spawn` ではなく `resume` を優先する。
 
 ## Core Workflow
 
-### 1. Parent issue を wave plan に変換する
+### 1. Parent issue を orchestration snapshot に変換する
 
 まず補助スクリプトを実行する。
 
@@ -60,58 +144,85 @@ python3 .agents/skills/gh-issue-dependency-spawner/scripts/issue_dependency_plan
 
 このスクリプトは次を返す。
 
-- child issues
-- closed issues
-- dependency edges
-- ready な current wave
-- 後続 wave
-- child agent に渡す `spawn_prompt`
+- tracked child issues
+- GitHub dependency edges
+- child state machine の現在値
+- `ready_to_spawn`
+- `active_or_waiting`
+- `done`
+- merge / close follow-up が必要な child issues
+- warnings / errors
 
-`warnings` があり、dependency graph を安全に解釈できないときは止まる。推測で順序を決めてはならない。
+`warnings` のうち dependency graph や snapshot integrity に関わるものは fatal とみなし、止まる。
 
-### 2. Current wave だけを Spawn する
+### 2. Ready children を spawn または resume する
 
-current wave にある issue ごとに、child agent を 1 つずつ Spawn する。
-同じ wave の issue は、互いに blocker がないので可能な限り並列で Spawn してよい。
+spawn 対象は `ready` な child issue だけである。
+同じ wave の child issue でも、`agents.max_threads` と既存 active lease を超えて同時起動してはならない。
 
-child agent には、スクリプトが返した `spawn_prompt` をそのまま使う。
-文面は次の 2 行から変えてはならない。
+child issue ごとに次を決める。
 
-```text
-$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。
-https://github.com/kentoku24/comic_crawler/issues/XX
-```
+- `spawn` するか
+- 既存 session を `resume` するか
+- merge / close follow-up だけ行うか
 
-親セッションが child agent に追加の設計判断や実装指示を足してはいけない。
+parallel child は必ず child issue ごとの専用 branch / worktree に分離する。
 
-### 3. Wave 完了まで待つ
+### 3. Child packet を渡す
 
-Spawn 後は、その wave の child agent がすべて終わるまで待つ。
+child への packet は issue URL だけで終わらせてはならない。
+少なくとも次を含める。
 
-親セッションがやることは次だけである。
+- source issue
+- parent issue
+- execution mode: `orchestrated-child`
+- requested terminal state: `merged closing PR on default branch and issue closed`
+- existing PR
+- existing branch / worktree
+- run id
+- stop conditions
 
-- child agent の完了を待つ
-- success / blocked / failed を記録する
-- 成功した issue をこの orchestration run の中で completed とみなす
+`$gh-issue-maker-chief-engineer-loop` が reviewer approve で止まるままなら、parent はその child を `done` と扱ってはならない。
 
-child が blocked / failed になったら、そこに依存する downstream issue は Spawn しない。
-親セッション自身が詰まりを解こうとしてはいけない。
+### 4. Reconcile する
 
-### 4. 次の ready wave に進む
+child agent が一度応答したら終わりではない。
+親セッションは GitHub state を再取得して次を判断する。
 
-前の wave が全件 success なら、次の ready wave を Spawn する。
-これを pending issue がなくなるまで繰り返す。
+- PR はできたか
+- PR は draft か
+- review decision は何か
+- merge されたか
+- issue は閉じたか
+- blocker issue は `done` になったか
 
-この skill における completion 判定は次の通り。
+この reconcile を経ずに downstream を開けてはならない。
 
-- run 開始前に GitHub 上で `CLOSED` の issue は completed
-- 現在の run 中に child agent が success で終わった issue も provisional completed
+### 5. Merge / close follow-up を処理する
 
-fresh session で再開するときは GitHub state だけが引き継がれる。merge や close を厳密な完了シグナルにしたい場合は、前 wave の反映後にこの skill を再実行する。
+child issue が reviewer approve に到達しても、merge されていなければ `done` ではない。
+次のどちらかを行う。
+
+- child を resume して merge / close まで進めさせる
+- parent が安全に GitHub metadata 操作だけ補助する
+
+親セッションは merge 済みで issue が open のままなら `merged_pending_issue_close` として扱い、close まで追う。
+
+### 6. Completion を判定する
+
+この skill が終了してよいのは、tracked set の全 child issue が `done` になったときだけである。
+
+次の状態では終了してはならない。
+
+- open issue が 1 件でもある
+- merged されていない closing PR がある
+- closed だが delivery evidence のない issue がある
+- snapshot drift が unresolved
+- ledger に active lease が残っている
 
 ## Commands
 
-### Plan を出す
+### Orchestration snapshot を出す
 
 ```bash
 python3 .agents/skills/gh-issue-dependency-spawner/scripts/issue_dependency_plan.py https://github.com/kentoku24/comic_crawler/issues/6
@@ -120,38 +231,48 @@ python3 .agents/skills/gh-issue-dependency-spawner/scripts/issue_dependency_plan
 ### Parent issue を読む
 
 ```bash
-gh issue view 6 --repo kentoku24/comic_crawler --json number,title,body,url,state
+gh api repos/kentoku24/comic_crawler/issues/6
+```
+
+### Child issue dependency events を読む
+
+```bash
+gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){repository(owner:$owner,name:$repo){issue(number:$number){timelineItems(first:100,itemTypes:[BLOCKED_BY_ADDED_EVENT,BLOCKING_ADDED_EVENT]){nodes{__typename ... on BlockedByAddedEvent { blockingIssue { number } } ... on BlockingAddedEvent { blockedIssue { number } }}}}}}' -F owner=kentoku24 -F repo=comic_crawler -F number=21
 ```
 
 ## Guardrails
 
-- 親セッションは orchestrator であり worker ではない
-- parallelize してよいのは同一 wave の issue だけ
-- dependency edge が曖昧、欠落、循環している場合は止まる
-- 1 child agent = 1 issue を守る
-- closed issue は skip する
-- child issue の prompt は script 出力を verbatim で使う
-- 同じ issue を 2 回 Spawn しない
-- downstream issue を blocker 解消前に先回り Spawn しない
+- `CLOSED` だけで child issue を `done` 扱いしない
+- reviewer approve だけで downstream を開けない
+- child agent の `success` を GitHub state より優先しない
+- active lease のある child issue を二重 spawn しない
+- tracked set の途中変更を黙って飲み込まない
+- dependency source of truth が unsafe なときに推測で進めない
+- parent は code worker ではない。実装は child issue に委譲する
+- 同時並行の child issue は worktree を共有しない
 
 ## Output Expectations
 
 最初に次を短く共有する。
 
 - parent issue
-- closed issues
-- current wave
-- future waves
+- tracked child snapshot
+- done issues
+- ready issues
+- active / waiting issues
+- blocked issues
+- follow-up needed issues
 
-各 wave 完了時は次だけ共有する。
+各 reconcile 後は次を共有する。
 
-- success issues
-- blocked / failed issues
-- 次に Spawn する wave
+- state change した child issue
+- 新しく ready になった child issue
+- merge / close が必要な child issue
+- fatal drift / dependency mismatch の有無
 
 最後は次をまとめる。
 
-- completed in this run
-- already closed before start
-- blocked / failed
-- まだ残っていて次回に持ち越す issue
+- `done` child issues
+- `not-done` child issues
+- parent issue を閉じてよいか
+- 次回 run が必要なら、その理由

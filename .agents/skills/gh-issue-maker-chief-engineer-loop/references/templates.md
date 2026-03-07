@@ -32,9 +32,13 @@ Maker Packet
 - Objective:
 - Why this packet matters:
 - Source issue:
-- Execution mode: `spawn_agent` | `codex exec` | `/fork` | `degraded`
+- Execution mode: `spawn_agent` | `codex exec` | `/fork` | `degraded` | `orchestrated-child`
+- Parent issue (if orchestrated-child):
+- Run id (if orchestrated-child):
 - Branch (if parallel maker):
 - Worktree (if parallel maker):
+- Existing PR (if orchestrated-child):
+- Requested terminal state (if orchestrated-child):
 - Relevant files:
   - ...
 - Constraints:
@@ -87,6 +91,7 @@ Cycle Update
 - Cycle:
 - Goal:
 - Execution mode:
+- Terminal result: `done` | `reviewer_gate_pending` | `merge_pending` | `issue_close_pending` | `blocked` | `failed`
 - Worktrees (if used):
   - ...
 - Maker packets:
