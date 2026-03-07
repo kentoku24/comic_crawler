@@ -40,20 +40,29 @@ class FakeAdapter(SourceAdapter):
 
 
 class CheckTests(unittest.TestCase):
-    def test_check_module_runs_via_python_m(self):
+    def run_check_module(self, urls_path, *, extra_env=None):
         repo_root = Path(__file__).resolve().parents[1]
+        env = os.environ.copy()
+        if extra_env:
+            env.update(extra_env)
+        return subprocess.run(
+            [sys.executable, "-m", "manga_watch.check", str(urls_path)],
+            cwd=repo_root,
+            env=env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_check_module_runs_via_python_m(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             urls_path = Path(tmpdir) / "urls.txt"
             state_path = Path(tmpdir) / "state.json"
             urls_path.write_text("", encoding="utf-8")
 
-            result = subprocess.run(
-                [sys.executable, "-m", "manga_watch.check", str(urls_path)],
-                cwd=repo_root,
-                env={**os.environ, "MANGA_WATCH_STATE": str(state_path)},
-                capture_output=True,
-                text=True,
-                check=False,
+            result = self.run_check_module(
+                urls_path,
+                extra_env={"MANGA_WATCH_STATE": str(state_path)},
             )
 
         self.assertEqual(0, result.returncode, msg=result.stderr)
@@ -61,6 +70,71 @@ class CheckTests(unittest.TestCase):
             {"updates": [], "errors": {"sources": [], "run": []}},
             json.loads(result.stdout),
         )
+
+    def test_check_module_reports_read_urls_failures_as_json(self):
+        missing_urls_path = Path(tempfile.gettempdir()) / "comic-crawler-missing-urls.txt"
+        if missing_urls_path.exists():
+            missing_urls_path.unlink()
+
+        result = self.run_check_module(missing_urls_path)
+
+        self.assertEqual(1, result.returncode)
+        self.assertEqual(
+            {
+                "updates": [],
+                "errors": {
+                    "sources": [],
+                    "run": [
+                        {
+                            "stage": "read_urls",
+                            "kind": "runtime",
+                            "errorType": "FileNotFoundError",
+                            "message": f"[Errno 2] No such file or directory: '{missing_urls_path}'",
+                        }
+                    ],
+                },
+            },
+            json.loads(result.stdout),
+        )
+        self.assertEqual("", result.stderr)
+
+    def test_check_module_reports_load_state_failures_as_json(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            urls_path = Path(tmpdir) / "urls.txt"
+            state_path = Path(tmpdir) / "state.json"
+            urls_path.write_text("", encoding="utf-8")
+            state_path.write_text("{broken json", encoding="utf-8")
+
+            result = self.run_check_module(
+                urls_path,
+                extra_env={"MANGA_WATCH_STATE": str(state_path)},
+            )
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual([], payload["updates"])
+        self.assertEqual([], payload["errors"]["sources"])
+        self.assertEqual("load_state", payload["errors"]["run"][0]["stage"])
+        self.assertEqual("JSONDecodeError", payload["errors"]["run"][0]["errorType"])
+        self.assertEqual("", result.stderr)
+
+    def test_check_module_reports_save_state_failures_as_json(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            urls_path = Path(tmpdir) / "urls.txt"
+            urls_path.write_text("", encoding="utf-8")
+
+            result = self.run_check_module(
+                urls_path,
+                extra_env={"MANGA_WATCH_STATE": "/dev/null/state.json"},
+            )
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual([], payload["updates"])
+        self.assertEqual([], payload["errors"]["sources"])
+        self.assertEqual("save_state", payload["errors"]["run"][0]["stage"])
+        self.assertEqual("FileExistsError", payload["errors"]["run"][0]["errorType"])
+        self.assertEqual("", result.stderr)
 
     def test_normalize_item_returns_work_descriptor_fields(self):
         item = check.normalize_item("https://kakuyomu.jp/works/123/episodes/456")

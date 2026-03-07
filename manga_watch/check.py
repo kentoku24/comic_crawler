@@ -218,9 +218,13 @@ def main(argv=None):
         print("usage: check.py <urls.txt>", file=sys.stderr)
         return 2
 
-    result = run_check(argv[0])
-    print(json.dumps(result, ensure_ascii=False))
-    return 0
+    try:
+        result = run_check(argv[0])
+        print(json.dumps(result, ensure_ascii=False))
+        return 0
+    except CheckRunError as exc:
+        print(json.dumps(exc.result, ensure_ascii=False))
+        return 1
 
 
 if __name__ == "__main__":

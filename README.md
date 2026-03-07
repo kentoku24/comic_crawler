@@ -112,7 +112,7 @@ python3 -m manga_watch.runner
 - `manifest.json` は `seedUrl`, `expectedWork`, `steps`, `expectedLatest` または `expectedError` を持つ
 - ComicWalker / Kakuyomu は `normal`, `title_variation_or_bonus`, `same_episode_refresh`, `broken_missing_next_data`
 - webアクションは `normal`, `title_variation`, `escaped_next_uri`, `broken_missing_next`, `broken_loop`
-- fixture の更新手順とサニタイズ規則は [tests/fixtures/README.md](/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/tests/fixtures/README.md) にまとめる
+- fixture の更新手順とサニタイズ規則は [tests/fixtures/README.md](tests/fixtures/README.md) にまとめる
 
 ## Security notes
 
