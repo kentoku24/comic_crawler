@@ -152,13 +152,15 @@ runner は以下を担当する:
 1. checker を実行する
 2. 更新があるときだけ main channel に alert を送る
 3. 毎回 run-report channel に run report を送る
-4. checker 失敗時または Discord 投稿失敗時は run-report channel に error summary を送ろうとする
-5. error summary 投稿にも失敗した場合は container log に落とす
+4. checker が `errors.sources` を返した場合、run report は clean success ではなく partial failure summary を送る
+5. checker 失敗時または Discord 投稿失敗時は run-report channel に error summary を送ろうとする
+6. error summary 投稿にも失敗した場合は container log に落とす
 
 run report には最低限これを含める:
 - 実行時刻
 - 更新件数
 - main channel 通知を送ったか
+- checker が返した error 件数と summary
 - 現在の一覧
 
 ## Scheduling

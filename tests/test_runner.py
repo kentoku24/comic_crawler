@@ -66,9 +66,11 @@ class RunnerTests(unittest.TestCase):
         )
 
         self.assertTrue(outcome["ok"])
+        self.assertEqual(0, outcome["errorCount"])
         self.assertEqual(1, len(messenger.messages))
         self.assertEqual("report", messenger.messages[0][0])
         self.assertIn("通知: 送信なし", messenger.messages[0][1])
+        self.assertIn("エラー: 0件", messenger.messages[0][1])
         self.assertIn("作品A：第1話", messenger.messages[0][1])
 
     def test_run_once_with_updates_sends_main_then_report(self):
@@ -101,10 +103,64 @@ class RunnerTests(unittest.TestCase):
         )
 
         self.assertTrue(outcome["ok"])
+        self.assertEqual(0, outcome["errorCount"])
         self.assertEqual("main", messenger.messages[0][0])
         self.assertIn("作品A：第1話 → 第2話", messenger.messages[0][1])
         self.assertEqual("report", messenger.messages[1][0])
         self.assertIn("通知: 送信した", messenger.messages[1][1])
+        self.assertIn("エラー: 0件", messenger.messages[1][1])
+
+    def test_run_once_marks_source_errors_as_degraded_while_still_sending_updates(self):
+        messenger = FakeMessenger()
+        updates = [
+            {
+                "id": "work-1",
+                "from": {"seriesTitle": "作品A", "episodeTitle": "第1話"},
+                "to": {
+                    "seriesTitle": "作品A",
+                    "episodeTitle": "第2話",
+                    "url": "https://example.com/2",
+                },
+            }
+        ]
+        errors = {
+            "sources": [
+                {
+                    "id": "work-2",
+                    "phase": "fetch_latest",
+                    "kind": "parse",
+                    "message": "parse failed",
+                }
+            ],
+            "run": [],
+        }
+        state = {
+            "items": {
+                "work-1": {
+                    "latest": {"seriesTitle": "作品A", "episodeTitle": "第2話"},
+                },
+                "work-2": {
+                    "latest": {"seriesTitle": "作品B", "episodeTitle": "第5話"},
+                },
+            }
+        }
+
+        outcome = run_once(
+            self.make_config(),
+            messenger=messenger,
+            checker=lambda _: {"updates": updates, "errors": errors},
+            state_loader=lambda: state,
+            now_fn=lambda: 1_700_000_000,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(1, outcome["errorCount"])
+        self.assertEqual(1, outcome["updateCount"])
+        self.assertEqual("main", messenger.messages[0][0])
+        self.assertEqual("report", messenger.messages[1][0])
+        self.assertIn("巡回実行に一部失敗がありました", messenger.messages[1][1])
+        self.assertIn("エラー: 1件", messenger.messages[1][1])
+        self.assertIn("source/parse [fetch_latest] work-2: parse failed", messenger.messages[1][1])
 
     def test_run_once_sends_failure_report_when_notification_fails(self):
         messenger = FakeMessenger(fail_on_channel="main")

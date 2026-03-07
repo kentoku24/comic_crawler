@@ -97,19 +97,66 @@ def format_state_lines(state: Dict[str, object]) -> List[str]:
     return lines
 
 
+def normalize_checker_errors(result: Dict[str, object]) -> Dict[str, List[Dict[str, object]]]:
+    errors = result.get("errors") or {"sources": [], "run": []}
+    if not isinstance(errors, dict):
+        raise RuntimeError("checker returned invalid errors payload")
+
+    source_errors = errors.get("sources", [])
+    run_errors = errors.get("run", [])
+    if not isinstance(source_errors, list) or not isinstance(run_errors, list):
+        raise RuntimeError("checker returned invalid errors payload")
+
+    return {"sources": source_errors, "run": run_errors}
+
+
+def checker_error_count(errors: Dict[str, List[Dict[str, object]]]) -> int:
+    return len(errors["sources"]) + len(errors["run"])
+
+
+def format_checker_error_lines(errors: Dict[str, List[Dict[str, object]]]) -> List[str]:
+    total = checker_error_count(errors)
+    lines = [f"エラー: {total}件"]
+    if total == 0:
+        return lines
+
+    lines.append("エラー詳細:")
+    for error in errors["sources"]:
+        item = str(error.get("id") or error.get("url") or "unknown")
+        phase = str(error.get("phase") or "unknown")
+        kind = str(error.get("kind") or "runtime")
+        message = str(error.get("message") or "unknown error")
+        lines.append(f"- source/{kind} [{phase}] {item}: {message}")
+
+    for error in errors["run"]:
+        stage = str(error.get("stage") or "unknown")
+        kind = str(error.get("kind") or "runtime")
+        message = str(error.get("message") or "unknown error")
+        lines.append(f"- run/{kind} [{stage}]: {message}")
+
+    return lines
+
+
 def format_run_report(
     *,
     timestamp: str,
     updates: List[Dict[str, object]],
+    errors: Dict[str, List[Dict[str, object]]],
     state: Dict[str, object],
     update_notification_sent: bool,
 ) -> str:
+    degraded = checker_error_count(errors) > 0
     lines = [
-        f"巡回実行しました ({timestamp})",
+        f"{'巡回実行に一部失敗がありました' if degraded else '巡回実行しました'} ({timestamp})",
         f"更新検知: {len(updates)}件",
         f"通知: {'送信した' if update_notification_sent else '送信なし'}",
-        "現在のリスト:",
     ]
+    lines.extend(format_checker_error_lines(errors))
+    lines.extend(
+        [
+        "現在のリスト:",
+        ]
+    )
     lines.extend(format_state_lines(state))
     return "\n".join(lines)
 
@@ -224,6 +271,7 @@ def run_once(
         updates = result.get("updates", [])
         if not isinstance(updates, list):
             raise RuntimeError("checker returned invalid updates payload")
+        errors = normalize_checker_errors(result)
 
         state = state_loader()
         update_notification_sent = False
@@ -239,11 +287,17 @@ def run_once(
             format_run_report(
                 timestamp=timestamp,
                 updates=updates,
+                errors=errors,
                 state=state,
                 update_notification_sent=update_notification_sent,
             ),
         )
-        return {"ok": True, "updateCount": len(updates), "timestamp": timestamp}
+        return {
+            "ok": checker_error_count(errors) == 0,
+            "updateCount": len(updates),
+            "errorCount": checker_error_count(errors),
+            "timestamp": timestamp,
+        }
     except Exception as exc:
         try:
             messenger.send_message(
