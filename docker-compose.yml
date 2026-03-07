@@ -1,0 +1,20 @@
+services:
+  comic-crawler:
+    build: .
+    restart: unless-stopped
+    environment:
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_MAIN_CHANNEL_ID: ${DISCORD_MAIN_CHANNEL_ID:-}
+      DISCORD_RUN_REPORT_CHANNEL_ID: ${DISCORD_RUN_REPORT_CHANNEL_ID:-}
+      CRAWL_SCHEDULE: ${CRAWL_SCHEDULE:-}
+      CRAWL_INTERVAL: ${CRAWL_INTERVAL:-}
+      RUN_ON_STARTUP: ${RUN_ON_STARTUP:-true}
+      TZ: ${TZ:-Asia/Tokyo}
+      MANGA_WATCH_URLS: /app/manga_watch/urls.txt
+      MANGA_WATCH_STATE: /data/state.json
+    volumes:
+      - crawler-data:/data
+      - ./manga_watch/urls.txt:/app/manga_watch/urls.txt:ro
+
+volumes:
+  crawler-data:

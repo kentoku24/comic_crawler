@@ -1,17 +1,10 @@
-# OpenClaw integration (no secrets)
+# OpenClaw integration (legacy reference)
 
-This directory documents how to run this crawler under OpenClaw.
+このディレクトリは旧 OpenClaw 運用の参考資料です。
 
-## What OpenClaw provides
-- Scheduling (cron)
-- Running the checker script on a cadence
-- Posting messages to Discord channels
+現在の正規運用では OpenClaw は不要です。
+- スケジュール実行は `manga_watch/runner.py` が担当する
+- Discord 投稿はこのリポジトリから直接行う
+- 推奨起動方法は `docker compose up -d`
 
-## You must NOT commit
-- Discord bot tokens
-- GitHub tokens
-- Any cookies / login creds for manga sites
-
-## Files
-- `example-config.json5`: **template** OpenClaw config fragments (no secrets)
-- `cron-job.md`: recommended cron payload behavior and schedule
+新規環境ではこのディレクトリではなく、ルートの `README.md` と `docker-compose.yml` を参照してください。
