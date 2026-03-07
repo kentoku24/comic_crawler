@@ -1,0 +1,271 @@
+{
+  "parent": {
+    "number": 6,
+    "title": "Epic: comic_crawler を「見逃さない・うるさくない」作品追跡アプリに引き上げる",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/6",
+    "state": "OPEN",
+    "repo": "kentoku24/comic_crawler"
+  },
+  "dependency_source": "parent_mermaid",
+  "order_hint": [
+    8,
+    21,
+    11,
+    7,
+    9,
+    10,
+    12,
+    13,
+    16,
+    17,
+    18
+  ],
+  "dependency_edges": [
+    {
+      "from": 8,
+      "to": 21
+    },
+    {
+      "from": 8,
+      "to": 11
+    },
+    {
+      "from": 11,
+      "to": 7
+    },
+    {
+      "from": 8,
+      "to": 9
+    },
+    {
+      "from": 11,
+      "to": 9
+    },
+    {
+      "from": 7,
+      "to": 10
+    },
+    {
+      "from": 9,
+      "to": 10
+    },
+    {
+      "from": 8,
+      "to": 12
+    },
+    {
+      "from": 11,
+      "to": 12
+    },
+    {
+      "from": 7,
+      "to": 13
+    },
+    {
+      "from": 12,
+      "to": 13
+    },
+    {
+      "from": 7,
+      "to": 16
+    },
+    {
+      "from": 8,
+      "to": 16
+    },
+    {
+      "from": 12,
+      "to": 16
+    },
+    {
+      "from": 13,
+      "to": 16
+    },
+    {
+      "from": 7,
+      "to": 17
+    },
+    {
+      "from": 7,
+      "to": 18
+    },
+    {
+      "from": 8,
+      "to": 18
+    }
+  ],
+  "closed_issue_numbers": [
+    8,
+    11
+  ],
+  "remaining_waves": [
+    [
+      21,
+      7,
+      9,
+      12
+    ],
+    [
+      10,
+      13,
+      17,
+      18
+    ],
+    [
+      16
+    ]
+  ],
+  "all_waves": [
+    [
+      8
+    ],
+    [
+      21,
+      11
+    ],
+    [
+      7,
+      9,
+      12
+    ],
+    [
+      10,
+      13,
+      17,
+      18
+    ],
+    [
+      16
+    ]
+  ],
+  "children": [
+    {
+      "number": 7,
+      "title": "watchlist/state v2 を導入し、一括マイグレーションで切り替える",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/7",
+      "state": "OPEN",
+      "blocked_by": [
+        11
+      ],
+      "ready_now": true,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/7"
+    },
+    {
+      "number": 8,
+      "title": "source adapter インターフェースを導入し、ComicWalker/webアクション/Kakuyomu を分離する",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/8",
+      "state": "CLOSED",
+      "blocked_by": [],
+      "ready_now": false,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/8"
+    },
+    {
+      "number": 21,
+      "title": "source adapter registry を明示化し、登録漏れをテストで検知する",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/21",
+      "state": "OPEN",
+      "blocked_by": [
+        8
+      ],
+      "ready_now": true,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/21"
+    },
+    {
+      "number": 11,
+      "title": "fixture ベースの回帰テスト基盤を整える",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/11",
+      "state": "CLOSED",
+      "blocked_by": [
+        8
+      ],
+      "ready_now": false,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/11"
+    },
+    {
+      "number": 9,
+      "title": "クロール実行を堅牢化する",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/9",
+      "state": "OPEN",
+      "blocked_by": [
+        8,
+        11
+      ],
+      "ready_now": true,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/9"
+    },
+    {
+      "number": 10,
+      "title": "自己診断とヘルス状態を出せるようにする",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/10",
+      "state": "OPEN",
+      "blocked_by": [
+        7,
+        9
+      ],
+      "ready_now": false,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/10"
+    },
+    {
+      "number": 12,
+      "title": "更新種別を分類し、通知重要度を付ける",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/12",
+      "state": "OPEN",
+      "blocked_by": [
+        8,
+        11
+      ],
+      "ready_now": true,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/12"
+    },
+    {
+      "number": 13,
+      "title": "通知バックエンドを抽象化し、stdout と webhook を最初の実装にする",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/13",
+      "state": "OPEN",
+      "blocked_by": [
+        7,
+        12
+      ],
+      "ready_now": false,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/13"
+    },
+    {
+      "number": 16,
+      "title": "作品ごとの通知ポリシーを導入する",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/16",
+      "state": "OPEN",
+      "blocked_by": [
+        7,
+        8,
+        12,
+        13
+      ],
+      "ready_now": false,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/16"
+    },
+    {
+      "number": 17,
+      "title": "更新履歴と未読状態を保持する",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/17",
+      "state": "OPEN",
+      "blocked_by": [
+        7
+      ],
+      "ready_now": false,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/17"
+    },
+    {
+      "number": 18,
+      "title": "作品追加 UX を改善する",
+      "url": "https://github.com/kentoku24/comic_crawler/issues/18",
+      "state": "OPEN",
+      "blocked_by": [
+        7,
+        8
+      ],
+      "ready_now": false,
+      "spawn_prompt": "$gh-issue-maker-chief-engineer-loop を使ってこの Issue を進めてください。\nhttps://github.com/kentoku24/comic_crawler/issues/18"
+    }
+  ],
+  "warnings": []
+}

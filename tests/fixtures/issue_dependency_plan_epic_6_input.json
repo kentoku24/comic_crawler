@@ -1,0 +1,86 @@
+{
+  "6": {
+    "body": "# 背景\n`comic_crawler` は現在、`manga_watch/check.py` を中心に `urls.txt` と `state.json` を読み書きする最小構成の作品更新チェッカーとして動いている。一方で、利用者価値の中心である「読みたい作品の最新情報を、見逃さず、うるさくなく、継続的に届ける」ためには、拡張性・信頼性・通知設計・運用性の面で不足がある。\n\nこの Epic では、`comic_crawler` を OpenClaw 非依存の作品追跡アプリとして再定義し、そのための backlog を `P0 -> P1 -> P2` の順に整理する。既存 docs に OpenClaw 記述が残っている点は現状のズレとして扱い、この Epic 以降の設計判断では依存前提にしない。\n\n# 実現したい価値\n- 利用者が追いたい作品の更新を見逃さない\n- 本編とノイズを分けて、必要な更新だけを受け取れる\n- 一部サイト障害や DOM 変更があっても、全体停止や silent failure を避けられる\n- サイト追加や通知先追加を、既存コードを壊さず拡張できる\n\n# スコープ\n- 作品追跡アプリとしての再設計 backlog を Epic と子 Issue に分解する\n- 優先順位を `P0: foundations and reliability`、`P1: relevance and delivery`、`P2: onboarding` に固定する\n- 既存データは一度の migration/cutover で v2 へ移行し、その後は v2 を正とする前提で整理する\n\n# 非目標\n- この Epic 自体でコード変更やデータ移行を実施すること\n- 通知先の最終選定を先に固定すること\n- 旧 `urls.txt` / `state.json` のランタイム後方互換を永続的に維持すること\n- 既存 docs の整合性問題をこの Issue 単体で片付けること\n\n# 技術的制約\n- `work_id`, `latest_key`, `event_id` を cross-cutting contract として先に固定する。#7, #13, #17, #18 で別解釈を作らない。\n- notification policy は stable `work_id` 単位で保持し、seed URL 変更では失われない。migration 後も URL 単位設定に逆戻りしない。\n- state 書き込みは temp file + replace の atomic write を維持する。v2 移行で durability を落とさない。\n- run 結果の state 更新順と出力順は入力順ベースで deterministic にする。並列化しても差分と通知の順序を揺らさない。\n- 通知分類は fail-open を原則とし、判定に迷う更新は `unknown` として通知側に残す。\n- migration/cutover は #11 の検証基盤で migrated data の機能的正しさを確認できるようになってから実施する。\n- `mode` と `allowed_update_types` の評価順序は truth table で固定し、`allowed_update_types` が明示されていれば最優先する。\n- migration で生成される既存作品エントリの通知既定値は `all` とし、cutover 時に通知量を暗黙に減らさない。\n- `mode=all` は分類既定値をバイパスして全 update_type を通知する。`mode=mute` の suppressed update も state/history/run report には残し、「更新なし」と混同しない。\n- parser fixture は raw parser input を保存し、HTML の prettify や JSON の再直列化を行わない。fixture ごとに期待出力または期待エラーを固定する。\n\n# DoD\n- 11 個の子 Issue が作成され、すべてこの Epic にリンクされている\n- 各子 Issue が `背景 / 実現したい価値 / スコープ / 非目標 / DoD / 受け入れシナリオ / 依存関係 / 優先度` を持つ\n- 実装順、依存関係、優先順位が明示され、実装者が追加判断なしで着手できる\n- 上記の技術的制約が各 child issue の仕様と矛盾しない\n\n# 完了順の目安\n1. #8\n2. #21\n3. #11\n4. #7\n5. #9\n6. #10\n7. #12\n8. #13\n9. #16\n10. #17\n11. #18\n\n# 子Issue\n## P0: foundations and reliability\n- #7 watchlist/state v2 を導入し、一括マイグレーションで切り替える\n- #8 source adapter インターフェースを導入し、ComicWalker/webアクション/Kakuyomu を分離する\n- #21 source adapter registry を明示化し、登録漏れをテストで検知する\n- #11 fixture ベースの回帰テスト基盤を整える\n- #9 クロール実行を堅牢化する\n- #10 自己診断とヘルス状態を出せるようにする\n\n## P1: relevance and delivery\n- #12 更新種別を分類し、通知重要度を付ける\n- #13 通知バックエンドを抽象化し、stdout と webhook を最初の実装にする\n- #16 作品ごとの通知ポリシーを導入する\n- #17 更新履歴と未読状態を保持する\n\n## P2: onboarding\n- #18 作品追加 UX を改善する\n\n# 依存関係\nGitHub の `Blocked by` を source of truth とし、下図はその関係を表す。ここでの矢印は `A --> B` が「B is blocked by A」を意味する。\n\n```mermaid\nflowchart TD\n    I8[\"#8 source adapter\"] --> I21[\"#21 adapter registry contract\"]\n    I8 --> I11[\"#11 fixture / test foundation\"]\n    I11 --> I7[\"#7 watchlist/state v2 + one-time migration\"]\n    I8 --> I9[\"#9 robust crawl execution\"]\n    I11 --> I9\n    I7 --> I10[\"#10 health / status\"]\n    I9 --> I10\n    I8 --> I12[\"#12 update classification\"]\n    I11 --> I12\n    I7 --> I13[\"#13 notifier backends\"]\n    I12 --> I13\n    I7 --> I16[\"#16 notification policy\"]\n    I8 --> I16\n    I12 --> I16\n    I13 --> I16\n    I7 --> I17[\"#17 history / unread\"]\n    I7 --> I18[\"#18 watchlist add UX\"]\n    I8 --> I18\n\n    I7 --> I6[\"#6 epic\"]\n    I8 --> I6\n    I21 --> I6\n    I9 --> I6\n    I10 --> I6\n    I11 --> I6\n    I12 --> I6\n    I13 --> I6\n    I16 --> I6\n    I17 --> I6\n    I18 --> I6\n```\n\n# 受け入れシナリオ\n1. リポジトリ管理者がこの Epic を見れば、何をどの順で完了させるかを一画面で把握できる。\n2. 実装者が GitHub UI の `Blocked by` を見るだけで、自分の Issue の hard blocker を理解できる。\n3. OpenClaw を前提にしない将来像と、現状 docs に残る記述との差分が混同されない。\n4. 実装者が #7 に着手する時点で、schema 設計と実 migration/cutover の順序が分かる。\n5. 実装者が #16 に着手する時点で、migration 既定値 `all`、stable `work_id`、policy precedence の 3 点を Epic だけで理解できる。\n\n# 優先度\n- 管理 Issue\n\n\n",
+    "number": 6,
+    "state": "OPEN",
+    "title": "Epic: comic_crawler を「見逃さない・うるさくない」作品追跡アプリに引き上げる",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/6"
+  },
+  "7": {
+    "body": "",
+    "number": 7,
+    "state": "OPEN",
+    "title": "watchlist/state v2 を導入し、一括マイグレーションで切り替える",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/7"
+  },
+  "8": {
+    "body": "",
+    "number": 8,
+    "state": "CLOSED",
+    "title": "source adapter インターフェースを導入し、ComicWalker/webアクション/Kakuyomu を分離する",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/8"
+  },
+  "9": {
+    "body": "",
+    "number": 9,
+    "state": "OPEN",
+    "title": "クロール実行を堅牢化する",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/9"
+  },
+  "10": {
+    "body": "",
+    "number": 10,
+    "state": "OPEN",
+    "title": "自己診断とヘルス状態を出せるようにする",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/10"
+  },
+  "11": {
+    "body": "",
+    "number": 11,
+    "state": "CLOSED",
+    "title": "fixture ベースの回帰テスト基盤を整える",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/11"
+  },
+  "12": {
+    "body": "",
+    "number": 12,
+    "state": "OPEN",
+    "title": "更新種別を分類し、通知重要度を付ける",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/12"
+  },
+  "13": {
+    "body": "",
+    "number": 13,
+    "state": "OPEN",
+    "title": "通知バックエンドを抽象化し、stdout と webhook を最初の実装にする",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/13"
+  },
+  "16": {
+    "body": "",
+    "number": 16,
+    "state": "OPEN",
+    "title": "作品ごとの通知ポリシーを導入する",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/16"
+  },
+  "17": {
+    "body": "",
+    "number": 17,
+    "state": "OPEN",
+    "title": "更新履歴と未読状態を保持する",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/17"
+  },
+  "18": {
+    "body": "",
+    "number": 18,
+    "state": "OPEN",
+    "title": "作品追加 UX を改善する",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/18"
+  },
+  "21": {
+    "body": "",
+    "number": 21,
+    "state": "OPEN",
+    "title": "source adapter registry を明示化し、登録漏れをテストで検知する",
+    "url": "https://github.com/kentoku24/comic_crawler/issues/21"
+  }
+}
