@@ -32,6 +32,9 @@ Maker Packet
 - Objective:
 - Why this packet matters:
 - Source issue:
+- Execution mode: `spawn_agent` | `codex exec` | `/fork` | `degraded`
+- Branch (if parallel maker):
+- Worktree (if parallel maker):
 - Relevant files:
   - ...
 - Constraints:
@@ -81,6 +84,9 @@ Chief Reviewer Gate
 Cycle Update
 - Cycle:
 - Goal:
+- Execution mode:
+- Worktrees (if used):
+  - ...
 - Maker packets:
   - ...
 - PR status:
