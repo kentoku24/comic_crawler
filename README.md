@@ -82,6 +82,16 @@ runner をローカル起動する場合は Discord 環境変数を入れてか�
 python3 -m manga_watch.runner
 ```
 
+## Adding a source adapter
+
+`manga_watch/sources/registry.py` の `REGISTERED_ADAPTERS` が adapter registration の single source of truth です。
+
+1. `manga_watch/sources/` に concrete `SourceAdapter` module を追加する
+2. `manga_watch/sources/registry.py` の `REGISTERED_ADAPTERS` に adapter instance を追加する
+3. `.venv/bin/python -m unittest tests.test_sources tests.test_check` を実行する
+
+2 を忘れると `tests.test_sources.SourceAdapterTests.test_registry_covers_every_concrete_adapter_module` が失敗します。
+
 ## Repository layout
 
 - `manga_watch/check.py`: 共通 runner。watchlist 読み込み、state 比較、更新判定
@@ -99,4 +109,4 @@ python3 -m manga_watch.runner
 ## Maintenance tips
 
 - サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/urls.txt` を実行して例外を確認する
-- 新しいサイトを足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` に登録する
+- 新しいサイトを足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` に登録して `tests.test_sources` を通す

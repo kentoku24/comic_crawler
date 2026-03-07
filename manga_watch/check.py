@@ -6,8 +6,8 @@ import time
 from typing import Optional, Sequence
 
 from manga_watch.sources import (
-    DEFAULT_ADAPTERS,
     HttpClient,
+    REGISTERED_ADAPTERS,
     SourceAdapter,
     WorkDescriptor,
     fetch_latest_for_work,
@@ -40,7 +40,7 @@ def save_state(state):
 
 
 def _selected_adapters(adapters: Optional[Sequence[SourceAdapter]]) -> Sequence[SourceAdapter]:
-    return DEFAULT_ADAPTERS if adapters is None else adapters
+    return REGISTERED_ADAPTERS if adapters is None else adapters
 
 
 def normalize_item(url: str, adapters: Optional[Sequence[SourceAdapter]] = None):
