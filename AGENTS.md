@@ -8,6 +8,7 @@ This repository has Codex project-local skills under `./.agents/skills`. Treat t
 
 ### Available skills
 
+- gh-issue-dependency-spawner: GitHub の Epic / 管理 Issue を起点に、依存関係つき child issues を dependency wave ごとに並列 Spawn する。親セッションは実装せず、各 child issue は `$gh-issue-maker-chief-engineer-loop` に委譲する。 Use when: #6 のような dependency-organized Issue をまとめて進めたいとき。 (file: ./.agents/skills/gh-issue-dependency-spawner/SKILL.md)
 - gh-issue-maker-chief-engineer-loop: GitHub Issue を起点に、accepted scope と制約を抽出し、`maker` 実装、PR 更新、`$spacex-chief-reviewer` による gate までを標準ループで進める。Use when: Issue URL/番号だけで作業を開始したいとき、Issue に既存の Chief Engineer レビューがあるとき。 (file: ./.agents/skills/gh-issue-maker-chief-engineer-loop/SKILL.md)
 - gh-pr-spacex-chief-engineer-review: GitHub の指定 PR を Chief Engineer 観点でレビューし、Description と実装の整合、過去指摘の解消状況まで確認する。Use when: PR URL/番号を渡してマージ前レビューをしたいとき。 (file: ./.agents/skills/gh-pr-spacex-chief-engineer-review/SKILL.md)
 - spacex-chief-reviewer: comic_crawler 専用の reviewer gate。repo の規模と既存構造に対して変更が merge-ready かを `APPROVE` / `NG` で判定する。Use when: comic_crawler の PR を repo 固有の観点でレビューしたいとき。 (file: ./.agents/skills/spacex-chief-reviewer/SKILL.md)

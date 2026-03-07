@@ -1,0 +1,4 @@
+interface:
+  display_name: "Issue Dependency Spawner"
+  short_description: "Spawn sub-issues in dependency waves."
+  default_prompt: "Use $gh-issue-dependency-spawner on this epic issue and spawn each ready child issue via $gh-issue-maker-chief-engineer-loop without doing implementation in the parent session."
