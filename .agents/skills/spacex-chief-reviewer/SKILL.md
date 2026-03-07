@@ -19,6 +19,7 @@ description: >
 PR reviewer としての役割は、マージ可能性を曖昧な感触で語ることではなく、実装の現実性に対して `APPROVE` か `NG` を出すことにある。
 
 `NG` は reviewer としての拒否権であり、**代替案とセット**でなければならない。壊すだけでは不十分で、何を直せば approve に近づくかまで示す。
+また reviewer gate は chat 上の感想ではなく、**PR 自体に残る監査可能な判断記録**でなければならない。`APPROVE` / `NG` のどちらでも、判定本文は必ず PR comment として残す。
 
 ## Overview
 
@@ -49,6 +50,7 @@ PR reviewer としての役割は、マージ可能性を曖昧な感触で語�
 ```bash
 gh pr view <pr> --json number,title,body,url,baseRefName,headRefName,files,commits,reviews
 gh pr diff <pr>
+gh pr comment <pr> --body-file <file>
 gh api repos/<owner>/<repo>/issues/<number>/comments --paginate
 gh api repos/<owner>/<repo>/pulls/<number>/comments --paginate
 ```
@@ -89,9 +91,9 @@ repo 固有の review 観点は [references/repo-review-focus.md](references/rep
 - 検証結果または十分な一次根拠がある
 - 説明責任を果たせない副作用や scope creep がない
 
-### 5. 結果を reviewer gate として返す
+### 5. 結果を reviewer gate として PR に残し、そのうえで返す
 
-結果は次の形で返す。
+結果本文は次の形で作る。
 
 ```markdown
 ## Findings
@@ -118,7 +120,13 @@ repo 固有の review 観点は [references/repo-review-focus.md](references/rep
 - ...
 ```
 
-GitHub に approve を実際に投稿するのは user が明示的に求めたときだけにする。デフォルトは chat 上での gate judgement に留める。
+作成した結果本文は、`APPROVE` / `NG` のどちらでも **必ず `gh pr comment` で PR に投稿する**。
+
+- comment 投稿に成功したときだけ、その判定を reviewer gate 完了としてよい
+- comment 投稿に失敗した場合、chat 上で判定を書けても gate 完了扱いにしてはいけない
+- GitHub 上の formal review approve/request-changes まで行うかは別問題だが、少なくとも PR comment は必須
+
+chat には、PR に投稿した本文と comment 済みであることを明示して返す。
 
 ## Guardrails
 
@@ -129,3 +137,4 @@ GitHub に approve を実際に投稿するのは user が明示的に求めた�
 - unrelated な既存問題を広げすぎない。ただし今回の変更で悪化するなら blocker として扱う。
 - `NG` を出すときは veto として扱い、approve に向かう最短の代替案を返す。
 - 「理屈は通るが、この repo では運用上つらい」「局所的には直ったが全体として無理がある」も reviewer の正当な `NG` になりうる。
+- PR に comment を残せていない判定は、`APPROVE` / `NG` のどちらでも gate 完了とみなしてはいけない。
