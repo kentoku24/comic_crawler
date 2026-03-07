@@ -67,10 +67,38 @@
 python3 -m manga_watch.check manga_watch/urls.txt
 ```
 
-- 常に JSON を出力する: `{ "updates": [...] }`
+- 常に JSON を出力する: `{ "updates": [...], "errors": { "sources": [...], "run": [...] } }`
 - state を更新する
 - 既知の stable id が変わったときだけ `updates` に積む
 - stable id が同じでタイトルなどの補足情報だけ増えた場合は silent update する
+- source 単位の parser/runtime failure は `errors.sources` に積み、成功した item の state 更新は継続する
+- watchlist 読み込みや state 保存のような run-level failure は `errors.run` に記録され、`CheckRunError` として扱う
+
+### Checker error schema
+```json
+{
+  "errors": {
+    "sources": [
+      {
+        "url": "https://example.com/work",
+        "id": "work-1",
+        "phase": "fetch_latest",
+        "kind": "parse",
+        "errorType": "SourceParseError",
+        "message": "..."
+      }
+    ],
+    "run": [
+      {
+        "stage": "save_state",
+        "kind": "runtime",
+        "errorType": "OSError",
+        "message": "disk full"
+      }
+    ]
+  }
+}
+```
 
 ### Runner execution
 ```bash
@@ -108,6 +136,15 @@ python3 -m manga_watch.runner
 3. 最新 episode page の `<title>` から `seriesTitle` を補完する
 4. 最新 episode id を stable id とする
 
+## Fixture bundles
+
+- layout: `tests/fixtures/<source>/<case>/`
+- each case keeps `manifest.json` plus ordered raw responses (`01-*.html`, `02-*.html`, ...)
+- `manifest.json` は `seedUrl`, `expectedWork`, `steps`, `expectedLatest` または `expectedError` を持つ
+- fixture は parser が実際に読む raw input を保存し、HTML prettify や JSON 再直列化を行わない
+- ComicWalker / Kakuyomu は `normal`, `title_variation_or_bonus`, `same_episode_refresh`, `broken_missing_next_data`
+- webアクションは `normal`, `title_variation`, `escaped_next_uri`, `broken_missing_next`, `broken_loop`
+
 ## Notification behavior
 
 runner は以下を担当する:
@@ -115,13 +152,15 @@ runner は以下を担当する:
 1. checker を実行する
 2. 更新があるときだけ main channel に alert を送る
 3. 毎回 run-report channel に run report を送る
-4. checker 失敗時または Discord 投稿失敗時は run-report channel に error summary を送ろうとする
-5. error summary 投稿にも失敗した場合は container log に落とす
+4. checker が `errors.sources` を返した場合、run report は clean success ではなく partial failure summary を送る
+5. checker 失敗時または Discord 投稿失敗時は run-report channel に error summary を送ろうとする
+6. error summary 投稿にも失敗した場合は container log に落とす
 
 run report には最低限これを含める:
 - 実行時刻
 - 更新件数
 - main channel 通知を送ったか
+- checker が返した error 件数と summary
 - 現在の一覧
 
 ## Scheduling

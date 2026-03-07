@@ -21,9 +21,23 @@ checker 単体の出力契約は引き続き JSON です。
       "from": {"seriesTitle": "...", "episodeTitle": "..."},
       "to": {"seriesTitle": "...", "episodeTitle": "...", "url": "..."}
     }
-  ]
+  ],
+  "errors": {
+    "sources": [
+      {
+        "url": "https://example.com/work",
+        "phase": "fetch_latest",
+        "kind": "parse",
+        "errorType": "SourceParseError",
+        "message": "..."
+      }
+    ],
+    "run": []
+  }
 }
 ```
+
+`errors.sources` は source ごとの partial failure、`errors.run` は watchlist 読み込みや state 保存のような run-level failure を表します。
 
 ## Supported sources
 
@@ -74,6 +88,7 @@ source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
 python3 -m manga_watch.check manga_watch/urls.txt
+.venv/bin/python -m unittest tests.test_sources tests.test_check
 ```
 
 runner をローカル起動する場合は Discord 環境変数を入れてから実行します。
@@ -88,7 +103,16 @@ python3 -m manga_watch.runner
 - `manga_watch/sources/`: source adapter interface、registry、各 source 実装
 - `manga_watch/runner.py`: スケジューラ + Discord 通知
 - `manga_watch/urls.txt`: watchlist
+- `tests/fixtures/<source>/<case>/`: raw response bundle + `manifest.json` による adapter regression fixture
 - `docker-compose.yml`: 本番想定の単一コンテナ起動定義
+
+## Fixture regression tests
+
+- fixture は `tests/fixtures/<source>/<case>/manifest.json` と、ordered response bundle を表す raw payload (`01-*.html`, `02-*.html`, ...) で構成する
+- `manifest.json` は `seedUrl`, `expectedWork`, `steps`, `expectedLatest` または `expectedError` を持つ
+- ComicWalker / Kakuyomu は `normal`, `title_variation_or_bonus`, `same_episode_refresh`, `broken_missing_next_data`
+- webアクションは `normal`, `title_variation`, `escaped_next_uri`, `broken_missing_next`, `broken_loop`
+- fixture の更新手順とサニタイズ規則は [tests/fixtures/README.md](tests/fixtures/README.md) にまとめる
 
 ## Security notes
 
@@ -99,4 +123,5 @@ python3 -m manga_watch.runner
 ## Maintenance tips
 
 - サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/urls.txt` を実行して例外を確認する
+- parser/state regression を更新するときは `.venv/bin/python -m unittest tests.test_sources tests.test_check` を先に回す
 - 新しいサイトを足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` に登録する

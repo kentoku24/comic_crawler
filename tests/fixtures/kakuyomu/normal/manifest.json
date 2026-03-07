@@ -1,0 +1,33 @@
+{
+  "seedUrl": "https://kakuyomu.jp/works/123/episodes/456",
+  "expectedWork": {
+    "source": "kakuyomu",
+    "kind": "kakuyomu",
+    "workId": "kakuyomu:123",
+    "seedUrl": "https://kakuyomu.jp/works/123/episodes/456",
+    "series": "kakuyomu:123",
+    "numericWorkId": "123",
+    "seedEpisodeId": "456"
+  },
+  "steps": [
+    {
+      "url": "https://kakuyomu.jp/works/123",
+      "response": "01-work.html"
+    },
+    {
+      "url": "https://kakuyomu.jp/works/123/episodes/789",
+      "response": "02-latest.html"
+    }
+  ],
+  "expectedLatest": {
+    "source": "kakuyomu",
+    "workId": "kakuyomu:123",
+    "latestKey": "789",
+    "url": "https://kakuyomu.jp/works/123/episodes/789",
+    "series": "kakuyomu:123",
+    "seriesTitle": "作品C",
+    "episodeCode": "789",
+    "episodeTitle": "第2話",
+    "pageTitle": "第2話 - 作品C - カクヨム"
+  }
+}

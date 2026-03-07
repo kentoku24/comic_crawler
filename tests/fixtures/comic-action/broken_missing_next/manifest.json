@@ -1,0 +1,24 @@
+{
+  "seedUrl": "https://comic-action.com/episode/666",
+  "expectedWork": {
+    "source": "comic-action",
+    "kind": "comic-action",
+    "workId": "https://comic-action.com/episode/666",
+    "seedUrl": "https://comic-action.com/episode/666"
+  },
+  "steps": [
+    {
+      "url": "https://comic-action.com/episode/666",
+      "response": "01-page.html"
+    }
+  ],
+  "expectedLatest": {
+    "source": "comic-action",
+    "workId": "https://comic-action.com/episode/666",
+    "latestKey": "https://comic-action.com/episode/666",
+    "url": "https://comic-action.com/episode/666",
+    "seriesTitle": "作品B",
+    "episodeTitle": "第6話",
+    "pageTitle": "第6話 / 作品B - webアクション | comic-action"
+  }
+}
