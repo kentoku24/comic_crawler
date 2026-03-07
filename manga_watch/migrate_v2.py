@@ -3,7 +3,7 @@ import argparse
 import json
 import os
 import shutil
-from datetime import datetime, UTC
+from datetime import datetime, timezone
 from typing import Dict, List, Mapping, Optional, Tuple
 
 from manga_watch.check import build_watchlist_entry, latest_id_for_state
@@ -140,7 +140,7 @@ def parse_args(argv=None):
         "--backup-dir",
         default=os.path.join(
             DEFAULT_BACKUP_ROOT,
-            datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ"),
+            datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ"),
         ),
     )
     return parser.parse_args(argv)
