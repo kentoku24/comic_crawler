@@ -37,13 +37,13 @@
         "consecutive_failures": 0
       }
     },
-    "https://comic-action.com/episode/2550689798784879524": {
+    "comic-action:13933686331663374228": {
       "latest": {
         "url": "https://comic-action.com/episode/2551460909780695609",
         "page_title": "第50話 / ダンジョンの中のひと - 双見酔 | webアクション",
         "series_title": "ダンジョンの中のひと",
         "episode_title": "第50話",
-        "work_id": "https://comic-action.com/episode/2550689798784879524",
+        "work_id": "comic-action:13933686331663374228",
         "source": "comic-action",
         "latest_key": "https://comic-action.com/episode/2551460909780695609"
       },

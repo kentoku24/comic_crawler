@@ -7,12 +7,14 @@ from typing import Dict, Mapping, Optional, Sequence, Tuple
 from manga_watch.sources import (
     DEFAULT_ADAPTERS,
     HttpClient,
+    RequestsHttpClient,
     SourceAdapter,
     WorkDescriptor,
     fetch_latest_for_work,
     normalize_seed_url,
 )
 from manga_watch.sources.base import SourceParseError
+from manga_watch.sources.comic_action import extract_comic_action_series_id
 from manga_watch.storage import (
     latest_runtime_to_storage,
     latest_storage_to_runtime,
@@ -156,10 +158,34 @@ def normalize_item(url: str, adapters: Optional[Sequence[SourceAdapter]] = None)
     return work.to_dict()
 
 
-def build_watchlist_entry(url: str, adapters: Optional[Sequence[SourceAdapter]] = None) -> Dict[str, object]:
+def stable_work_id_for_item(
+    item: Mapping[str, object],
+    *,
+    http_client: Optional[HttpClient] = None,
+) -> str:
+    source = str(item.get("source") or "")
+    if source != "comic-action":
+        return item_id_for_state(item)
+
+    seed_url = str(item.get("seedUrl") or "")
+    if not seed_url:
+        raise RuntimeError("comic-action: seedUrl is required to derive work_id")
+    client = http_client or RequestsHttpClient()
+    html = client.get_text(seed_url)
+    series_id = extract_comic_action_series_id(html)
+    if not series_id:
+        raise RuntimeError("comic-action: series_id not found")
+    return f"comic-action:{series_id}"
+
+
+def build_watchlist_entry(
+    url: str,
+    adapters: Optional[Sequence[SourceAdapter]] = None,
+    http_client: Optional[HttpClient] = None,
+) -> Dict[str, object]:
     item = normalize_item(url, adapters=adapters)
     return {
-        "id": item_id_for_state(item),
+        "id": stable_work_id_for_item(item, http_client=http_client),
         "source": str(item["source"]),
         "seed_url": str(item["seedUrl"]),
         "enabled": True,
@@ -188,10 +214,6 @@ def ensure_watchlist_contract(entry: Mapping[str, object], item: Mapping[str, ob
     if str(entry["source"]) != str(item.get("source") or ""):
         raise RuntimeError(
             f"watchlist entry {entry['id']} source drifted: expected {entry['source']}, got {item.get('source')}"
-        )
-    if str(entry["id"]) != item_id_for_state(item):
-        raise RuntimeError(
-            f"watchlist entry {entry['id']} id drifted after normalize: got {item_id_for_state(item)}"
         )
 
 
@@ -228,6 +250,7 @@ def run_check(
         try:
             item = normalize_item(str(entry["seed_url"]), adapters=adapters)
             ensure_watchlist_contract(entry, item)
+            item["workId"] = item_id
             latest = compute_latest(item, adapters=adapters, http_client=http_client)
         except Exception as exc:
             phase = "normalize" if item is None else "fetch_latest"

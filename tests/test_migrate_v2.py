@@ -4,6 +4,7 @@ import sys
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from manga_watch.migrate_v2 import migrate_state_v1_to_v2, migrate_watchlist_v1_to_v2
 
@@ -27,6 +28,19 @@ class MigrationTests(unittest.TestCase):
             {"mode": "all", "allowed_update_types": None},
             watchlist["works"][1]["notification_policy"],
         )
+
+    def test_migrate_watchlist_v1_to_v2_uses_stable_comic_action_id(self):
+        fake_client = mock.Mock()
+        fake_client.get_text.return_value = (
+            '<div data-gtm="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;13933686331663374228&quot;}}"></div>'
+        )
+
+        watchlist = migrate_watchlist_v1_to_v2(
+            ["https://comic-action.com/episode/111"],
+            http_client=fake_client,
+        )
+
+        self.assertEqual("comic-action:13933686331663374228", watchlist["works"][0]["id"])
 
     def test_migrate_state_v1_to_v2_maps_latest_and_health(self):
         watchlist = {
@@ -79,6 +93,45 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(1700000000, migrated_state["works"]["work-1"]["health"]["last_success_at"])
         self.assertEqual({}, migrated_state["works"]["work-2"]["latest"])
         self.assertEqual(["orphaned-work"], orphaned)
+
+    def test_migrate_state_v1_to_v2_falls_back_to_legacy_seed_url_key(self):
+        watchlist = {
+            "version": 2,
+            "works": [
+                {
+                    "id": "comic-action:13933686331663374228",
+                    "source": "comic-action",
+                    "seed_url": "https://comic-action.com/episode/111",
+                    "enabled": True,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                }
+            ],
+        }
+        v1_state = {
+            "version": 1,
+            "items": {
+                "https://comic-action.com/episode/111": {
+                    "latest": {
+                        "episodeTitle": "第2話",
+                        "url": "https://comic-action.com/episode/222",
+                    },
+                    "seenAt": 1700000000,
+                }
+            },
+            "lastRunAt": 1700000005,
+        }
+
+        migrated_state, orphaned = migrate_state_v1_to_v2(v1_state, watchlist)
+
+        self.assertEqual([], orphaned)
+        self.assertEqual(
+            "comic-action:13933686331663374228",
+            migrated_state["works"]["comic-action:13933686331663374228"]["latest"]["work_id"],
+        )
+        self.assertEqual(
+            "https://comic-action.com/episode/222",
+            migrated_state["works"]["comic-action:13933686331663374228"]["latest"]["latest_key"],
+        )
 
     def test_migration_cli_writes_backups_and_v2_outputs(self):
         repo_root = Path(__file__).resolve().parents[1]

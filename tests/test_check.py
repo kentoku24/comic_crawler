@@ -187,6 +187,27 @@ class CheckTests(unittest.TestCase):
             entry["notification_policy"],
         )
 
+    def test_build_watchlist_entry_uses_stable_comic_action_work_id(self):
+        fake_client = mock.Mock()
+        fake_client.get_text.return_value = (
+            '<div data-gtm="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;13933686331663374228&quot;}}"></div>'
+        )
+        with mock.patch(
+            "manga_watch.check.normalize_item",
+            return_value={
+                "source": "comic-action",
+                "workId": "https://comic-action.com/episode/111",
+                "seedUrl": "https://comic-action.com/episode/111",
+            },
+        ):
+            entry = check.build_watchlist_entry(
+                "https://comic-action.com/episode/111",
+                http_client=fake_client,
+            )
+
+        self.assertEqual("comic-action:13933686331663374228", entry["id"])
+        self.assertEqual("comic-action", entry["source"])
+
     def test_run_check_initializes_state_without_updates(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"

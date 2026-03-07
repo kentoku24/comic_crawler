@@ -85,7 +85,7 @@ checker の出力契約は JSON のままです。
 ### webアクション
 
 - 入力: `https://comic-action.com/episode/<id>`
-- `work_id`: seed episode URL
+- `work_id`: `comic-action:<series_id>`
 - `latest_key`: 最終到達 episode URL
 
 ### Kakuyomu

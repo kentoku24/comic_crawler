@@ -4,9 +4,10 @@ import json
 import os
 import shutil
 from datetime import datetime, UTC
-from typing import Dict, List, Mapping, Tuple
+from typing import Dict, List, Mapping, Optional, Tuple
 
 from manga_watch.check import build_watchlist_entry, latest_id_for_state
+from manga_watch.sources import HttpClient
 from manga_watch.storage import (
     DEFAULT_STATE_PATH,
     DEFAULT_WATCHLIST_PATH,
@@ -35,11 +36,15 @@ def load_v1_state(path: str) -> Dict[str, object]:
     return payload
 
 
-def migrate_watchlist_v1_to_v2(urls: List[str]) -> Dict[str, object]:
+def migrate_watchlist_v1_to_v2(
+    urls: List[str],
+    *,
+    http_client: Optional[HttpClient] = None,
+) -> Dict[str, object]:
     works = []
     seen_ids = set()
     for url in urls:
-        entry = build_watchlist_entry(url)
+        entry = build_watchlist_entry(url, http_client=http_client)
         work_id = entry["id"]
         if work_id in seen_ids:
             raise ValueError(f"duplicate work_id during migration: {work_id}")
@@ -55,11 +60,16 @@ def migrate_state_v1_to_v2(
     v1_items = v1_state.get("items", {}) or {}
     last_run_at = v1_state.get("lastRunAt")
     works_state: Dict[str, object] = {}
+    migrated_ids = set()
 
     for work in watchlist_v2["works"]:
         work_id = str(work["id"])
         source = str(work["source"])
         v1_entry = v1_items.get(work_id)
+        matched_v1_id = work_id
+        if not isinstance(v1_entry, Mapping):
+            matched_v1_id = str(work["seed_url"])
+            v1_entry = v1_items.get(matched_v1_id)
         if not isinstance(v1_entry, Mapping):
             works_state[work_id] = {
                 "latest": {},
@@ -72,6 +82,7 @@ def migrate_state_v1_to_v2(
             }
             continue
 
+        migrated_ids.add(matched_v1_id)
         latest = migrate_v1_latest(v1_entry.get("latest"), work_id=work_id, source=source)
         seen_at = v1_entry.get("seenAt")
         if seen_at is None:
@@ -86,7 +97,6 @@ def migrate_state_v1_to_v2(
             },
         }
 
-    migrated_ids = {str(work["id"]) for work in watchlist_v2["works"]}
     orphaned_state_ids = sorted(work_id for work_id in v1_items.keys() if work_id not in migrated_ids)
     return {
         "version": 2,

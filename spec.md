@@ -54,7 +54,7 @@
 ### work_id contract
 
 - ComicWalker: `KC_XXXXXX_S`
-- webアクション: seed episode URL
+- webアクション: `comic-action:<series_id>`
 - Kakuyomu: `kakuyomu:<numeric_work_id>`
 
 `work_id` は source ごとに 1 作品 1 値で不変とし、seed URL の表現揺れでは変わらない。
