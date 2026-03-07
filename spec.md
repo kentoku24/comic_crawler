@@ -72,6 +72,10 @@ python3 -m manga_watch.check manga_watch/urls.txt
 - 既知の stable id が変わったときだけ `updates` に積む
 - stable id が同じでタイトルなどの補足情報だけ増えた場合は silent update する
 - source 単位の parser/runtime failure は `errors.sources` に積み、成功した item の state 更新は継続する
+- source fetch は `MANGA_WATCH_HTTP_WORKERS` 本で並列実行できるが、state 更新順・`updates`・`errors.sources` は watchlist 入力順で deterministic に固定する
+- retry 対象は transport error / timeout / HTTP `429` / `5xx` に限定する
+- HTTP `404`、unsupported URL、parse error は即失敗として `errors.sources` に積む
+- 同一 host への同時 request 数は `MANGA_WATCH_HTTP_WORKERS_PER_HOST` で抑制する
 - watchlist 読み込みや state 保存のような run-level failure は `errors.run` に記録され、`CheckRunError` として扱う
 
 ### Checker error schema
@@ -114,6 +118,11 @@ python3 -m manga_watch.runner
 - `RUN_ON_STARTUP`
 - `MANGA_WATCH_URLS`
 - `MANGA_WATCH_STATE`
+- `MANGA_WATCH_HTTP_TIMEOUT`
+- `MANGA_WATCH_HTTP_RETRIES`
+- `MANGA_WATCH_HTTP_RETRY_BACKOFF`
+- `MANGA_WATCH_HTTP_WORKERS`
+- `MANGA_WATCH_HTTP_WORKERS_PER_HOST`
 
 ### Latest episode detection
 

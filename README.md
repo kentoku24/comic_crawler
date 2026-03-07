@@ -39,6 +39,8 @@ checker 単体の出力契約は引き続き JSON です。
 
 `errors.sources` は source ごとの partial failure、`errors.run` は watchlist 読み込みや state 保存のような run-level failure を表します。
 
+checker は watchlist を並列に処理しますが、`updates` / `errors.sources` / state 更新順は常に入力順で deterministic に保たれます。同一 host への HTTP burst は per-host cap で抑え、retry は transport error / timeout / HTTP `429` / `5xx` に限定します。`404` や parse error は即座に `errors.sources` に落ちます。
+
 ## Supported sources
 
 ### ComicWalker
@@ -77,6 +79,11 @@ docker compose logs -f
 - `RUN_ON_STARTUP`: `true` のとき起動直後に 1 回実行
 - `MANGA_WATCH_URLS`: watchlist パス。compose では `/app/manga_watch/urls.txt`
 - `MANGA_WATCH_STATE`: state ファイルパス。compose では `/data/state.json`
+- `MANGA_WATCH_HTTP_TIMEOUT`: source fetch の request timeout 秒。既定値は `25`
+- `MANGA_WATCH_HTTP_RETRIES`: timeout / transport error / `429` / `5xx` に対する retry 回数。既定値は `2`
+- `MANGA_WATCH_HTTP_RETRY_BACKOFF`: retry ごとの指数 backoff の基準秒。既定値は `0.5`
+- `MANGA_WATCH_HTTP_WORKERS`: watchlist を並列処理する worker 数。既定値は `4`
+- `MANGA_WATCH_HTTP_WORKERS_PER_HOST`: 同一 host に同時接続する上限。既定値は `2`
 
 ## Local run
 
@@ -124,4 +131,5 @@ python3 -m manga_watch.runner
 
 - サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/urls.txt` を実行して例外を確認する
 - parser/state regression を更新するときは `.venv/bin/python -m unittest tests.test_sources tests.test_check` を先に回す
+- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_check tests.test_runner` で runner まで確認する
 - 新しいサイトを足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` に登録する

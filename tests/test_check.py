@@ -3,12 +3,17 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
+import requests
+
 from manga_watch import check
-from manga_watch.sources import LatestEpisode, SourceAdapter, WorkDescriptor
+from manga_watch.sources import LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
 from manga_watch.sources.base import SourceParseError
 
 
@@ -37,6 +42,50 @@ class FakeAdapter(SourceAdapter):
             url=f"https://example.com/{latest_key}",
             episode_title=latest_key,
         )
+
+
+class FakeResponse:
+    def __init__(self, *, status_code=200, text="ok"):
+        self.status_code = status_code
+        self.text = text
+        self.closed = False
+
+    def raise_for_status(self):
+        if self.status_code >= 400:
+            raise requests.HTTPError(f"{self.status_code} error", response=self)
+
+    def close(self):
+        self.closed = True
+
+
+class SequenceSession:
+    def __init__(self, outcomes):
+        self.outcomes = list(outcomes)
+        self.calls = []
+
+    def get(self, url, headers=None, timeout=None):
+        self.calls.append({"url": url, "headers": headers, "timeout": timeout})
+        outcome = self.outcomes.pop(0)
+        if isinstance(outcome, Exception):
+            raise outcome
+        return outcome
+
+
+class TrackingSession:
+    def __init__(self, tracker, *, delay=0.05):
+        self.tracker = tracker
+        self.delay = delay
+
+    def get(self, url, headers=None, timeout=None):
+        with self.tracker["lock"]:
+            self.tracker["current"] += 1
+            self.tracker["max"] = max(self.tracker["max"], self.tracker["current"])
+        try:
+            time.sleep(self.delay)
+            return FakeResponse(text=url)
+        finally:
+            with self.tracker["lock"]:
+                self.tracker["current"] -= 1
 
 
 class CheckTests(unittest.TestCase):
@@ -134,6 +183,28 @@ class CheckTests(unittest.TestCase):
         self.assertEqual([], payload["errors"]["sources"])
         self.assertEqual("save_state", payload["errors"]["run"][0]["stage"])
         self.assertEqual("FileExistsError", payload["errors"]["run"][0]["errorType"])
+        self.assertEqual("", result.stderr)
+
+    def test_check_module_reports_invalid_http_config_as_json(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            urls_path = Path(tmpdir) / "urls.txt"
+            state_path = Path(tmpdir) / "state.json"
+            urls_path.write_text("", encoding="utf-8")
+
+            result = self.run_check_module(
+                urls_path,
+                extra_env={
+                    "MANGA_WATCH_STATE": str(state_path),
+                    "MANGA_WATCH_HTTP_WORKERS": "0",
+                },
+            )
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual([], payload["updates"])
+        self.assertEqual([], payload["errors"]["sources"])
+        self.assertEqual("http_config", payload["errors"]["run"][0]["stage"])
+        self.assertEqual("ValueError", payload["errors"]["run"][0]["errorType"])
         self.assertEqual("", result.stderr)
 
     def test_normalize_item_returns_work_descriptor_fields(self):
@@ -376,6 +447,121 @@ class CheckTests(unittest.TestCase):
             self.assertEqual("ep-2", state["items"]["work-a"]["latest"]["latestKey"])
             self.assertEqual("ep-1", state["items"]["work-b"]["latest"]["latestKey"])
             self.assertEqual("ep-1", state["items"]["work-c"]["latest"]["latestKey"])
+
+    def test_run_check_preserves_input_order_under_parallel_completion(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            urls_path = os.path.join(tmpdir, "urls.txt")
+            state_path = os.path.join(tmpdir, "state.json")
+            urls = [
+                "https://example.com/work/a",
+                "https://example.com/work/b",
+                "https://example.com/work/c",
+            ]
+            with open(urls_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(urls) + "\n")
+
+            items = {
+                urls[0]: {"kind": "fake", "workId": "work-a", "seedUrl": urls[0]},
+                urls[1]: {"kind": "fake", "workId": "work-b", "seedUrl": urls[1]},
+                urls[2]: {"kind": "fake", "workId": "work-c", "seedUrl": urls[2]},
+            }
+            delays = {"work-a": 0.05, "work-b": 0.03, "work-c": 0.01}
+            call_count = {"work-a": 0, "work-b": 0, "work-c": 0}
+            http_config = check.HttpConfig(
+                request_timeout=1,
+                retry_count=0,
+                retry_backoff=0.0,
+                max_workers=3,
+                max_workers_per_host=2,
+            )
+
+            def fake_normalize(url, adapters=None):
+                return dict(items[url])
+
+            def fake_latest(item, adapters=None, http_client=None):
+                work_id = item["workId"]
+                time.sleep(delays[work_id])
+                call_count[work_id] += 1
+                return {
+                    "latestKey": f"ep-{call_count[work_id]}",
+                    "episodeTitle": f"第{call_count[work_id]}話",
+                    "url": f"https://example.com/{work_id}/{call_count[work_id]}",
+                }
+
+            with mock.patch.dict(os.environ, {"MANGA_WATCH_STATE": state_path}, clear=False):
+                with mock.patch("manga_watch.check.normalize_item", side_effect=fake_normalize):
+                    with mock.patch("manga_watch.check.compute_latest", side_effect=fake_latest):
+                        check.run_check(urls_path, http_config=http_config)
+                        result = check.run_check(urls_path, http_config=http_config)
+
+            self.assertEqual(
+                ["work-a", "work-b", "work-c"],
+                [update["id"] for update in result["updates"]],
+            )
+            self.assertEqual({"sources": [], "run": []}, result["errors"])
+
+    def test_requests_http_client_retries_timeouts_only_when_allowed(self):
+        sleep_calls = []
+        session = SequenceSession(
+            [
+                requests.Timeout("timed out"),
+                FakeResponse(text="ok"),
+            ]
+        )
+        client = RequestsHttpClient(
+            timeout=7,
+            retry_count=1,
+            retry_backoff=0.25,
+            max_requests_per_host=1,
+            session=session,
+            sleep=sleep_calls.append,
+        )
+
+        self.assertEqual("ok", client.get_text("https://example.com/work"))
+        self.assertEqual(2, len(session.calls))
+        self.assertEqual([0.25], sleep_calls)
+
+    def test_requests_http_client_does_not_retry_404(self):
+        sleep_calls = []
+        session = SequenceSession([FakeResponse(status_code=404)])
+        client = RequestsHttpClient(
+            timeout=7,
+            retry_count=3,
+            retry_backoff=0.25,
+            max_requests_per_host=1,
+            session=session,
+            sleep=sleep_calls.append,
+        )
+
+        with self.assertRaises(requests.HTTPError):
+            client.get_text("https://example.com/missing")
+
+        self.assertEqual(1, len(session.calls))
+        self.assertEqual([], sleep_calls)
+
+    def test_requests_http_client_limits_same_host_concurrency(self):
+        tracker = {"current": 0, "max": 0, "lock": threading.Lock()}
+        client = RequestsHttpClient(
+            retry_count=0,
+            max_requests_per_host=1,
+            session_factory=lambda: TrackingSession(tracker),
+        )
+
+        with ThreadPoolExecutor(max_workers=3) as executor:
+            futures = [
+                executor.submit(client.get_text, f"https://example.com/work/{idx}")
+                for idx in range(3)
+            ]
+            self.assertEqual(
+                [
+                    "https://example.com/work/0",
+                    "https://example.com/work/1",
+                    "https://example.com/work/2",
+                ],
+                [future.result() for future in futures],
+            )
+
+        self.assertEqual(1, tracker["max"])
 
     def test_run_check_compares_using_latest_key_from_adapter_interface(self):
         with tempfile.TemporaryDirectory() as tmpdir:
