@@ -1,45 +1,95 @@
 {
-  "version": 1,
-  "items": {
+  "version": 2,
+  "works": {
     "KC_003913_S": {
       "latest": {
         "series": "KC_003913_S",
-        "seriesTitle": "蜘蛛ですが、なにか？",
-        "episodeCode": "KC_0039130008900011_E",
-        "episodeTitle": "第77話その2",
-        "url": "https://comic-walker.com/detail/KC_003913_S/episodes/KC_0039130008900011_E?episodeType=latest"
+        "series_title": "蜘蛛ですが、なにか？",
+        "episode_code": "KC_0039130008900011_E",
+        "episode_title": "第77話その2",
+        "url": "https://comic-walker.com/detail/KC_003913_S/episodes/KC_0039130008900011_E?episodeType=latest",
+        "work_id": "KC_003913_S",
+        "source": "comic-walker",
+        "latest_key": "KC_0039130008900011_E"
       },
-      "seenAt": 1769917010
+      "history": [],
+      "health": {
+        "last_checked_at": 1769917010,
+        "last_success_at": 1769917010,
+        "consecutive_failures": 0
+      }
     },
     "KC_007032_S": {
       "latest": {
         "series": "KC_007032_S",
-        "seriesTitle": "銀河特急 ミルキー☆サブウェイ",
-        "episodeCode": "KC_0070320000900011_E",
-        "episodeTitle": "コミックス告知",
-        "url": "https://comic-walker.com/detail/KC_007032_S/episodes/KC_0070320000900011_E?episodeType=latest"
+        "series_title": "銀河特急 ミルキー☆サブウェイ",
+        "episode_code": "KC_0070320000900011_E",
+        "episode_title": "コミックス告知",
+        "url": "https://comic-walker.com/detail/KC_007032_S/episodes/KC_0070320000900011_E?episodeType=latest",
+        "work_id": "KC_007032_S",
+        "source": "comic-walker",
+        "latest_key": "KC_0070320000900011_E"
       },
-      "seenAt": 1769917010
+      "history": [],
+      "health": {
+        "last_checked_at": 1769917010,
+        "last_success_at": 1769917010,
+        "consecutive_failures": 0
+      }
     },
     "https://comic-action.com/episode/2550689798784879524": {
       "latest": {
         "url": "https://comic-action.com/episode/2551460909780695609",
-        "pageTitle": "第50話 / ダンジョンの中のひと - 双見酔 | webアクション",
-        "seriesTitle": "ダンジョンの中のひと",
-        "episodeTitle": "第50話"
+        "page_title": "第50話 / ダンジョンの中のひと - 双見酔 | webアクション",
+        "series_title": "ダンジョンの中のひと",
+        "episode_title": "第50話",
+        "work_id": "https://comic-action.com/episode/2550689798784879524",
+        "source": "comic-action",
+        "latest_key": "https://comic-action.com/episode/2551460909780695609"
       },
-      "seenAt": 1769917010
+      "history": [],
+      "health": {
+        "last_checked_at": 1769917010,
+        "last_success_at": 1769917010,
+        "consecutive_failures": 0
+      }
     },
     "KC_001405_S": {
       "latest": {
         "series": "KC_001405_S",
-        "seriesTitle": "航宙軍士官、冒険者になる",
-        "episodeCode": "KC_0014050006700011_E",
-        "episodeTitle": "第61話",
-        "url": "https://comic-walker.com/detail/KC_001405_S/episodes/KC_0014050006700011_E?episodeType=latest"
+        "series_title": "航宙軍士官、冒険者になる",
+        "episode_code": "KC_0014050006700011_E",
+        "episode_title": "第61話",
+        "url": "https://comic-walker.com/detail/KC_001405_S/episodes/KC_0014050006700011_E?episodeType=latest",
+        "work_id": "KC_001405_S",
+        "source": "comic-walker",
+        "latest_key": "KC_0014050006700011_E"
       },
-      "seenAt": 1769917010
+      "history": [],
+      "health": {
+        "last_checked_at": 1769917010,
+        "last_success_at": 1769917010,
+        "consecutive_failures": 0
+      }
+    },
+    "KC_000061_S": {
+      "latest": {},
+      "history": [],
+      "health": {
+        "last_checked_at": null,
+        "last_success_at": null,
+        "consecutive_failures": 0
+      }
+    },
+    "kakuyomu:16818093092974667738": {
+      "latest": {},
+      "history": [],
+      "health": {
+        "last_checked_at": null,
+        "last_success_at": null,
+        "consecutive_failures": 0
+      }
     }
   },
-  "lastRunAt": 1769917010
+  "last_run_at": 1769917010
 }

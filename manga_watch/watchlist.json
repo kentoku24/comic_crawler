@@ -1,0 +1,65 @@
+{
+  "version": 2,
+  "works": [
+    {
+      "id": "KC_003913_S",
+      "source": "comic-walker",
+      "seed_url": "https://comic-walker.com/detail/KC_003913_S",
+      "enabled": true,
+      "notification_policy": {
+        "mode": "all",
+        "allowed_update_types": null
+      }
+    },
+    {
+      "id": "KC_007032_S",
+      "source": "comic-walker",
+      "seed_url": "https://comic-walker.com/detail/KC_007032_S",
+      "enabled": true,
+      "notification_policy": {
+        "mode": "all",
+        "allowed_update_types": null
+      }
+    },
+    {
+      "id": "https://comic-action.com/episode/2550689798784879524",
+      "source": "comic-action",
+      "seed_url": "https://comic-action.com/episode/2550689798784879524",
+      "enabled": true,
+      "notification_policy": {
+        "mode": "all",
+        "allowed_update_types": null
+      }
+    },
+    {
+      "id": "KC_001405_S",
+      "source": "comic-walker",
+      "seed_url": "https://comic-walker.com/detail/KC_001405_S",
+      "enabled": true,
+      "notification_policy": {
+        "mode": "all",
+        "allowed_update_types": null
+      }
+    },
+    {
+      "id": "KC_000061_S",
+      "source": "comic-walker",
+      "seed_url": "https://comic-walker.com/detail/KC_000061_S",
+      "enabled": true,
+      "notification_policy": {
+        "mode": "all",
+        "allowed_update_types": null
+      }
+    },
+    {
+      "id": "kakuyomu:16818093092974667738",
+      "source": "kakuyomu",
+      "seed_url": "https://kakuyomu.jp/works/16818093092974667738/episodes/822139844009936710",
+      "enabled": true,
+      "notification_policy": {
+        "mode": "all",
+        "allowed_update_types": null
+      }
+    }
+  ]
+}
