@@ -20,6 +20,8 @@ description: >
 
 Issue に既存の Chief Engineer レビューがある前提で始め、`maker` が実装し、親セッションが結果を統合して PR を作成または更新し、その PR を `$spacex-chief-reviewer` が gate として判定する。reviewer が `NG` を返した場合は、その指摘を次 cycle の maker packet に変換して再実装する。
 
+この loop でいう `APPROVE` / `NG` gate は、**親セッションや maker と別 agent の context で reviewer が判定したときだけ有効**とする。親セッションが reviewer 手順を自己適用して得た結論は、evidence 整理や事前点検には使えても gate 完了には数えない。
+
 この skill は、呼び出し時に進め方を毎回指定しなくてよい。Issue を指定されたら、この標準ループをデフォルト動作として実行する。
 
 ## Preconditions
@@ -47,7 +49,7 @@ Issue に既存の Chief Engineer レビューがある前提で始め、`maker`
 - `maker` の並列実行可否を判断する。
 - maker の成果を統合し、必要な verification を走らせる。
 - 統合した変更から PR を作成または既存 PR を更新する。
-- `$spacex-chief-reviewer` に PR review packet を渡し、`APPROVE` か `NG` を受け取る。
+- `$spacex-chief-reviewer` を**別 agent**として起動し、PR review packet を渡し、`APPROVE` か `NG` を受け取る。
 - reviewer の `NG` を、次 cycle の maker packet に変換する。
 
 `explorer` や `telemetry` は常用しない。対象ファイルが広すぎて file mapping ができない場合だけ `explorer` を補助的に使い、検証が複雑で maker の自己検証だけでは不十分な場合だけ `telemetry` を追加する。
@@ -118,10 +120,12 @@ PR の扱いは次を原則とする。
 
 ### 5. PR を `$spacex-chief-reviewer` でレビューする
 
-- 親セッションは PR URL、統合後の diff, changed files, test evidence, known gaps を `$spacex-chief-reviewer` に渡す。
+- 親セッションは `spawn_agent` などで `$spacex-chief-reviewer` を**別 agent / 別 thread**として起動する。
+- reviewer agent には `fork_context=false` を優先し、親セッションの実装 reasoning を丸ごと渡さず、PR URL、統合後の diff, changed files, test evidence, known gaps など review に必要な最小限の packet だけを渡す。
 - reviewer は計画ではなく、PR 上の実装済み差分をレビューする。
 - reviewer は `spacex-chief-reviewer` の標準フローで review を行い、`APPROVE` か `NG` を返す。
 - 曖昧な「ほぼよい」「条件付きでよい」は `NG` として扱い、再作業項目へ落とす。
+- 親セッションが reviewer skill を自分でなぞっても、それは gate ではなく preflight review に留まる。**別 agent の判定が返るまで cycle は完了しない。**
 
 reviewer への packet には次を含める。
 
@@ -132,6 +136,12 @@ reviewer への packet には次を含める。
 - 検証結果
 - 既知の未解決事項
 - 今回求める gate 判定
+
+別 agent reviewer を起動できない場合:
+
+- 親セッションは PR 作成・evidence 整理までは進めてよい。
+- ただし `APPROVE` 扱いで完了してはいけない。
+- 状態は `reviewer gate pending` または `degraded: reviewer unavailable` として止める。
 
 ### 6. `NG` なら 2 に戻る
 
@@ -145,7 +155,7 @@ reviewer への packet には次を含める。
 
 次をすべて満たしたときだけ完了とする。
 
-- `$spacex-chief-reviewer` が `APPROVE` を返した。
+- **別 agent として起動された** `$spacex-chief-reviewer` が `APPROVE` を返した。
 - 対応 PR が作成済みまたは最新状態に更新済みである。
 - Issue の acceptance criteria が evidence 付きで満たされている。
 - main regression risk と test gaps が明示されている。
@@ -172,6 +182,7 @@ rg <pattern>
 - maker が走らせる確認は、broad なフルテストより、packet に紐づく focused check を優先する。
 - PR 操作は親セッションが行う。maker に PR 作成や更新を任せない。
 - `$spacex-chief-reviewer` review 前に、親セッションが最低限の integration check を行う。
+- reviewer gate は親セッションではなく、別 agent 起動で実行する。
 
 ## Guardrails
 
@@ -181,4 +192,6 @@ rg <pattern>
 - maker が返した「done」を鵜呑みにせず、親セッションが evidence を確認する。
 - PR は parent-owned artifact として扱い、子エージェントに ownership を分散しない。
 - PR gate は必ず `$spacex-chief-reviewer` を通し、review は実コードと検証結果に対して行い、口頭の説明だけで通さない。
+- 親セッションの自己レビューや reviewer checklist の自己適用を、`APPROVE` / `NG` gate とみなしてはいけない。
+- reviewer gate は必ず実装 agent と別 context で行い、別 agent を起動できない場合は completion ではなく pending / degraded として止める。
 - この skill は「Issue 起点の実装 loop」に特化している。探索が主目的なら `$codex-mission-control` に戻る。
