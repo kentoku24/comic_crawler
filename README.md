@@ -18,8 +18,18 @@ checker の出力契約は JSON のままです。
   "updates": [
     {
       "id": "KC_003913_S",
+      "update_type": "main_story",
+      "classification_reason": "episode_title matched main-story numbering",
+      "default_notify": true,
       "from": {"seriesTitle": "...", "episodeTitle": "..."},
-      "to": {"seriesTitle": "...", "episodeTitle": "...", "url": "..."}
+      "to": {
+        "seriesTitle": "...",
+        "episodeTitle": "...",
+        "url": "...",
+        "update_type": "main_story",
+        "classification_reason": "episode_title matched main-story numbering",
+        "default_notify": true
+      }
     }
   ],
   "errors": {
@@ -75,6 +85,15 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 ### legacy v1 input
 
 `manga_watch/urls.txt` は migration 入力と rollback 用の参考データです。runtime はこのファイルを読みません。
+
+更新分類の既定値は次の通りです。
+
+- `main_story`: 既定で通知する
+- `unknown`: fail-open で既定通知する
+- `bonus`: 既定では main channel に通知しない
+- `announcement`: 既定では main channel に通知しない
+
+`main_story` と suppress 対象が衝突した場合は `unknown` に倒し、`bonus` と `announcement` だけが衝突した場合は suppress 側に残します。checker / state / run report には suppressed update も残ります。
 
 ## Supported sources
 
@@ -134,7 +153,7 @@ source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
 python3 -m manga_watch.check manga_watch/watchlist.json
-python3 -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2
+python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2
 ```
 
 runner をローカル起動する場合は Discord 環境変数を入れてから実行します。
@@ -166,14 +185,17 @@ python3 -m manga_watch.migrate_v2 \
 - `manga_watch/migrate_v2.py`: v1 から v2 への one-time migration CLI
 - `manga_watch/storage.py`: watchlist/state v2 validation と atomic write
 - `manga_watch/runner.py`: スケジューラ + Discord 通知
+- `manga_watch/update_classification.py`: 更新種別と既定通知対象の分類ロジック
 - `manga_watch/watchlist.json`: watchlist v2 sample
 - `manga_watch/state.json`: state v2 sample
 - `manga_watch/urls.txt`: legacy v1 migration input sample
 - `tests/fixtures/<source>/<case>/`: raw response bundle + `manifest.json`
 
+分類テストでは source ごとの代表例に加えて、main/bonus の曖昧ケースと bonus/announcement の suppress 維持ケースを確認します。
+
 ## Maintenance tips
 
 - サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
-- migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2` を回す
-- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2` で runner まで確認する
+- migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2` を回す
+- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2` で runner まで確認する
 - 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` に登録する

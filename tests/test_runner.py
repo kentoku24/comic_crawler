@@ -76,6 +76,8 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(messenger.messages))
         self.assertEqual("report", messenger.messages[0][0])
         self.assertIn("通知: 送信なし", messenger.messages[0][1])
+        self.assertIn("既定通知対象: 0件", messenger.messages[0][1])
+        self.assertIn("既定抑制: 0件", messenger.messages[0][1])
         self.assertIn("エラー: 0件", messenger.messages[0][1])
         self.assertIn("作品A：第1話", messenger.messages[0][1])
 
@@ -89,6 +91,9 @@ class RunnerTests(unittest.TestCase):
                     "series_title": "作品A",
                     "episode_title": "第2話",
                     "url": "https://example.com/2",
+                    "update_type": "main_story",
+                    "classification_reason": "episode_title matched main-story numbering",
+                    "default_notify": True,
                 },
             }
         ]
@@ -119,8 +124,119 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual("main", messenger.messages[0][0])
         self.assertIn("作品A：第1話 → 第2話", messenger.messages[0][1])
         self.assertEqual("report", messenger.messages[1][0])
+        self.assertIn("既定通知対象: 1件", messenger.messages[1][1])
+        self.assertIn("既定抑制: 0件", messenger.messages[1][1])
         self.assertIn("通知: 送信した", messenger.messages[1][1])
         self.assertIn("エラー: 0件", messenger.messages[1][1])
+
+    def test_run_once_suppresses_bonus_updates_from_main_channel_but_reports_them(self):
+        messenger = FakeMessenger()
+        updates = [
+            {
+                "id": "work-1",
+                "from": {
+                    "seriesTitle": "作品A",
+                    "episodeTitle": "第1話",
+                    "update_type": "main_story",
+                },
+                "to": {
+                    "seriesTitle": "作品A",
+                    "episodeTitle": "番外編",
+                    "url": "https://example.com/bonus",
+                    "update_type": "bonus",
+                    "classification_reason": "episode_title matched bonus marker",
+                    "default_notify": False,
+                },
+                "update_type": "bonus",
+                "classification_reason": "episode_title matched bonus marker",
+                "default_notify": False,
+            }
+        ]
+        state = {
+            "works": {
+                "work-1": {
+                    "latest": {
+                        "series_title": "作品A",
+                        "episode_title": "番外編",
+                        "update_type": "bonus",
+                    },
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
+                }
+            }
+        }
+
+        outcome = run_once(
+            self.make_config(),
+            messenger=messenger,
+            checker=lambda _: {"updates": updates},
+            state_loader=lambda: state,
+            now_fn=lambda: 1_700_000_000,
+        )
+
+        self.assertTrue(outcome["ok"])
+        self.assertEqual(0, outcome["errorCount"])
+        self.assertEqual(1, len(messenger.messages))
+        self.assertEqual("report", messenger.messages[0][0])
+        self.assertIn("更新検知: 1件", messenger.messages[0][1])
+        self.assertIn("既定通知対象: 0件", messenger.messages[0][1])
+        self.assertIn("既定抑制: 1件", messenger.messages[0][1])
+        self.assertIn("通知: 送信なし", messenger.messages[0][1])
+
+    def test_run_once_unknown_updates_fail_open_to_main_channel(self):
+        messenger = FakeMessenger()
+        updates = [
+            {
+                "id": "work-1",
+                "from": {"seriesTitle": "作品A", "episodeTitle": "第1話"},
+                "to": {
+                    "seriesTitle": "作品A",
+                    "episodeTitle": "春の特別掲載",
+                    "url": "https://example.com/unknown",
+                    "update_type": "unknown",
+                    "classification_reason": "matched both story and bonus markers",
+                    "default_notify": True,
+                },
+                "update_type": "unknown",
+                "classification_reason": "matched both story and bonus markers",
+                "default_notify": True,
+            }
+        ]
+        state = {
+            "works": {
+                "work-1": {
+                    "latest": {
+                        "series_title": "作品A",
+                        "episode_title": "春の特別掲載",
+                        "update_type": "unknown",
+                    },
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
+                }
+            }
+        }
+
+        outcome = run_once(
+            self.make_config(),
+            messenger=messenger,
+            checker=lambda _: {"updates": updates},
+            state_loader=lambda: state,
+            now_fn=lambda: 1_700_000_000,
+        )
+
+        self.assertTrue(outcome["ok"])
+        self.assertEqual("main", messenger.messages[0][0])
+        self.assertIn("[unknown]", messenger.messages[0][1])
+        self.assertIn("判定理由: matched both story and bonus markers", messenger.messages[0][1])
+        self.assertEqual("report", messenger.messages[1][0])
 
     def test_run_once_marks_source_errors_as_degraded_while_still_sending_updates(self):
         messenger = FakeMessenger()
@@ -183,6 +299,8 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual("main", messenger.messages[0][0])
         self.assertEqual("report", messenger.messages[1][0])
         self.assertIn("巡回実行に一部失敗がありました", messenger.messages[1][1])
+        self.assertIn("既定通知対象: 1件", messenger.messages[1][1])
+        self.assertIn("既定抑制: 0件", messenger.messages[1][1])
         self.assertIn("エラー: 1件", messenger.messages[1][1])
         self.assertIn("source/parse [fetch_latest] work-2: parse failed", messenger.messages[1][1])
 

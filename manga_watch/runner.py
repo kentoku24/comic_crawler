@@ -11,6 +11,7 @@ import requests
 
 from manga_watch.check import run_check
 from manga_watch.storage import DEFAULT_WATCHLIST_PATH, load_state
+from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES
 
 DEFAULT_CRAWL_SCHEDULE = "0 19 * * *"
 
@@ -72,6 +73,58 @@ def current_series_label(item_id: str, latest: Dict[str, str]) -> str:
     )
 
 
+def update_type_for_event(update: Dict[str, object]) -> str:
+    update_type = update.get("update_type")
+    if isinstance(update_type, str) and update_type:
+        return update_type
+
+    latest = update.get("to", {}) or {}
+    if isinstance(latest, dict):
+        latest_type = latest.get("update_type")
+        if isinstance(latest_type, str) and latest_type:
+            return latest_type
+
+    return "unknown"
+
+
+def classification_reason_for_event(update: Dict[str, object]) -> Optional[str]:
+    reason = update.get("classification_reason")
+    if isinstance(reason, str) and reason:
+        return reason
+
+    latest = update.get("to", {}) or {}
+    if isinstance(latest, dict):
+        latest_reason = latest.get("classification_reason")
+        if isinstance(latest_reason, str) and latest_reason:
+            return latest_reason
+
+    return None
+
+
+def default_notify_for_event(update: Dict[str, object]) -> bool:
+    if "default_notify" in update and update.get("default_notify") is not None:
+        return bool(update.get("default_notify"))
+
+    latest = update.get("to", {}) or {}
+    if isinstance(latest, dict) and "default_notify" in latest and latest.get("default_notify") is not None:
+        return bool(latest.get("default_notify"))
+
+    return update_type_for_event(update) in DEFAULT_NOTIFY_UPDATE_TYPES
+
+
+def partition_updates_by_default_notify(
+    updates: List[Dict[str, object]],
+) -> tuple[List[Dict[str, object]], List[Dict[str, object]]]:
+    notify = []
+    suppressed = []
+    for update in updates:
+        if default_notify_for_event(update):
+            notify.append(update)
+        else:
+            suppressed.append(update)
+    return notify, suppressed
+
+
 def format_update_message(updates: List[Dict[str, object]]) -> str:
     lines = ["新着エピソードを検知しました"]
     for update in updates:
@@ -81,7 +134,13 @@ def format_update_message(updates: List[Dict[str, object]]) -> str:
         series = current_series_label(item_id, latest) or current_series_label(item_id, previous)
         before = latest_label(previous, "未取得")
         after = latest_label(latest, "不明")
-        lines.append(f"- {series}：{before} → {after}")
+        update_type = update_type_for_event(update)
+        suffix = "" if update_type == "main_story" else f" [{update_type}]"
+        lines.append(f"- {series}：{before} → {after}{suffix}")
+        if update_type == "unknown":
+            classification_reason = classification_reason_for_event(update)
+            if classification_reason:
+                lines.append(f"  判定理由: {classification_reason}")
         url = latest.get("url")
         if url:
             lines.append(f"  {url}")
@@ -152,12 +211,16 @@ def format_run_report(
     updates: List[Dict[str, object]],
     errors: Dict[str, List[Dict[str, object]]],
     state: Dict[str, object],
+    default_notify_count: int,
+    suppressed_update_count: int,
     update_notification_sent: bool,
 ) -> str:
     degraded = checker_error_count(errors) > 0
     lines = [
         f"{'巡回実行に一部失敗がありました' if degraded else '巡回実行しました'} ({timestamp})",
         f"更新検知: {len(updates)}件",
+        f"既定通知対象: {default_notify_count}件",
+        f"既定抑制: {suppressed_update_count}件",
         f"通知: {'送信した' if update_notification_sent else '送信なし'}",
     ]
     lines.extend(format_checker_error_lines(errors))
@@ -281,13 +344,14 @@ def run_once(
         if not isinstance(updates, list):
             raise RuntimeError("checker returned invalid updates payload")
         errors = normalize_checker_errors(result)
+        default_notify_updates, suppressed_updates = partition_updates_by_default_notify(updates)
 
         state = state_loader()
         update_notification_sent = False
-        if updates:
+        if default_notify_updates:
             messenger.send_message(
                 config.discord_main_channel_id,
-                format_update_message(updates),
+                format_update_message(default_notify_updates),
             )
             update_notification_sent = True
 
@@ -298,6 +362,8 @@ def run_once(
                 updates=updates,
                 errors=errors,
                 state=state,
+                default_notify_count=len(default_notify_updates),
+                suppressed_update_count=len(suppressed_updates),
                 update_notification_sent=update_notification_sent,
             ),
         )
