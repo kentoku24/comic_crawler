@@ -5,8 +5,8 @@ Docker コンテナ 1 つで定期クロールし、Discord に新着通知と r
 ## What it does
 
 1. `manga_watch/urls.txt` の watchlist を読む
-2. 各 URL から安定した work id を決める
-3. 最新エピソードを取得する
+2. source adapter が URL を work descriptor に正規化する
+3. source adapter が最新エピソードを取得する
 4. state と比較する
 5. 更新があれば Discord main channel に通知する
 6. 毎回 Discord run-report channel に実行結果を送る
@@ -73,7 +73,7 @@ python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
-python3 manga_watch/check.py manga_watch/urls.txt
+python3 -m manga_watch.check manga_watch/urls.txt
 ```
 
 runner をローカル起動する場合は Discord 環境変数を入れてから実行します。
@@ -84,11 +84,11 @@ python3 -m manga_watch.runner
 
 ## Repository layout
 
-- `manga_watch/check.py`: 最新話検出と state 更新
+- `manga_watch/check.py`: 共通 runner。watchlist 読み込み、state 比較、更新判定
+- `manga_watch/sources/`: source adapter interface、registry、各 source 実装
 - `manga_watch/runner.py`: スケジューラ + Discord 通知
 - `manga_watch/urls.txt`: watchlist
 - `docker-compose.yml`: 本番想定の単一コンテナ起動定義
-- `openclaw/`: 旧運用の参考資料。現行運用では不要
 
 ## Security notes
 
@@ -98,5 +98,5 @@ python3 -m manga_watch.runner
 
 ## Maintenance tips
 
-- サイトの HTML が変わって検知が止まったら `python3 manga_watch/check.py manga_watch/urls.txt` を直接実行して例外を確認する
-- 新しいサイトを足すときは `normalize_item()` と `compute_latest()` を拡張する
+- サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/urls.txt` を実行して例外を確認する
+- 新しいサイトを足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` に登録する

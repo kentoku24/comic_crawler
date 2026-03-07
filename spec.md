@@ -64,7 +64,7 @@
 
 ### Checker execution
 ```bash
-python3 manga_watch/check.py manga_watch/urls.txt
+python3 -m manga_watch.check manga_watch/urls.txt
 ```
 
 - 常に JSON を出力する: `{ "updates": [...] }`
