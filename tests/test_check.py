@@ -9,6 +9,7 @@ from unittest import mock
 
 from manga_watch import check
 from manga_watch.sources import LatestEpisode, SourceAdapter, WorkDescriptor
+from manga_watch.sources.base import SourceParseError
 
 
 class FakeAdapter(SourceAdapter):
@@ -56,7 +57,10 @@ class CheckTests(unittest.TestCase):
             )
 
         self.assertEqual(0, result.returncode, msg=result.stderr)
-        self.assertEqual({"updates": []}, json.loads(result.stdout))
+        self.assertEqual(
+            {"updates": [], "errors": {"sources": [], "run": []}},
+            json.loads(result.stdout),
+        )
 
     def test_normalize_item_returns_work_descriptor_fields(self):
         item = check.normalize_item("https://kakuyomu.jp/works/123/episodes/456")
@@ -86,41 +90,218 @@ class CheckTests(unittest.TestCase):
                     with mock.patch("manga_watch.check.compute_latest", return_value=latest):
                         result = check.run_check(urls_path)
 
-            self.assertEqual({"updates": []}, result)
+            self.assertEqual([], result["updates"])
+            self.assertEqual({"sources": [], "run": []}, result["errors"])
             with open(state_path, "r", encoding="utf-8") as f:
                 state = json.load(f)
             self.assertIn("https://example.com/work", state["items"])
 
-    def test_run_check_reports_updates_when_latest_changes(self):
+    def test_apply_item_transition_reports_updates_when_latest_changes(self):
+        previous = {
+            "latest": {
+                "latestKey": "ep-1",
+                "seriesTitle": "作品A",
+                "episodeTitle": "第1話",
+                "url": "https://example.com/work/1",
+            },
+            "seenAt": 10,
+        }
+        latest = {
+            "latestKey": "ep-2",
+            "seriesTitle": "作品A",
+            "episodeTitle": "第2話",
+            "url": "https://example.com/work/2",
+        }
+
+        next_entry, update = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+        )
+
+        self.assertEqual({"latest": latest, "seenAt": 20}, next_entry)
+        self.assertEqual(
+            {"id": "work-1", "from": previous["latest"], "to": latest},
+            update,
+        )
+
+    def test_apply_item_transition_silently_merges_metadata_when_latest_key_is_stable(self):
+        previous = {
+            "latest": {
+                "latestKey": "ep-1",
+                "seriesTitle": "旧タイトル",
+                "episodeTitle": "旧サブタイトル",
+                "pageTitle": "",
+                "url": "https://example.com/work/1",
+                "summary": "",
+            },
+            "seenAt": 10,
+        }
+        latest = {
+            "latestKey": "ep-1",
+            "seriesTitle": "新タイトル",
+            "episodeTitle": "新サブタイトル",
+            "pageTitle": "作品A 第1話",
+            "url": "https://example.com/work/1?ref=canonical",
+            "summary": "補足",
+        }
+
+        next_entry, update = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+        )
+
+        self.assertIsNone(update)
+        self.assertEqual(20, next_entry["seenAt"])
+        self.assertEqual("新タイトル", next_entry["latest"]["seriesTitle"])
+        self.assertEqual("新サブタイトル", next_entry["latest"]["episodeTitle"])
+        self.assertEqual("作品A 第1話", next_entry["latest"]["pageTitle"])
+        self.assertEqual("補足", next_entry["latest"]["summary"])
+        self.assertEqual(
+            "https://example.com/work/1",
+            next_entry["latest"]["url"],
+        )
+
+    def test_error_records_distinguish_source_parse_and_run_failures(self):
+        parse_error = check.source_error_record(
+            "https://example.com/work",
+            item_id="work-1",
+            phase="fetch_latest",
+            exc=SourceParseError("bad markup"),
+        )
+        run_error = check.run_error_record("save_state", RuntimeError("disk full"))
+
+        self.assertEqual("parse", parse_error["kind"])
+        self.assertEqual("SourceParseError", parse_error["errorType"])
+        self.assertEqual(
+            {
+                "stage": "save_state",
+                "kind": "runtime",
+                "errorType": "RuntimeError",
+                "message": "disk full",
+            },
+            run_error,
+        )
+
+    def test_run_check_raises_structured_run_errors(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             urls_path = os.path.join(tmpdir, "urls.txt")
             state_path = os.path.join(tmpdir, "state.json")
             with open(urls_path, "w", encoding="utf-8") as f:
                 f.write("https://example.com/work\n")
 
-            first = {
-                "seriesTitle": "作品A",
-                "episodeTitle": "第1話",
-                "url": "https://example.com/work/1",
-            }
-            second = {
-                "seriesTitle": "作品A",
-                "episodeTitle": "第2話",
-                "url": "https://example.com/work/2",
-            }
-
             with mock.patch.dict(os.environ, {"MANGA_WATCH_STATE": state_path}, clear=False):
                 with mock.patch(
                     "manga_watch.check.normalize_item",
                     return_value={"kind": "fake", "seedUrl": "https://example.com/work"},
                 ):
-                    with mock.patch("manga_watch.check.compute_latest", side_effect=[first, second]):
+                    with mock.patch(
+                        "manga_watch.check.compute_latest",
+                        return_value={"latestKey": "ep-1", "url": "https://example.com/work/1"},
+                    ):
+                        with mock.patch(
+                            "manga_watch.check.save_state",
+                            side_effect=OSError("disk full"),
+                        ):
+                            with self.assertRaises(check.CheckRunError) as ctx:
+                                check.run_check(urls_path)
+
+        self.assertEqual("save_state", ctx.exception.stage)
+        self.assertEqual(
+            [
+                {
+                    "stage": "save_state",
+                    "kind": "runtime",
+                    "errorType": "OSError",
+                    "message": "disk full",
+                }
+            ],
+            ctx.exception.result["errors"]["run"],
+        )
+        self.assertEqual([], ctx.exception.result["errors"]["sources"])
+
+    def test_run_check_keeps_successful_updates_when_other_sources_fail(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            urls_path = os.path.join(tmpdir, "urls.txt")
+            state_path = os.path.join(tmpdir, "state.json")
+            urls = [
+                "https://example.com/work/a",
+                "https://example.com/work/b",
+                "https://example.com/work/c",
+            ]
+            with open(urls_path, "w", encoding="utf-8") as f:
+                f.write("\n".join(urls) + "\n")
+
+            items = {
+                urls[0]: {"kind": "fake", "workId": "work-a", "seedUrl": urls[0]},
+                urls[1]: {"kind": "fake", "workId": "work-b", "seedUrl": urls[1]},
+                urls[2]: {"kind": "fake", "workId": "work-c", "seedUrl": urls[2]},
+            }
+            call_count = {"work-a": 0, "work-b": 0, "work-c": 0}
+
+            def fake_normalize(url, adapters=None):
+                return dict(items[url])
+
+            def fake_latest(item, adapters=None, http_client=None):
+                work_id = item["workId"]
+                call_count[work_id] += 1
+                if call_count[work_id] == 1:
+                    return {
+                        "latestKey": "ep-1",
+                        "episodeTitle": "第1話",
+                        "url": f"https://example.com/{work_id}/1",
+                    }
+                if work_id == "work-a":
+                    return {
+                        "latestKey": "ep-2",
+                        "episodeTitle": "第2話",
+                        "url": "https://example.com/work-a/2",
+                    }
+                if work_id == "work-b":
+                    raise SourceParseError("parse failed")
+                raise RuntimeError("request timed out")
+
+            with mock.patch.dict(os.environ, {"MANGA_WATCH_STATE": state_path}, clear=False):
+                with mock.patch("manga_watch.check.normalize_item", side_effect=fake_normalize):
+                    with mock.patch("manga_watch.check.compute_latest", side_effect=fake_latest):
                         check.run_check(urls_path)
                         result = check.run_check(urls_path)
 
             self.assertEqual(1, len(result["updates"]))
-            self.assertEqual("第1話", result["updates"][0]["from"]["episodeTitle"])
-            self.assertEqual("第2話", result["updates"][0]["to"]["episodeTitle"])
+            self.assertEqual("work-a", result["updates"][0]["id"])
+            self.assertEqual("ep-1", result["updates"][0]["from"]["latestKey"])
+            self.assertEqual("ep-2", result["updates"][0]["to"]["latestKey"])
+            self.assertEqual([], result["errors"]["run"])
+            self.assertEqual(
+                [
+                    {
+                        "url": urls[1],
+                        "phase": "fetch_latest",
+                        "kind": "parse",
+                        "errorType": "SourceParseError",
+                        "message": "parse failed",
+                        "id": "work-b",
+                    },
+                    {
+                        "url": urls[2],
+                        "phase": "fetch_latest",
+                        "kind": "runtime",
+                        "errorType": "RuntimeError",
+                        "message": "request timed out",
+                        "id": "work-c",
+                    },
+                ],
+                result["errors"]["sources"],
+            )
+
+            with open(state_path, "r", encoding="utf-8") as f:
+                state = json.load(f)
+            self.assertEqual("ep-2", state["items"]["work-a"]["latest"]["latestKey"])
+            self.assertEqual("ep-1", state["items"]["work-b"]["latest"]["latestKey"])
+            self.assertEqual("ep-1", state["items"]["work-c"]["latest"]["latestKey"])
 
     def test_run_check_compares_using_latest_key_from_adapter_interface(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -138,6 +319,7 @@ class CheckTests(unittest.TestCase):
             self.assertEqual(1, len(result["updates"]))
             self.assertEqual("ep-1", result["updates"][0]["from"]["latestKey"])
             self.assertEqual("ep-2", result["updates"][0]["to"]["latestKey"])
+            self.assertEqual({"sources": [], "run": []}, result["errors"])
 
             with open(state_path, "r", encoding="utf-8") as f:
                 state = json.load(f)

@@ -67,10 +67,38 @@
 python3 -m manga_watch.check manga_watch/urls.txt
 ```
 
-- 常に JSON を出力する: `{ "updates": [...] }`
+- 常に JSON を出力する: `{ "updates": [...], "errors": { "sources": [...], "run": [...] } }`
 - state を更新する
 - 既知の stable id が変わったときだけ `updates` に積む
 - stable id が同じでタイトルなどの補足情報だけ増えた場合は silent update する
+- source 単位の parser/runtime failure は `errors.sources` に積み、成功した item の state 更新は継続する
+- watchlist 読み込みや state 保存のような run-level failure は `errors.run` に記録され、`CheckRunError` として扱う
+
+### Checker error schema
+```json
+{
+  "errors": {
+    "sources": [
+      {
+        "url": "https://example.com/work",
+        "id": "work-1",
+        "phase": "fetch_latest",
+        "kind": "parse",
+        "errorType": "SourceParseError",
+        "message": "..."
+      }
+    ],
+    "run": [
+      {
+        "stage": "save_state",
+        "kind": "runtime",
+        "errorType": "OSError",
+        "message": "disk full"
+      }
+    ]
+  }
+}
+```
 
 ### Runner execution
 ```bash
@@ -107,6 +135,15 @@ python3 -m manga_watch.runner
 2. episode 一覧から `publishedAt` が最大のものを選ぶ
 3. 最新 episode page の `<title>` から `seriesTitle` を補完する
 4. 最新 episode id を stable id とする
+
+## Fixture bundles
+
+- layout: `tests/fixtures/<source>/<case>/`
+- each case keeps `manifest.json` plus ordered raw responses (`01-*.html`, `02-*.html`, ...)
+- `manifest.json` は `seedUrl`, `expectedWork`, `steps`, `expectedLatest` または `expectedError` を持つ
+- fixture は parser が実際に読む raw input を保存し、HTML prettify や JSON 再直列化を行わない
+- ComicWalker / Kakuyomu は `normal`, `title_variation_or_bonus`, `same_episode_refresh`, `broken_missing_next_data`
+- webアクションは `normal`, `title_variation`, `escaped_next_uri`, `broken_missing_next`, `broken_loop`
 
 ## Notification behavior
 

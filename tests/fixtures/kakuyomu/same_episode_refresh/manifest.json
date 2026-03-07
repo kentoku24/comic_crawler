@@ -1,0 +1,33 @@
+{
+  "seedUrl": "https://kakuyomu.jp/works/123/episodes/456",
+  "expectedWork": {
+    "source": "kakuyomu",
+    "kind": "kakuyomu",
+    "workId": "kakuyomu:123",
+    "seedUrl": "https://kakuyomu.jp/works/123/episodes/456",
+    "series": "kakuyomu:123",
+    "numericWorkId": "123",
+    "seedEpisodeId": "456"
+  },
+  "steps": [
+    {
+      "url": "https://kakuyomu.jp/works/123",
+      "response": "01-work.html"
+    },
+    {
+      "url": "https://kakuyomu.jp/works/123/episodes/456",
+      "response": "02-latest.html"
+    }
+  ],
+  "expectedLatest": {
+    "source": "kakuyomu",
+    "workId": "kakuyomu:123",
+    "latestKey": "456",
+    "url": "https://kakuyomu.jp/works/123/episodes/456",
+    "series": "kakuyomu:123",
+    "seriesTitle": "作品C",
+    "episodeCode": "456",
+    "episodeTitle": "第1話 改訂版",
+    "pageTitle": "第1話 改訂版 - 作品C - カクヨム"
+  }
+}
