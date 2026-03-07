@@ -1,28 +1,40 @@
 #!/usr/bin/env python3
-import json, os, re, sys, time
-from urllib.parse import urlparse
+import json
+import os
+import re
+import sys
+import time
 
 import requests
 
-UA = os.environ.get("MANGA_WATCH_UA", "Mozilla/5.0 (X11; Linux) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36")
+UA = os.environ.get(
+    "MANGA_WATCH_UA",
+    "Mozilla/5.0 (X11; Linux) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
+)
 TIMEOUT = 25
+DEFAULT_STATE_PATH = os.path.join(os.path.dirname(__file__), "state.json")
 
-STATE_PATH = os.environ.get("MANGA_WATCH_STATE", os.path.join(os.path.dirname(__file__), "state.json"))
+
+def get_state_path():
+    return os.environ.get("MANGA_WATCH_STATE", DEFAULT_STATE_PATH)
 
 
 def load_state():
-    if not os.path.exists(STATE_PATH):
+    state_path = get_state_path()
+    if not os.path.exists(state_path):
         return {"version": 1, "items": {}}
-    with open(STATE_PATH, "r", encoding="utf-8") as f:
+    with open(state_path, "r", encoding="utf-8") as f:
         return json.load(f)
 
 
 def save_state(state):
-    tmp = STATE_PATH + ".tmp"
-    os.makedirs(os.path.dirname(STATE_PATH), exist_ok=True)
+    state_path = get_state_path()
+    tmp = state_path + ".tmp"
+    state_dir = os.path.dirname(state_path) or "."
+    os.makedirs(state_dir, exist_ok=True)
     with open(tmp, "w", encoding="utf-8") as f:
         json.dump(state, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, STATE_PATH)
+    os.replace(tmp, state_path)
 
 
 def http_get(url: str) -> str:
@@ -67,7 +79,6 @@ def parse_comic_walker_title(page_title: str):
     if not page_title:
         return None, None
     left = page_title.split("｜")[0].strip()
-    # episode style: 【第61話】作品名
     m = re.match(r"^【([^】]+)】\s*(.+)$", left)
     if m:
         return m.group(2).strip() or None, m.group(1).strip() or None
@@ -83,24 +94,20 @@ def comic_walker_latest(series_code: str):
         raise RuntimeError("comic-walker: __NEXT_DATA__ not found")
 
     raw = m.group(1)
-
-    # episode codes look like: KC_0039130008900011_E
-    prefix = series_code[:-2]  # e.g. KC_003913
-    codes = set(re.findall(rf'{re.escape(prefix)}\d+_E', raw))
+    prefix = series_code[:-2]
+    codes = set(re.findall(rf"{re.escape(prefix)}\d+_E", raw))
     if not codes:
-        codes = set(re.findall(r'KC_\d+\d+_E', raw))
+        codes = set(re.findall(r"KC_\d+\d+_E", raw))
     if not codes:
         raise RuntimeError("comic-walker: no episode codes found")
 
     def key(code: str):
-        # Extract the numeric part *after* the series prefix (e.g. KC_0039130008900011_E -> 0008900011)
-        mm = re.search(rf'{re.escape(prefix)}(\d+)_E', code)
+        mm = re.search(rf"{re.escape(prefix)}(\d+)_E", code)
         return int(mm.group(1)) if mm else -1
 
     latest_code = max(codes, key=key)
     latest_url = f"https://comic-walker.com/detail/{series_code}/episodes/{latest_code}?episodeType=latest"
 
-    # Titles: prefer episode page title (has 【第xx話】...), fallback to series page title.
     series_title = None
     episode_title = None
 
@@ -125,8 +132,7 @@ def parse_comic_action_title(page_title: str):
     """Try to extract (episodeLabel, seriesTitle) from a webアクション <title>."""
     if not page_title:
         return None, None
-    # Typical: "第39話 / ダンジョンの中のひと - 双見酔 | webアクション"
-    main = page_title.split("|")[0].strip()  # drop site
+    main = page_title.split("|")[0].strip()
     parts = [p.strip() for p in main.split("/")]
     if len(parts) >= 2:
         ep = parts[0]
@@ -149,10 +155,8 @@ def comic_action_latest_from_episode(start_episode_url: str, max_hops: int = 30)
         last_html = html
         m = re.search(r'nextReadableProductUri\"\s*:\s*\"(https?://[^\"]+)\"', html)
         if not m:
-            # sometimes HTML-escaped
             m = re.search(r'nextReadableProductUri&quot;\s*:\s*&quot;(https?://[^&]+)&quot;', html)
         if not m:
-            # no next => assume this is the latest
             t = html_title(html)
             ep, series = parse_comic_action_title(t)
             return {"url": cur, "pageTitle": t, "seriesTitle": series, "episodeTitle": ep}
@@ -170,27 +174,29 @@ def comic_action_latest_from_episode(start_episode_url: str, max_hops: int = 30)
 
 def normalize_item(url: str):
     if "comic-walker.com/detail/" in url and "/episodes/" in url:
-        m = re.search(r'/detail/(KC_\d+_S)/episodes/', url)
+        m = re.search(r"/detail/(KC_\d+_S)/episodes/", url)
         if not m:
             raise RuntimeError("comic-walker: could not parse series code")
         return {"kind": "comic-walker", "series": m.group(1), "seedUrl": f"https://comic-walker.com/detail/{m.group(1)}"}
     if "comic-action.com/episode/" in url:
         return {"kind": "comic-action", "seedUrl": url}
     if "kakuyomu.jp/works/" in url and "/episodes/" in url:
-        m = re.search(r'kakuyomu\.jp/works/(\d+)/episodes/(\d+)', url)
+        m = re.search(r"kakuyomu\.jp/works/(\d+)/episodes/(\d+)", url)
         if not m:
             raise RuntimeError("kakuyomu: could not parse work/episode id")
         work_id, episode_id = m.group(1), m.group(2)
-        return {"kind": "kakuyomu", "series": f"kakuyomu:{work_id}", "workId": work_id, "seedEpisodeId": episode_id, "seedUrl": url}
+        return {
+            "kind": "kakuyomu",
+            "series": f"kakuyomu:{work_id}",
+            "workId": work_id,
+            "seedEpisodeId": episode_id,
+            "seedUrl": url,
+        }
     raise RuntimeError(f"Unsupported URL: {url}")
 
 
 def kakuyomu_latest(work_id: str):
-    """Find latest episode for a Kakuyomu work.
-
-    Kakuyomu work pages embed a Next.js JSON blob ("__NEXT_DATA__") that includes episode
-    entries with title + publishedAt. We select the newest by publishedAt.
-    """
+    """Find latest episode for a Kakuyomu work."""
     work_url = f"https://kakuyomu.jp/works/{work_id}"
     html = http_get(work_url)
 
@@ -201,8 +207,6 @@ def kakuyomu_latest(work_id: str):
     raw = m.group(1)
 
     episodes = []
-    # Example fragment:
-    # "Episode:822139844009936710":{...,"id":"822139844009936710","title":"第67話...","publishedAt":"2026-01-27T08:00:03Z"}
     for mm in re.finditer(
         r'"Episode:(\d+)"\s*:\s*\{[^\}]*?"id"\s*:\s*"(\d+)"[^\}]*?"title"\s*:\s*"([^"]+)"[^\}]*?"publishedAt"\s*:\s*"([^"]+)"',
         raw,
@@ -215,11 +219,9 @@ def kakuyomu_latest(work_id: str):
     if not episodes:
         raise RuntimeError("kakuyomu: no episodes found in __NEXT_DATA__")
 
-    # newest by publishedAt (ISO8601 Z sorts lexicographically)
-    published_at, latest_eid, latest_title = max(episodes, key=lambda x: x[0])
+    _, latest_eid, latest_title = max(episodes, key=lambda x: x[0])
     latest_url = f"https://kakuyomu.jp/works/{work_id}/episodes/{latest_eid}"
 
-    # Work title: easiest from the episode page <title>
     ep_html = http_get(latest_url)
     t = html_title(ep_html)
 
@@ -250,12 +252,7 @@ def compute_latest(item):
     raise RuntimeError(f"Unknown kind: {item['kind']}")
 
 
-def main():
-    if len(sys.argv) < 2:
-        print("usage: check.py <urls.txt>", file=sys.stderr)
-        return 2
-
-    urls_path = sys.argv[1]
+def run_check(urls_path: str):
     with open(urls_path, "r", encoding="utf-8") as f:
         urls = [ln.strip() for ln in f if ln.strip() and not ln.strip().startswith("#")]
 
@@ -282,18 +279,14 @@ def main():
             updates.append({"id": item_id, "from": prev_latest, "to": latest})
             items_state[item_id] = {"latest": latest, "seenAt": now}
         else:
-            # Same episode, but we might have learned better metadata (titles). Update silently.
-            # For title fields, prefer the freshly fetched values when present.
             merged = dict(prev_latest)
             for k2, v2 in latest.items():
                 if v2 is None:
                     continue
                 if k2 in ("seriesTitle", "episodeTitle", "pageTitle"):
-                    # overwrite if we have a non-empty newer value
                     if v2 and v2 != merged.get(k2):
                         merged[k2] = v2
                     continue
-                # for other fields, fill only if missing
                 if not merged.get(k2):
                     merged[k2] = v2
             items_state[item_id] = {"latest": merged, "seenAt": now}
@@ -301,7 +294,17 @@ def main():
     state["lastRunAt"] = now
     save_state(state)
 
-    print(json.dumps({"updates": updates}, ensure_ascii=False))
+    return {"updates": updates}
+
+
+def main(argv=None):
+    argv = argv if argv is not None else sys.argv[1:]
+    if not argv:
+        print("usage: check.py <urls.txt>", file=sys.stderr)
+        return 2
+
+    result = run_check(argv[0])
+    print(json.dumps(result, ensure_ascii=False))
     return 0
 
 

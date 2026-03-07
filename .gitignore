@@ -2,6 +2,7 @@
 __pycache__/
 *.pyc
 .venv/
+.env
 
 # Local state (optional)
 # If you want to commit state.json, remove the next line.

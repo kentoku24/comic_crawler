@@ -1,27 +1,17 @@
 # comic_crawler
 
-Manga update crawler + simple state store.
-
-This was built to run under **OpenClaw** (cron job) but the core checker is just a Python script.
-
-## Repository layout
-
-- `manga_watch/urls.txt`
-  - Input list (one URL per line)
-- `manga_watch/check.py`
-  - Fetches sources, detects latest episode, compares with saved state
-- `manga_watch/state.json`
-  - Local persisted state (last-seen latest episode per work)
+Docker コンテナ 1 つで定期クロールし、Discord に新着通知と run report を送る漫画更新監視アプリです。
 
 ## What it does
 
-1. Read `urls.txt`
-2. For each URL, determine a stable **work id**
-3. Fetch the latest episode info
-4. Compare with `state.json`
-5. If changed, output updates and update `state.json`
+1. `manga_watch/urls.txt` の watchlist を読む
+2. 各 URL から安定した work id を決める
+3. 最新エピソードを取得する
+4. state と比較する
+5. 更新があれば Discord main channel に通知する
+6. 毎回 Discord run-report channel に実行結果を送る
 
-The script prints JSON like:
+checker 単体の出力契約は引き続き JSON です。
 
 ```json
 {
@@ -35,81 +25,78 @@ The script prints JSON like:
 }
 ```
 
-If there are no changes:
+## Supported sources
 
-```json
-{"updates": []}
+### ComicWalker
+- 入力: `https://comic-walker.com/detail/<series>/episodes/<episode>`
+- 比較キー: `episodeCode`
+
+### webアクション
+- 入力: `https://comic-action.com/episode/<id>`
+- 比較キー: 最終到達エピソード URL
+
+### Kakuyomu
+- 入力: `https://kakuyomu.jp/works/<work>/episodes/<episode>`
+- 比較キー: 最新 episode id
+
+## Docker run
+
+1. `.env.example` を `.env` にコピーして Discord 設定を入れる
+2. 必要なら `manga_watch/urls.txt` を編集する
+3. 起動する
+
+```bash
+docker compose up -d --build
+docker compose logs -f
 ```
 
-## Supported sources (current)
+永続 state は Docker volume `crawler-data` に保存されます。コンテナ再起動後も差分判定は維持されます。
 
-### ComicWalker (comic-walker.com)
-- Seed URL format: any episode URL is OK
-  - Example: `https://comic-walker.com/detail/KC_003913_S/episodes/..._E`
-- How it works:
-  - Derives `KC_XXXXXX_S` from the seed URL
-  - Fetches `https://comic-walker.com/detail/<KC_XXXXXX_S>`
-  - Parses `__NEXT_DATA__` to find the newest episode code
-  - Fetches the latest episode page `<title>` to extract:
-    - `seriesTitle` (work title)
-    - `episodeTitle` (e.g. `第61話`)
+### Environment variables
 
-### webアクション (comic-action.com)
-- Seed URL format: an episode page
-  - Example: `https://comic-action.com/episode/2550689798784879524`
-- How it works:
-  - Follows `nextReadableProductUri` repeatedly until it stops
-  - Parses the final page `<title>` to extract:
-    - `seriesTitle`
-    - `episodeTitle` (e.g. `第50話`)
+- `DISCORD_BOT_TOKEN`: Discord Bot token
+- `DISCORD_MAIN_CHANNEL_ID`: 更新通知先 channel id
+- `DISCORD_RUN_REPORT_CHANNEL_ID`: 毎回の run report 送信先 channel id
+- `TZ`: スケジュール計算の timezone。既定値は `Asia/Tokyo`
+- `CRAWL_SCHEDULE`: cron 形式。既定値は `0 19 * * *`
+- `CRAWL_INTERVAL`: 秒単位の固定間隔。`CRAWL_SCHEDULE` と同時指定は不可
+- `RUN_ON_STARTUP`: `true` のとき起動直後に 1 回実行
+- `MANGA_WATCH_URLS`: watchlist パス。compose では `/app/manga_watch/urls.txt`
+- `MANGA_WATCH_STATE`: state ファイルパス。compose では `/data/state.json`
 
 ## Local run
 
-Prereqs:
-- Python 3
-- `requests`
+checker 単体確認:
 
 ```bash
 python3 -m venv .venv
 source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
-
 python3 manga_watch/check.py manga_watch/urls.txt
-cat manga_watch/state.json
 ```
 
-## Using with OpenClaw (cron)
+runner をローカル起動する場合は Discord 環境変数を入れてから実行します。
 
-OpenClaw integration docs live in `openclaw/` (no secrets):
-- `openclaw/README.md`
-- `openclaw/example-config.json5` (template)
-- `openclaw/cron-job.md` (schedule + behavior)
+```bash
+python3 -m manga_watch.runner
+```
 
-The intended wiring is:
-- Cron runs the checker (`check.py`)
-- If updates exist: notify a Discord channel
-- Always: post a run report channel message
+## Repository layout
 
-Example schedule:
-- Production: **daily at 19:00 JST**
+- `manga_watch/check.py`: 最新話検出と state 更新
+- `manga_watch/runner.py`: スケジューラ + Discord 通知
+- `manga_watch/urls.txt`: watchlist
+- `docker-compose.yml`: 本番想定の単一コンテナ起動定義
+- `openclaw/`: 旧運用の参考資料。現行運用では不要
 
 ## Security notes
 
-- Do **not** commit secrets (GitHub tokens, cookies, passwords).
-- `state.json` contains only “last seen” metadata (titles/episode ids/urls).
-- If you need authenticated crawling for a site later, prefer:
-  - a separate secrets store, or
-  - OpenClaw secret/config injection mechanisms
+- Discord token はコミットしない
+- cookies / login creds はコミットしない
+- state には last-seen メタデータだけを保存する
 
 ## Maintenance tips
 
-- If a site changes HTML structure and updates stop working:
-  - run `python3 manga_watch/check.py ...` locally and inspect exceptions
-  - adjust the parsing logic in `check.py`
-- When adding new sites:
-  - add a new normalizer in `normalize_item()`
-  - implement a `compute_latest()` branch that returns:
-    - `seriesTitle`
-    - `episodeTitle`
-    - and either `episodeCode` or `url` as the stable comparison key
+- サイトの HTML が変わって検知が止まったら `python3 manga_watch/check.py manga_watch/urls.txt` を直接実行して例外を確認する
+- 新しいサイトを足すときは `normalize_item()` と `compute_latest()` を拡張する
