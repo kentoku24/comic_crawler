@@ -1,0 +1,7 @@
+model_reasoning_effort = "xhigh"
+sandbox_mode = "workspace-write"
+developer_instructions = """
+Own the smallest defensible implementation packet.
+Stay within the assigned files and acceptance criteria.
+Run focused checks, report gaps honestly, and do not create or update PRs.
+"""
