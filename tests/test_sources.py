@@ -1,8 +1,14 @@
+import importlib
+import inspect
+import pkgutil
 import unittest
 
+import manga_watch.sources as sources_package
+from manga_watch.sources.base import SourceAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
+from manga_watch.sources.registry import DEFAULT_ADAPTERS, REGISTERED_ADAPTER_TYPES
 
 
 class FakeHttpClient:
@@ -13,7 +19,41 @@ class FakeHttpClient:
         return self.pages[url]
 
 
+def discover_adapter_types():
+    discovered = {}
+
+    for module_info in pkgutil.iter_modules(sources_package.__path__):
+        if module_info.name in {"base", "registry", "util"}:
+            continue
+
+        module = importlib.import_module(f"{sources_package.__name__}.{module_info.name}")
+        for _, adapter_type in inspect.getmembers(module, inspect.isclass):
+            if adapter_type is SourceAdapter:
+                continue
+            if not issubclass(adapter_type, SourceAdapter):
+                continue
+            if inspect.isabstract(adapter_type):
+                continue
+            if adapter_type.__module__ != module.__name__:
+                continue
+            if adapter_type.source in discovered:
+                raise AssertionError(f"duplicate adapter source registered in modules: {adapter_type.source}")
+            discovered[adapter_type.source] = adapter_type
+
+    return discovered
+
+
 class SourceAdapterTests(unittest.TestCase):
+    def test_registry_contract_covers_all_source_adapter_modules(self):
+        discovered = discover_adapter_types()
+        registered = {adapter_type.source: adapter_type for adapter_type in REGISTERED_ADAPTER_TYPES}
+
+        self.assertEqual(discovered, registered)
+        self.assertEqual(
+            tuple(registered.keys()),
+            tuple(adapter.source for adapter in DEFAULT_ADAPTERS),
+        )
+
     def test_comic_walker_adapter_fetches_latest_episode_from_fixture(self):
         adapter = ComicWalkerAdapter()
         seed_url = "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456001_E"

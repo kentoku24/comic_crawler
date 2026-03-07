@@ -1,14 +1,19 @@
-from typing import Optional, Sequence
+from typing import Optional, Sequence, Tuple, Type
 
 from .base import HttpClient, LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
 from .comic_action import ComicActionAdapter
 from .comic_walker import ComicWalkerAdapter
 from .kakuyomu import KakuyomuAdapter
 
-DEFAULT_ADAPTERS = (
-    ComicWalkerAdapter(),
-    ComicActionAdapter(),
-    KakuyomuAdapter(),
+# Single source of truth for supported adapters. Add new adapter classes here.
+REGISTERED_ADAPTER_TYPES: Tuple[Type[SourceAdapter], ...] = (
+    ComicWalkerAdapter,
+    ComicActionAdapter,
+    KakuyomuAdapter,
+)
+
+DEFAULT_ADAPTERS: Tuple[SourceAdapter, ...] = tuple(
+    adapter_type() for adapter_type in REGISTERED_ADAPTER_TYPES
 )
 
 

@@ -90,6 +90,21 @@ python3 -m manga_watch.runner
 - `manga_watch/urls.txt`: watchlist
 - `docker-compose.yml`: 本番想定の単一コンテナ起動定義
 
+## Adding a source adapter
+
+source adapter の registration contract は `manga_watch/sources/registry.py` の
+`REGISTERED_ADAPTER_TYPES` です。新しい source を追加するときは次の順に行います。
+
+1. `manga_watch/sources/<source>.py` に `SourceAdapter` 実装を追加する
+2. その adapter class を `REGISTERED_ADAPTER_TYPES` に追加する
+
+未登録の adapter module が増えると `tests/test_sources.py` の registry test が失敗します。
+追加後は次で確認します。
+
+```bash
+python3 -m unittest tests.test_sources tests.test_check tests.test_runner
+```
+
 ## Security notes
 
 - Discord token はコミットしない
@@ -99,4 +114,4 @@ python3 -m manga_watch.runner
 ## Maintenance tips
 
 - サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/urls.txt` を実行して例外を確認する
-- 新しいサイトを足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` に登録する
+- 新しいサイトを足すときは `Adding a source adapter` の 2-step contract に従う
