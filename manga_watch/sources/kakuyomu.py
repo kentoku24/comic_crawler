@@ -1,0 +1,92 @@
+import re
+from typing import Optional, Tuple
+
+from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, WorkDescriptor
+from .util import html_title
+
+
+class KakuyomuAdapter(SourceAdapter):
+    source = "kakuyomu"
+
+    def can_handle(self, seed_url: str) -> bool:
+        return "kakuyomu.jp/works/" in seed_url and "/episodes/" in seed_url
+
+    def normalize(self, seed_url: str) -> WorkDescriptor:
+        match = re.search(r"kakuyomu\.jp/works/(\d+)/episodes/(\d+)", seed_url)
+        if not match:
+            raise RuntimeError("kakuyomu: could not parse work/episode id")
+
+        numeric_work_id = match.group(1)
+        seed_episode_id = match.group(2)
+        work_id = f"kakuyomu:{numeric_work_id}"
+        return WorkDescriptor(
+            source=self.source,
+            work_id=work_id,
+            seed_url=seed_url,
+            metadata={
+                "series": work_id,
+                "numericWorkId": numeric_work_id,
+                "seedEpisodeId": seed_episode_id,
+            },
+        )
+
+    def fetch_latest(self, work: WorkDescriptor, http_client: HttpClient) -> LatestEpisode:
+        numeric_work_id = work.metadata.get("numericWorkId")
+        if not numeric_work_id:
+            raise RuntimeError("kakuyomu: work descriptor missing numericWorkId")
+
+        work_url = f"https://kakuyomu.jp/works/{numeric_work_id}"
+        html = self._fetch_work_page(work_url, http_client)
+        latest_id, latest_title = self._parse_latest_episode(html)
+        latest_url = f"{work_url}/episodes/{latest_id}"
+
+        episode_html = self._fetch_episode_page(latest_url, http_client)
+        page_title = html_title(episode_html)
+
+        series_title = None
+        episode_title = latest_title
+        if page_title and " - " in page_title:
+            parts = [part.strip() for part in page_title.split(" - ")]
+            if len(parts) >= 2:
+                episode_title = parts[0] or episode_title
+                series_title = parts[1] or None
+
+        return LatestEpisode(
+            source=self.source,
+            work_id=work.work_id,
+            latest_key=str(latest_id),
+            url=latest_url,
+            series=work.metadata.get("series") or work.work_id,
+            series_title=series_title,
+            episode_code=str(latest_id),
+            episode_title=episode_title,
+            page_title=page_title,
+        )
+
+    def _fetch_work_page(self, work_url: str, http_client: HttpClient) -> str:
+        return http_client.get_text(work_url)
+
+    def _fetch_episode_page(self, episode_url: str, http_client: HttpClient) -> str:
+        return http_client.get_text(episode_url)
+
+    def _parse_latest_episode(self, html: str) -> Tuple[str, str]:
+        match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
+        if not match:
+            raise SourceParseError("kakuyomu: __NEXT_DATA__ not found")
+
+        raw = match.group(1)
+        episodes = []
+        for episode_match in re.finditer(
+            r'"Episode:(\d+)"\s*:\s*\{[^\}]*?"id"\s*:\s*"(\d+)"[^\}]*?"title"\s*:\s*"([^"]+)"[^\}]*?"publishedAt"\s*:\s*"([^"]+)"',
+            raw,
+        ):
+            episode_id = episode_match.group(2)
+            title = episode_match.group(3)
+            published_at = episode_match.group(4)
+            episodes.append((published_at, episode_id, title))
+
+        if not episodes:
+            raise SourceParseError("kakuyomu: no episodes found in __NEXT_DATA__")
+
+        _, latest_id, latest_title = max(episodes, key=lambda episode: episode[0])
+        return latest_id, latest_title
