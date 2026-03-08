@@ -74,6 +74,57 @@ class WatchlistCliTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual([existing_entry], saved["works"])
 
+    def test_watchlist_add_adds_entry_from_comic_action_series_feed_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            result = self.run_watchlist_module(
+                "add",
+                "https://comic-action.com/rss/series/13933686331606207128?free_only=1",
+                "--watchlist",
+                str(watchlist_path),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, result.returncode, msg=result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("comic-action:13933686331606207128", payload["entry"]["id"])
+        self.assertEqual(
+            "https://comic-action.com/rss/series/13933686331606207128",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_watchlist_add_reports_duplicate_for_comic_action_series_feed_url(self):
+        existing_entry = {
+            "id": "comic-action:13933686331606207128",
+            "source": "comic-action",
+            "seed_url": "https://comic-action.com/episode/11341664176570134078",
+            "enabled": True,
+            "notification_policy": {"mode": "all", "allowed_update_types": None},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [existing_entry])
+
+            result = self.run_watchlist_module(
+                "add",
+                "https://comic-action.com/atom/series/13933686331606207128",
+                "--watchlist",
+                str(watchlist_path),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, result.returncode, msg=result.stderr)
+        payload = json.loads(result.stdout)
+        self.assertEqual("duplicate", payload["action"])
+        self.assertEqual(existing_entry, payload["existing"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual([existing_entry], saved["works"])
+
     def test_watchlist_add_reports_unsupported_source(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
