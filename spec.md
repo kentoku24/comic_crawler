@@ -404,6 +404,8 @@ python3 -m manga_watch.runner
 - `main_story` と suppress 対象が衝突した場合は `unknown` に倒す
 - `bonus` と `announcement` だけが衝突した場合は suppress 側に残す
 - `allowed_update_types` が明示設定されていれば、それをその作品の最終通知判定として使う。空 list も有効で、その場合は全 suppress
+- `allowed_update_types` に許可される値は `main_story`, `bonus`, `announcement`, `unknown` のみ
+- typo や未対応値を含む watchlist は validation error にする
 - `allowed_update_types=null` のときだけ `mode` を使う
 - `mode=all`: 全 `update_type` を通知し、classification default を bypass する
 - `mode=important_only`: `main_story` と `unknown` だけを通知する

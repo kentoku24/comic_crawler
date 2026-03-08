@@ -309,6 +309,38 @@ class CheckTests(unittest.TestCase):
                 }
             )
 
+    def test_validate_watchlist_rejects_unknown_notification_policy_allowed_update_type(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "notification_policy.allowed_update_types must contain only supported update types",
+        ):
+            validate_watchlist(
+                {
+                    "version": 2,
+                    "works": [
+                        watchlist_entry(
+                            notification_policy={
+                                "mode": "important_only",
+                                "allowed_update_types": ["main_stroy"],
+                            }
+                        )
+                    ],
+                }
+            )
+
+    def test_evaluate_notification_policy_rejects_unknown_allowed_update_type(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "notification_policy.allowed_update_types must contain only supported update types",
+        ):
+            evaluate_notification_policy(
+                {
+                    "mode": "all",
+                    "allowed_update_types": ["main_stroy"],
+                },
+                update_type="main_story",
+            )
+
     def test_evaluate_notification_policy_truth_table(self):
         cases = [
             (
