@@ -13,6 +13,9 @@
         "latest_key": "KC_0039130008900011_E"
       },
       "history": [],
+      "unread": {
+        "event_ids": []
+      },
       "health": {
         "last_checked_at": 1769917010,
         "last_success_at": 1769917010,
@@ -31,6 +34,9 @@
         "latest_key": "KC_0070320000900011_E"
       },
       "history": [],
+      "unread": {
+        "event_ids": []
+      },
       "health": {
         "last_checked_at": 1769917010,
         "last_success_at": 1769917010,
@@ -48,6 +54,9 @@
         "latest_key": "https://comic-action.com/episode/2551460909780695609"
       },
       "history": [],
+      "unread": {
+        "event_ids": []
+      },
       "health": {
         "last_checked_at": 1769917010,
         "last_success_at": 1769917010,
@@ -66,6 +75,9 @@
         "latest_key": "KC_0014050006700011_E"
       },
       "history": [],
+      "unread": {
+        "event_ids": []
+      },
       "health": {
         "last_checked_at": 1769917010,
         "last_success_at": 1769917010,
@@ -75,6 +87,9 @@
     "KC_000061_S": {
       "latest": {},
       "history": [],
+      "unread": {
+        "event_ids": []
+      },
       "health": {
         "last_checked_at": null,
         "last_success_at": null,
@@ -84,6 +99,9 @@
     "kakuyomu:16818093092974667738": {
       "latest": {},
       "history": [],
+      "unread": {
+        "event_ids": []
+      },
       "health": {
         "last_checked_at": null,
         "last_success_at": null,

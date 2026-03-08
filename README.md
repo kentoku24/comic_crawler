@@ -1,6 +1,6 @@
 # comic_crawler
 
-Docker コンテナ 1 つで定期クロールし、`stdout` と generic webhook に新着通知 event を送れる漫画更新監視アプリです。run report は毎回標準出力に出します。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きします。
+Docker コンテナ 1 つで定期クロールし、`stdout` と generic webhook に新着通知 event を送れる漫画更新監視アプリです。run report は毎回標準出力に出します。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
 
 ## What it does
 
@@ -80,7 +80,26 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 - path: `manga_watch/state.json`
 - env: `MANGA_WATCH_STATE`
 
-各作品は `latest`, `history`, `health` を持ち、`health` には `last_checked_at`, `last_success_at`, `consecutive_failures` を保持します。詳細な schema と migration contract は [spec.md](spec.md) を source of truth とします。
+各作品は `latest`, `history`, `unread`, `health` を持ちます。
+
+- `history`: `event_id` と `seen_at` を持つ更新イベント列
+- `unread.event_ids`: 未読イベントの source of truth
+- `health`: `last_checked_at`, `last_success_at`, `consecutive_failures`
+
+履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。詳細な schema と migration contract は [spec.md](spec.md) を source of truth とします。
+
+### backlog CLI
+
+履歴と未読の確認には `python3 -m manga_watch.backlog` を使います。
+
+```bash
+python3 -m manga_watch.backlog --unread-only
+python3 -m manga_watch.backlog --work-id KC_003913_S --json
+python3 -m manga_watch.backlog --mark-read KC_003913_S
+```
+
+- `--json`: unread 数と履歴イベントを JSON で出力
+- `--mark-read <work_id>`: その作品の現在未読を既読化し、保持ルールに従って履歴を trim
 
 ### legacy v1 input
 
@@ -136,23 +155,67 @@ runner が backend に送る update event は次の schema です。
 
 ## Supported sources
 
-### ComicWalker
+| Source | `watchlist add` accepted inputs | Stored `seed_url` | `work_id` | `latest_key` |
+| --- | --- | --- | --- | --- |
+| ComicWalker | canonical series URL, episode URL | `https://comic-walker.com/detail/<series>` | `KC_XXXXXX_S` | `episodeCode` |
+| webアクション | episode URL only | 入力 URL のまま | `comic-action:<series_id>` | 最終到達 episode URL |
+| Kakuyomu | work URL, episode URL | 入力 URL のまま | `kakuyomu:<numeric_work_id>` | 最新 episode id |
 
-- 入力: `https://comic-walker.com/detail/<series>/episodes/<episode>`
-- `work_id`: `KC_XXXXXX_S`
-- `latest_key`: `episodeCode`
+Phase 1 では source ごとの capability 差を隠しません。`watchlist add` が受け付ける URL 種別は上の表だけです。
 
-### webアクション
+## Watchlist add CLI
 
-- 入力: `https://comic-action.com/episode/<id>`
-- `work_id`: `comic-action:<series_id>`
-- `latest_key`: 最終到達 episode URL
+```bash
+python3 -m manga_watch.watchlist add <url>
+python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
+```
 
-### Kakuyomu
+- デフォルトの watchlist パスは `MANGA_WATCH_WATCHLIST`、未設定時は `MANGA_WATCH_URLS`、さらに未設定なら `manga_watch/watchlist.json`
+- 出力は常に JSON
+- `action=added` と `action=duplicate` は exit code `0`
+- `action=error` は exit code `1`
 
-- 入力: `https://kakuyomu.jp/works/<work>/episodes/<episode>`
-- `work_id`: `kakuyomu:<numeric_work_id>`
-- `latest_key`: 最新 episode id
+成功時は normalize preview を `entry` に返します。
+
+```json
+{
+  "action": "added",
+  "input_url": "https://kakuyomu.jp/works/123",
+  "watchlist_path": "manga_watch/watchlist.json",
+  "entry": {
+    "id": "kakuyomu:123",
+    "source": "kakuyomu",
+    "seed_url": "https://kakuyomu.jp/works/123",
+    "enabled": true,
+    "notification_policy": {"mode": "all", "allowed_update_types": null}
+  },
+  "work_count": 1
+}
+```
+
+重複時は新規追加せず、既存 entry を返します。
+
+```json
+{
+  "action": "duplicate",
+  "entry": {"id": "kakuyomu:123"},
+  "existing": {"id": "kakuyomu:123"},
+  "work_count": 1
+}
+```
+
+エラー時は `kind`, `message`, `next_action` を返します。`kind` は少なくとも `invalid_url`, `unsupported_source`, `unsupported_url_type`, `normalize_failed` を使います。
+
+```json
+{
+  "action": "error",
+  "error": {
+    "kind": "unsupported_url_type",
+    "message": "comic-action does not support this URL type for `watchlist add`: https://comic-action.com/series/123",
+    "next_action": "Supported input types for comic-action: episode URL. Examples: https://comic-action.com/episode/123456"
+  }
+}
+```
 
 ## Docker run
 
@@ -192,7 +255,8 @@ source .venv/bin/activate
 pip install -U pip
 pip install -r requirements.txt
 python3 -m manga_watch.check manga_watch/watchlist.json
-python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2
+python3 -m manga_watch.backlog --unread-only
+python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
 ```
 
 runner をローカル起動する場合は notifier 環境変数を入れてから実行します。
@@ -233,9 +297,11 @@ python3 -m manga_watch.migrate_v2 \
 ## Repository layout
 
 - `manga_watch/check.py`: watchlist/state v2 を読む checker
+- `manga_watch/backlog.py`: 更新履歴 / 未読確認と既読化の最小 CLI
 - `manga_watch/migrate_v2.py`: v1 から v2 への one-time migration CLI
 - `manga_watch/storage.py`: watchlist/state v2 validation と atomic write
 - `manga_watch/notifier.py`: update event schema + stdout/webhook backend
+- `manga_watch/watchlist.py`: `watchlist add <url>` CLI
 - `manga_watch/runner.py`: スケジューラ + notifier fan-out + run report logging
 - `manga_watch/update_classification.py`: 更新種別と既定通知対象の分類ロジック
 - `manga_watch/watchlist.json`: watchlist v2 sample
@@ -248,6 +314,7 @@ python3 -m manga_watch.migrate_v2 \
 ## Maintenance tips
 
 - サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
-- migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2` を回す
-- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2` で runner まで確認する
+- migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
+- 未読の確認や既読化を手動で行いたいときは `python3 -m manga_watch.backlog --unread-only` または `python3 -m manga_watch.backlog --mark-read <work_id>` を使う
+- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` で runner まで確認する
 - 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` に登録して fixture / source tests を更新する

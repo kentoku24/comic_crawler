@@ -17,12 +17,15 @@ def parse_comic_walker_title(page_title: str) -> Tuple[Optional[str], Optional[s
 
 class ComicWalkerAdapter(SourceAdapter):
     source = "comic-walker"
+    _SUPPORTED_URL = re.compile(
+        r"^https?://(?:www\.)?comic-walker\.com/detail/(KC_\d+_S)(?:/episodes/[^/?#]+)?/?(?:\?.*)?$"
+    )
 
     def can_handle(self, seed_url: str) -> bool:
-        return "comic-walker.com/detail/" in seed_url
+        return bool(self._SUPPORTED_URL.match(seed_url))
 
     def normalize(self, seed_url: str) -> WorkDescriptor:
-        match = re.search(r"/detail/(KC_\d+_S)(?:/episodes/|$)", seed_url)
+        match = self._SUPPORTED_URL.match(seed_url)
         if not match:
             raise RuntimeError("comic-walker: could not parse series code")
 
