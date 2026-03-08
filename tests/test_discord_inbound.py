@@ -65,6 +65,35 @@ class DiscordInboundTests(unittest.TestCase):
         )
         self.assertEqual("10", client.list_calls[1]["after"])
 
+    def test_listener_handles_first_latest_query_after_empty_start(self):
+        client = FakeDiscordClient(
+            polls=[
+                [],
+                [{"id": "11", "content": " latest ", "author": {"id": "user-2"}}],
+            ]
+        )
+        listener = DiscordCommandListener(
+            client=client,
+            channel_id="main-channel",
+            coordinator=object(),
+            timezone_name="Asia/Tokyo",
+            latest_handler=lambda content, **_: "保存済みの最新話一覧です" if str(content).strip() == "latest" else None,
+            fetch_handler=lambda content, **_: None,
+            report_logger=lambda _: None,
+            error_logger=lambda _: None,
+        )
+
+        first = listener.poll_once()
+        second = listener.poll_once()
+
+        self.assertEqual([], first)
+        self.assertEqual(["保存済みの最新話一覧です"], second)
+        self.assertEqual(
+            [{"channel_id": "main-channel", "content": "保存済みの最新話一覧です"}],
+            client.sent_messages,
+        )
+        self.assertIsNone(client.list_calls[1]["after"])
+
     def test_listener_handles_fetch_trigger(self):
         client = FakeDiscordClient(
             polls=[

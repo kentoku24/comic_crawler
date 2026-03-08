@@ -115,12 +115,13 @@ class DiscordCommandListener:
     thread_factory: Callable[..., threading.Thread] = threading.Thread
     _bot_user_id: Optional[str] = field(default=None, init=False, repr=False)
     _last_seen_message_id: Optional[str] = field(default=None, init=False, repr=False)
+    _cursor_primed: bool = field(default=False, init=False, repr=False)
 
     def _prime_cursor(self) -> None:
         if self._bot_user_id is None:
             self._bot_user_id = self.client.get_current_user_id()
 
-        if self._last_seen_message_id is not None:
+        if self._cursor_primed:
             return
 
         messages = self.client.list_channel_messages(self.channel_id, limit=1)
@@ -134,6 +135,7 @@ class DiscordCommandListener:
             if newest is None or _snowflake_sort_key(message_id) > _snowflake_sort_key(newest):
                 newest = message_id
         self._last_seen_message_id = newest
+        self._cursor_primed = True
 
     def _should_ignore_message(self, message: Mapping[str, object]) -> bool:
         author_id = _message_author_id(message)
@@ -173,9 +175,8 @@ class DiscordCommandListener:
         return response_message or ""
 
     def poll_once(self) -> List[str]:
-        primed = self._last_seen_message_id is None
-        self._prime_cursor()
-        if primed:
+        if not self._cursor_primed:
+            self._prime_cursor()
             return []
         messages = self.client.list_channel_messages(
             self.channel_id,
