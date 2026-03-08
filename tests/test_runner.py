@@ -40,7 +40,7 @@ class RunnerTests(unittest.TestCase):
             discord_main_channel_id="main",
             discord_run_report_channel_id="report",
             timezone_name="Asia/Tokyo",
-            urls_path="/tmp/urls.txt",
+            watchlist_path="/tmp/watchlist.json",
             crawl_schedule="0 19 * * *",
             crawl_interval=None,
             run_on_startup=True,
@@ -50,9 +50,15 @@ class RunnerTests(unittest.TestCase):
     def test_run_once_without_updates_only_sends_report(self):
         messenger = FakeMessenger()
         state = {
-            "items": {
+            "works": {
                 "work-1": {
-                    "latest": {"seriesTitle": "作品A", "episodeTitle": "第1話"},
+                    "latest": {"series_title": "作品A", "episode_title": "第1話"},
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
                 }
             }
         }
@@ -78,18 +84,24 @@ class RunnerTests(unittest.TestCase):
         updates = [
             {
                 "id": "work-1",
-                "from": {"seriesTitle": "作品A", "episodeTitle": "第1話"},
+                "from": {"series_title": "作品A", "episode_title": "第1話"},
                 "to": {
-                    "seriesTitle": "作品A",
-                    "episodeTitle": "第2話",
+                    "series_title": "作品A",
+                    "episode_title": "第2話",
                     "url": "https://example.com/2",
                 },
             }
         ]
         state = {
-            "items": {
+            "works": {
                 "work-1": {
-                    "latest": {"seriesTitle": "作品A", "episodeTitle": "第2話"},
+                    "latest": {"series_title": "作品A", "episode_title": "第2話"},
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
                 }
             }
         }
@@ -115,10 +127,10 @@ class RunnerTests(unittest.TestCase):
         updates = [
             {
                 "id": "work-1",
-                "from": {"seriesTitle": "作品A", "episodeTitle": "第1話"},
+                "from": {"series_title": "作品A", "episode_title": "第1話"},
                 "to": {
-                    "seriesTitle": "作品A",
-                    "episodeTitle": "第2話",
+                    "series_title": "作品A",
+                    "episode_title": "第2話",
                     "url": "https://example.com/2",
                 },
             }
@@ -135,12 +147,24 @@ class RunnerTests(unittest.TestCase):
             "run": [],
         }
         state = {
-            "items": {
+            "works": {
                 "work-1": {
-                    "latest": {"seriesTitle": "作品A", "episodeTitle": "第2話"},
+                    "latest": {"series_title": "作品A", "episode_title": "第2話"},
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
                 },
                 "work-2": {
-                    "latest": {"seriesTitle": "作品B", "episodeTitle": "第5話"},
+                    "latest": {"series_title": "作品B", "episode_title": "第5話"},
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 1,
+                    },
                 },
             }
         }
@@ -165,19 +189,25 @@ class RunnerTests(unittest.TestCase):
     def test_run_once_sends_failure_report_when_notification_fails(self):
         messenger = FakeMessenger(fail_on_channel="main")
         state = {
-            "items": {
+            "works": {
                 "work-1": {
-                    "latest": {"seriesTitle": "作品A", "episodeTitle": "第2話"},
+                    "latest": {"series_title": "作品A", "episode_title": "第2話"},
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
                 }
             }
         }
         updates = [
             {
                 "id": "work-1",
-                "from": {"seriesTitle": "作品A", "episodeTitle": "第1話"},
+                "from": {"series_title": "作品A", "episode_title": "第1話"},
                 "to": {
-                    "seriesTitle": "作品A",
-                    "episodeTitle": "第2話",
+                    "series_title": "作品A",
+                    "episode_title": "第2話",
                     "url": "https://example.com/2",
                 },
             }

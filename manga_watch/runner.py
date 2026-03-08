@@ -8,9 +8,9 @@ from typing import Callable, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
-from croniter import croniter
 
-from manga_watch.check import load_state, run_check
+from manga_watch.check import run_check
+from manga_watch.storage import DEFAULT_WATCHLIST_PATH, load_state
 
 DEFAULT_CRAWL_SCHEDULE = "0 19 * * *"
 
@@ -54,7 +54,9 @@ def split_message(content: str, limit: int = 2000) -> List[str]:
 
 def latest_label(latest: Dict[str, str], fallback: str) -> str:
     return (
-        latest.get("episodeTitle")
+        latest.get("episode_title")
+        or latest.get("episodeTitle")
+        or latest.get("episode_code")
         or latest.get("episodeCode")
         or latest.get("url")
         or fallback
@@ -62,7 +64,12 @@ def latest_label(latest: Dict[str, str], fallback: str) -> str:
 
 
 def current_series_label(item_id: str, latest: Dict[str, str]) -> str:
-    return latest.get("seriesTitle") or latest.get("series") or item_id
+    return (
+        latest.get("series_title")
+        or latest.get("seriesTitle")
+        or latest.get("series")
+        or item_id
+    )
 
 
 def format_update_message(updates: List[Dict[str, object]]) -> str:
@@ -82,17 +89,19 @@ def format_update_message(updates: List[Dict[str, object]]) -> str:
 
 
 def format_state_lines(state: Dict[str, object]) -> List[str]:
-    items = state.get("items", {})
-    if not isinstance(items, dict) or not items:
+    works = state.get("works", {})
+    if not isinstance(works, dict) or not works:
         return ["- まだ監視結果なし"]
 
     lines: List[str] = []
-    for item_id in sorted(items.keys()):
-        latest = (items[item_id] or {}).get("latest", {})
+    for item_id in works.keys():
+        latest = (works[item_id] or {}).get("latest", {})
         if not isinstance(latest, dict):
             latest = {}
-        series = current_series_label(item_id, latest)
-        episode = latest_label(latest, "不明")
+        series = (
+            str(latest.get("series_title") or latest.get("series") or item_id)
+        )
+        episode = str(latest.get("episode_title") or latest.get("episode_code") or latest.get("url") or "不明")
         lines.append(f"- {series}：{episode}")
     return lines
 
@@ -176,7 +185,7 @@ class RunnerConfig:
     discord_main_channel_id: str
     discord_run_report_channel_id: str
     timezone_name: str
-    urls_path: str
+    watchlist_path: str
     crawl_schedule: Optional[str]
     crawl_interval: Optional[int]
     run_on_startup: bool
@@ -218,9 +227,9 @@ class RunnerConfig:
             discord_main_channel_id=os.environ["DISCORD_MAIN_CHANNEL_ID"],
             discord_run_report_channel_id=os.environ["DISCORD_RUN_REPORT_CHANNEL_ID"],
             timezone_name=timezone_name,
-            urls_path=os.environ.get(
-                "MANGA_WATCH_URLS",
-                os.path.join(os.path.dirname(__file__), "urls.txt"),
+            watchlist_path=os.environ.get(
+                "MANGA_WATCH_WATCHLIST",
+                os.environ.get("MANGA_WATCH_URLS", DEFAULT_WATCHLIST_PATH),
             ),
             crawl_schedule=crawl_schedule or DEFAULT_CRAWL_SCHEDULE,
             crawl_interval=crawl_interval,
@@ -267,7 +276,7 @@ def run_once(
     timestamp = format_timestamp(now_fn(), config.timezone_name)
 
     try:
-        result = checker(config.urls_path)
+        result = checker(config.watchlist_path)
         updates = result.get("updates", [])
         if not isinstance(updates, list):
             raise RuntimeError("checker returned invalid updates payload")
@@ -319,6 +328,8 @@ def run_once(
 
 
 def compute_next_run(config: RunnerConfig) -> datetime:
+    from croniter import croniter
+
     now = datetime.now(ZoneInfo(config.timezone_name))
     if config.crawl_interval is not None:
         return now + timedelta(seconds=config.crawl_interval)
