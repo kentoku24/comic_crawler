@@ -7,9 +7,14 @@ from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-import requests
-
 from manga_watch.check import run_check
+from manga_watch.notifier import (
+    Notifier,
+    NotifierConfig,
+    build_notifier,
+    build_update_event,
+    detected_at_for_timestamp,
+)
 from manga_watch.storage import DEFAULT_WATCHLIST_PATH, load_state
 from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES
 
@@ -27,52 +32,6 @@ def format_timestamp(unix_ts: float, timezone_name: str) -> str:
     return datetime.fromtimestamp(unix_ts, tz=tz).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
-def split_message(content: str, limit: int = 2000) -> List[str]:
-    if len(content) <= limit:
-        return [content]
-
-    chunks: List[str] = []
-    current = ""
-    for line in content.splitlines(keepends=True):
-        if len(line) > limit:
-            if current:
-                chunks.append(current.rstrip("\n"))
-                current = ""
-            for idx in range(0, len(line), limit):
-                chunks.append(line[idx : idx + limit].rstrip("\n"))
-            continue
-
-        if current and len(current) + len(line) > limit:
-            chunks.append(current.rstrip("\n"))
-            current = line
-        else:
-            current += line
-
-    if current:
-        chunks.append(current.rstrip("\n"))
-    return chunks or [content[:limit]]
-
-
-def latest_label(latest: Dict[str, str], fallback: str) -> str:
-    return (
-        latest.get("episode_title")
-        or latest.get("episodeTitle")
-        or latest.get("episode_code")
-        or latest.get("episodeCode")
-        or latest.get("url")
-        or fallback
-    )
-
-
-def current_series_label(item_id: str, latest: Dict[str, str]) -> str:
-    return (
-        latest.get("series_title")
-        or latest.get("seriesTitle")
-        or latest.get("series")
-        or item_id
-    )
-
-
 def update_type_for_event(update: Dict[str, object]) -> str:
     update_type = update.get("update_type")
     if isinstance(update_type, str) and update_type:
@@ -85,20 +44,6 @@ def update_type_for_event(update: Dict[str, object]) -> str:
             return latest_type
 
     return "unknown"
-
-
-def classification_reason_for_event(update: Dict[str, object]) -> Optional[str]:
-    reason = update.get("classification_reason")
-    if isinstance(reason, str) and reason:
-        return reason
-
-    latest = update.get("to", {}) or {}
-    if isinstance(latest, dict):
-        latest_reason = latest.get("classification_reason")
-        if isinstance(latest_reason, str) and latest_reason:
-            return latest_reason
-
-    return None
 
 
 def default_notify_for_event(update: Dict[str, object]) -> bool:
@@ -123,28 +68,6 @@ def partition_updates_by_default_notify(
         else:
             suppressed.append(update)
     return notify, suppressed
-
-
-def format_update_message(updates: List[Dict[str, object]]) -> str:
-    lines = ["新着エピソードを検知しました"]
-    for update in updates:
-        previous = update.get("from", {}) or {}
-        latest = update.get("to", {}) or {}
-        item_id = str(update.get("id") or "unknown")
-        series = current_series_label(item_id, latest) or current_series_label(item_id, previous)
-        before = latest_label(previous, "未取得")
-        after = latest_label(latest, "不明")
-        update_type = update_type_for_event(update)
-        suffix = "" if update_type == "main_story" else f" [{update_type}]"
-        lines.append(f"- {series}：{before} → {after}{suffix}")
-        if update_type == "unknown":
-            classification_reason = classification_reason_for_event(update)
-            if classification_reason:
-                lines.append(f"  判定理由: {classification_reason}")
-        url = latest.get("url")
-        if url:
-            lines.append(f"  {url}")
-    return "\n".join(lines)
 
 
 def format_state_lines(state: Dict[str, object]) -> List[str]:
@@ -244,30 +167,15 @@ def format_failure_report(timestamp: str, exc: Exception) -> str:
 
 @dataclass(frozen=True)
 class RunnerConfig:
-    discord_bot_token: str
-    discord_main_channel_id: str
-    discord_run_report_channel_id: str
     timezone_name: str
     watchlist_path: str
     crawl_schedule: Optional[str]
     crawl_interval: Optional[int]
     run_on_startup: bool
-    request_timeout: int
+    notifier_config: NotifierConfig
 
     @classmethod
     def from_env(cls) -> "RunnerConfig":
-        missing = [
-            name
-            for name in (
-                "DISCORD_BOT_TOKEN",
-                "DISCORD_MAIN_CHANNEL_ID",
-                "DISCORD_RUN_REPORT_CHANNEL_ID",
-            )
-            if not os.environ.get(name)
-        ]
-        if missing:
-            raise ValueError(f"Missing required environment variables: {', '.join(missing)}")
-
         crawl_schedule = os.environ.get("CRAWL_SCHEDULE")
         crawl_interval_raw = os.environ.get("CRAWL_INTERVAL")
         if crawl_schedule and crawl_interval_raw:
@@ -286,9 +194,6 @@ class RunnerConfig:
             raise ValueError(f"Unknown TZ value: {timezone_name}") from exc
 
         return cls(
-            discord_bot_token=os.environ["DISCORD_BOT_TOKEN"],
-            discord_main_channel_id=os.environ["DISCORD_MAIN_CHANNEL_ID"],
-            discord_run_report_channel_id=os.environ["DISCORD_RUN_REPORT_CHANNEL_ID"],
             timezone_name=timezone_name,
             watchlist_path=os.environ.get(
                 "MANGA_WATCH_WATCHLIST",
@@ -297,66 +202,59 @@ class RunnerConfig:
             crawl_schedule=crawl_schedule or DEFAULT_CRAWL_SCHEDULE,
             crawl_interval=crawl_interval,
             run_on_startup=parse_bool(os.environ.get("RUN_ON_STARTUP"), default=True),
-            request_timeout=int(os.environ.get("DISCORD_REQUEST_TIMEOUT", "30")),
+            notifier_config=NotifierConfig.from_env(),
         )
 
 
-class DiscordClient:
-    def __init__(self, token: str, timeout: int = 30, session: Optional[requests.Session] = None):
-        self.session = session or requests.Session()
-        self.timeout = timeout
-        self.headers = {
-            "Authorization": f"Bot {token}",
-            "Content-Type": "application/json",
-        }
+def report_to_stdout(content: str) -> None:
+    print(content, flush=True)
 
-    def send_message(self, channel_id: str, content: str) -> None:
-        url = f"https://discord.com/api/v10/channels/{channel_id}/messages"
-        for chunk in split_message(content):
-            response = self.session.post(
-                url,
-                headers=self.headers,
-                json={"content": chunk, "allowed_mentions": {"parse": []}},
-                timeout=self.timeout,
-            )
-            if response.status_code >= 400:
-                detail = response.text.strip().replace("\n", " ")
-                raise RuntimeError(f"Discord API error {response.status_code}: {detail[:300]}")
+
+def report_to_stderr(content: str) -> None:
+    print(content, file=sys.stderr, flush=True)
 
 
 def run_once(
     config: RunnerConfig,
     *,
-    messenger: Optional[DiscordClient] = None,
+    notifier: Optional[Notifier] = None,
     checker: Callable[[str], Dict[str, object]] = run_check,
     state_loader: Callable[[], Dict[str, object]] = load_state,
     now_fn: Callable[[], float] = time.time,
+    report_logger: Callable[[str], None] = report_to_stdout,
+    error_logger: Callable[[str], None] = report_to_stderr,
 ) -> Dict[str, object]:
-    messenger = messenger or DiscordClient(
-        token=config.discord_bot_token,
-        timeout=config.request_timeout,
-    )
-    timestamp = format_timestamp(now_fn(), config.timezone_name)
+    notifier = notifier or build_notifier(config.notifier_config)
+    now = now_fn()
+    timestamp = format_timestamp(now, config.timezone_name)
+    detected_at = detected_at_for_timestamp(now)
+    update_count = 0
+    error_count = 0
 
     try:
         result = checker(config.watchlist_path)
         updates = result.get("updates", [])
         if not isinstance(updates, list):
             raise RuntimeError("checker returned invalid updates payload")
+        update_count = len(updates)
         errors = normalize_checker_errors(result)
+        error_count = checker_error_count(errors)
         default_notify_updates, suppressed_updates = partition_updates_by_default_notify(updates)
 
         state = state_loader()
         update_notification_sent = False
-        if default_notify_updates:
-            messenger.send_message(
-                config.discord_main_channel_id,
-                format_update_message(default_notify_updates),
-            )
-            update_notification_sent = True
+        delivery_errors: List[str] = []
+        for update in default_notify_updates:
+            try:
+                notifier.send(build_update_event(update, detected_at=detected_at))
+                update_notification_sent = True
+            except Exception as exc:
+                delivery_errors.append(str(exc))
 
-        messenger.send_message(
-            config.discord_run_report_channel_id,
+        if delivery_errors:
+            raise RuntimeError("notification delivery failed: " + "; ".join(delivery_errors))
+
+        report_logger(
             format_run_report(
                 timestamp=timestamp,
                 updates=updates,
@@ -365,29 +263,20 @@ def run_once(
                 default_notify_count=len(default_notify_updates),
                 suppressed_update_count=len(suppressed_updates),
                 update_notification_sent=update_notification_sent,
-            ),
+            )
         )
         return {
-            "ok": checker_error_count(errors) == 0,
-            "updateCount": len(updates),
-            "errorCount": checker_error_count(errors),
+            "ok": error_count == 0,
+            "updateCount": update_count,
+            "errorCount": error_count,
             "timestamp": timestamp,
         }
     except Exception as exc:
-        try:
-            messenger.send_message(
-                config.discord_run_report_channel_id,
-                format_failure_report(timestamp, exc),
-            )
-        except Exception as report_exc:
-            print(
-                f"[runner] failed to post run-report error summary: {report_exc}",
-                file=sys.stderr,
-                flush=True,
-            )
+        error_logger(format_failure_report(timestamp, exc))
         return {
             "ok": False,
-            "updateCount": 0,
+            "updateCount": update_count,
+            "errorCount": error_count,
             "timestamp": timestamp,
             "error": f"{exc.__class__.__name__}: {exc}",
         }
@@ -418,13 +307,10 @@ def main() -> int:
         print(f"[runner] configuration error: {exc}", file=sys.stderr)
         return 2
 
-    messenger = DiscordClient(
-        token=config.discord_bot_token,
-        timeout=config.request_timeout,
-    )
+    notifier = build_notifier(config.notifier_config)
 
     if config.run_on_startup:
-        outcome = run_once(config, messenger=messenger)
+        outcome = run_once(config, notifier=notifier)
         print(f"[runner] startup run: {outcome}", flush=True)
 
     while True:
@@ -434,7 +320,7 @@ def main() -> int:
             flush=True,
         )
         sleep_until(next_run)
-        outcome = run_once(config, messenger=messenger)
+        outcome = run_once(config, notifier=notifier)
         print(f"[runner] scheduled run: {outcome}", flush=True)
 
 
