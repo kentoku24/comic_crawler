@@ -9,6 +9,7 @@ from pathlib import Path
 import manga_watch.sources as source_package
 from manga_watch.sources import REGISTERED_ADAPTERS, REGISTERED_SOURCES, SourceAdapter
 from manga_watch.sources.base import SourceParseError
+from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
@@ -34,6 +35,7 @@ SOURCE_CASES = {
         "broken_missing_next",
         "broken_loop",
     ),
+    "champion-cross": ("normal",),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
 ERROR_TYPES = {
@@ -57,6 +59,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "escaped_next_uri": "main_story",
         "broken_missing_next": "main_story",
         "broken_loop": "main_story",
+    },
+    "champion-cross": {
+        "normal": "main_story",
     },
 }
 
@@ -141,7 +146,7 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "kakuyomu"),
+            ("comic-walker", "comic-action", "champion-cross", "kakuyomu"),
             REGISTERED_SOURCES,
         )
 
@@ -165,6 +170,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_kakuyomu_fixtures(self):
         self._assert_fixture_matrix("kakuyomu")
+
+    def test_champion_cross_fixtures(self):
+        self._assert_fixture_matrix("champion-cross")
 
     def test_comic_walker_normalize_accepts_canonical_series_url(self):
         work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")
@@ -289,6 +297,53 @@ class SourceAdapterTests(unittest.TestCase):
                 "https://comic-action.com/rss/series/13933686331606207128",
                 "https://comic-action.com/episode/11341664176570134078",
             ],
+            client.calls,
+        )
+
+    def test_champion_cross_normalize_accepts_series_rss_url(self):
+        work = ChampionCrossAdapter().normalize("https://championcross.jp/series/4756324e1c1b1/rss?from=share")
+
+        self.assertEqual(
+            {
+                "source": "champion-cross",
+                "kind": "champion-cross",
+                "workId": "champion-cross:4756324e1c1b1",
+                "seedUrl": "https://championcross.jp/series/4756324e1c1b1/rss",
+                "series": "champion-cross:4756324e1c1b1",
+                "seriesHash": "4756324e1c1b1",
+                "feedKind": "rss",
+            },
+            work.to_dict(),
+        )
+
+    def test_champion_cross_fetch_latest_accepts_series_url(self):
+        adapter = ChampionCrossAdapter()
+        work = adapter.normalize("https://championcross.jp/series/4756324e1c1b1/")
+        client = StaticHttpClient(
+            {
+                "https://championcross.jp/series/4756324e1c1b1/rss": """
+                <rss>
+                  <channel>
+                    <title>織津江大志の異世界クリ娘サバイバル日誌</title>
+                    <item>
+                      <title><![CDATA[第71話 ウェンディゴ2]]></title>
+                      <link>https://championcross.jp/episodes/f35108c56e75d/?utm_source=rss&amp;utm_medium=referral</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("champion-cross:4756324e1c1b1", latest["workId"])
+        self.assertEqual("champion-cross:4756324e1c1b1", latest["series"])
+        self.assertEqual("https://championcross.jp/episodes/f35108c56e75d", latest["latestKey"])
+        self.assertEqual("織津江大志の異世界クリ娘サバイバル日誌", latest["seriesTitle"])
+        self.assertEqual("第71話 ウェンディゴ2", latest["episodeTitle"])
+        self.assertEqual(
+            ["https://championcross.jp/series/4756324e1c1b1/rss"],
             client.calls,
         )
 
