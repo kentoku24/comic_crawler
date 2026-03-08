@@ -12,7 +12,18 @@
 1. Adapter がたどる順序どおりに raw response を取得する。更新時は取得日を PR description または commit message に残す
 2. レスポンス本文は parser が読む形のまま保存する。`__NEXT_DATA__`, `nextReadableProductUri`, HTML escaping, `<title>` は壊さない
 3. サニタイズは parser に不要な値だけに限定する。cookie, token, viewer id, tracking query, 個人情報は除去してよいが、episode code, `publishedAt`, title, parser が参照する DOM 断片は保持する
-4. `manifest.json` の期待値を更新し、`.venv/bin/python -m unittest tests.test_sources tests.test_check` を実行する
+4. drift canary が落ちたときは、対応 source の `normal` bundle を最初に更新し、落ちた signal と parser contract を 1 対 1 で確認する
+5. `manifest.json` の期待値を更新し、`.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check` を実行する
+
+## Drift Canary Contract
+
+`manga_watch/source_drift.py` が live canary の source of truth です。source ごとに次の 3 点を固定します。
+
+- representative な live seed URL
+- canary が見る最小 signal
+- drift 時に最初に refresh する fixture bundle
+
+source adapter を追加したら、fixture 追加だけで終わらせず canary contract も同時に足してください。
 
 ## Notes
 
