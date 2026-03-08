@@ -109,6 +109,67 @@ class DiscordChannelClient:
         detail = response.text.strip().replace("\n", " ")
         raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
 
+    def get_current_user_id(self) -> str:
+        try:
+            response = self.session.get(
+                f"{self.config.api_base_url}/users/@me",
+                headers={
+                    "Authorization": f"Bot {self.config.bot_token}",
+                },
+                timeout=self.config.timeout,
+                allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Discord current-user lookup failed: {exc}") from exc
+
+        if 200 <= response.status_code < 300:
+            payload = response.json()
+            user_id = _coerce_text(payload.get("id") if isinstance(payload, Mapping) else None)
+            if user_id:
+                return user_id
+            raise RuntimeError("Discord current-user lookup returned no id")
+
+        detail = response.text.strip().replace("\n", " ")
+        raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
+
+    def list_channel_messages(
+        self,
+        channel_id: str,
+        *,
+        after: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, object]]:
+        normalized_channel_id = _coerce_text(channel_id)
+        if not normalized_channel_id:
+            raise RuntimeError("Discord channel_id is required")
+
+        params: Dict[str, object] = {"limit": max(1, min(int(limit), 100))}
+        normalized_after = _coerce_text(after)
+        if normalized_after:
+            params["after"] = normalized_after
+
+        try:
+            response = self.session.get(
+                f"{self.config.api_base_url}/channels/{normalized_channel_id}/messages",
+                params=params,
+                headers={
+                    "Authorization": f"Bot {self.config.bot_token}",
+                },
+                timeout=self.config.timeout,
+                allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(f"Discord channel read failed: {exc}") from exc
+
+        if 200 <= response.status_code < 300:
+            payload = response.json()
+            if not isinstance(payload, list):
+                raise RuntimeError("Discord channel read returned an invalid payload")
+            return [dict(message) for message in payload if isinstance(message, Mapping)]
+
+        detail = response.text.strip().replace("\n", " ")
+        raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
+
 
 def _daily_notification_state(state: Dict[str, object]) -> Dict[str, object]:
     discord_delivery = state.setdefault(DISCORD_DELIVERY_STATE_KEY, {})

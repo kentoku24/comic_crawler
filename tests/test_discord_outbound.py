@@ -11,14 +11,19 @@ from manga_watch.storage import load_state, save_state
 
 
 class FakeResponse:
-    def __init__(self, status_code, text=""):
+    def __init__(self, status_code, text="", json_data=None):
         self.status_code = status_code
         self.text = text
+        self._json_data = json_data
+
+    def json(self):
+        return self._json_data
 
 
 class FakeSession:
-    def __init__(self, responses=None, error=None):
+    def __init__(self, responses=None, get_responses=None, error=None):
         self.responses = list(responses or [])
+        self.get_responses = list(get_responses or [])
         self.error = error
         self.calls = []
 
@@ -37,6 +42,22 @@ class FakeSession:
         if not self.responses:
             raise AssertionError("unexpected discord request")
         return self.responses.pop(0)
+
+    def get(self, url, params=None, headers=None, timeout=None, allow_redirects=None):
+        self.calls.append(
+            {
+                "url": url,
+                "params": params,
+                "headers": headers,
+                "timeout": timeout,
+                "allow_redirects": allow_redirects,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        if not self.get_responses:
+            raise AssertionError("unexpected discord read request")
+        return self.get_responses.pop(0)
 
 
 class DiscordOutboundTests(unittest.TestCase):
@@ -93,6 +114,41 @@ class DiscordOutboundTests(unittest.TestCase):
         self.assertEqual({"content": "hello", "allowed_mentions": {"parse": []}}, session.calls[0]["json"])
         self.assertEqual(10, session.calls[0]["timeout"])
         self.assertFalse(session.calls[0]["allow_redirects"])
+
+    def test_discord_channel_client_reads_current_user_and_channel_messages(self):
+        session = FakeSession(
+            get_responses=[
+                FakeResponse(200, json_data={"id": "bot-user"}),
+                FakeResponse(
+                    200,
+                    json_data=[
+                        {"id": "11", "content": "latest", "author": {"id": "user-1"}},
+                    ],
+                ),
+            ]
+        )
+        client = DiscordChannelClient(
+            DiscordOutboundConfig(
+                bot_token="discord-bot-token",
+                main_channel_id="main-channel",
+                run_report_channel_id="run-report-channel",
+            ),
+            session=session,
+        )
+
+        self.assertEqual("bot-user", client.get_current_user_id())
+        messages = client.list_channel_messages("main-channel", after="10", limit=100)
+
+        self.assertEqual(
+            "https://discord.com/api/v10/users/@me",
+            session.calls[0]["url"],
+        )
+        self.assertEqual(
+            "https://discord.com/api/v10/channels/main-channel/messages",
+            session.calls[1]["url"],
+        )
+        self.assertEqual({"limit": 100, "after": "10"}, session.calls[1]["params"])
+        self.assertEqual("latest", messages[0]["content"])
 
     def test_state_round_trip_preserves_discord_delivery_state(self):
         state = {

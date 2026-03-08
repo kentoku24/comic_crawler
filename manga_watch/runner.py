@@ -28,7 +28,7 @@ from manga_watch.notifier import (
     detected_at_for_timestamp,
     event_from_payload,
 )
-from manga_watch.storage import DEFAULT_WATCHLIST_PATH, load_state, save_state
+from manga_watch.storage import DEFAULT_WATCHLIST_PATH, get_state_path, load_state, save_state
 from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES
 
 DEFAULT_CRAWL_SCHEDULE = "0 19 * * *"
@@ -768,15 +768,42 @@ def main() -> int:
         return 2
 
     named_notifiers = build_named_notifiers(config.notifier_config)
+    discord_client = (
+        DiscordChannelClient(config.discord_outbound_config)
+        if config.discord_outbound_config is not None
+        else None
+    )
     coordinator = RunCoordinator(
         config,
         named_notifiers=named_notifiers,
-        discord_client=(
-            DiscordChannelClient(config.discord_outbound_config)
-            if config.discord_outbound_config is not None
-            else None
-        ),
+        discord_client=discord_client,
     )
+
+    if config.discord_outbound_config is not None:
+        from manga_watch.discord_inbound import (
+            DiscordCommandListener,
+            inbound_enabled_from_env,
+            parse_poll_interval,
+        )
+
+        if inbound_enabled_from_env():
+            try:
+                listener = DiscordCommandListener(
+                    client=DiscordChannelClient(config.discord_outbound_config),
+                    channel_id=config.discord_outbound_config.main_channel_id,
+                    coordinator=coordinator,
+                    timezone_name=config.timezone_name,
+                    watchlist_path=config.watchlist_path,
+                    state_path=get_state_path(),
+                    poll_interval_seconds=parse_poll_interval(
+                        os.environ.get("DISCORD_COMMAND_POLL_INTERVAL")
+                    ),
+                    report_logger=report_to_stdout,
+                    error_logger=report_to_stderr,
+                )
+                listener.start_background()
+            except Exception as exc:
+                report_to_stderr(f"[discord] command listener startup failed: {exc}")
 
     if config.run_on_startup:
         outcome = coordinator.run(TRIGGER_SOURCE_STARTUP)
