@@ -279,6 +279,8 @@ compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は 
 - `DISCORD_BOT_TOKEN`: Discord main/run-report channel に送る bot token
 - `DISCORD_MAIN_CHANNEL_ID`: daily notification の送信先 channel id
 - `DISCORD_RUN_REPORT_CHANNEL_ID`: run report の送信先 channel id
+- `DISCORD_INBOUND_ENABLED`: `true` のとき Discord main channel で `latest` / `fetch` コマンドを監視する。既定値は `true`
+- `DISCORD_COMMAND_POLL_INTERVAL`: inbound command polling 間隔（秒）。既定値は `5`
 - `TZ`: スケジュール計算の timezone。既定値は `Asia/Tokyo`
 - `CRAWL_SCHEDULE`: cron 形式。既定値は `0 19 * * *`
 - `CRAWL_INTERVAL`: 秒単位の固定間隔。`CRAWL_SCHEDULE` と同時指定は不可
@@ -318,6 +320,8 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 .venv/bin/python -m manga_watch.runner
 .venv/bin/python -m manga_watch.replay_outbox
 ```
+
+Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。
 
 ## Status CLI
 
