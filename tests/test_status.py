@@ -319,6 +319,58 @@ class StatusReportTests(unittest.TestCase):
         self.assertEqual("healthy", payload["works"][0]["health"]["state"])
         self.assertEqual("Healthy", payload["works"][0]["series_title"])
 
+    def test_check_module_status_invalid_tz_reports_status_error(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            watchlist_path = tmpdir_path / "watchlist.json"
+            state_path = tmpdir_path / "state.json"
+            write_watchlist(watchlist_path, [watchlist_entry("healthy-work")])
+            write_state(
+                state_path,
+                {
+                    "healthy-work": state_entry(
+                        series_title="Healthy",
+                        episode_title="第2話",
+                        last_checked_at=9_900,
+                        last_success_at=9_900,
+                        consecutive_failures=0,
+                    ),
+                },
+                last_run_at=9_980,
+            )
+            env = os.environ.copy()
+            env.update(
+                {
+                    "CRAWL_INTERVAL": "3600",
+                    "TZ": "Invalid/Timezone",
+                }
+            )
+
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "manga_watch.check",
+                    "--status",
+                    "--watchlist",
+                    str(watchlist_path),
+                    "--state",
+                    str(state_path),
+                    "--now",
+                    "10000",
+                ],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+        self.assertEqual(1, result.returncode)
+        self.assertEqual("", result.stdout)
+        self.assertIn("[status] error: Unknown TZ value: Invalid/Timezone", result.stderr)
+
     def test_check_module_rejects_status_only_flags_without_status_mode(self):
         repo_root = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as tmpdir:

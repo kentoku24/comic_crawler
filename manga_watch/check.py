@@ -569,10 +569,11 @@ def main(argv=None):
                 state_path=args.status_state_path,
                 now=args.now,
             )
+            output = render_status_report(report, output_format=args.format or "text")
         except Exception as exc:
             print(f"[status] error: {exc}", file=sys.stderr)
             return 1
-        print(render_status_report(report, output_format=args.format or "text"))
+        print(output)
         return 0
 
     if args.watchlist_path is None:

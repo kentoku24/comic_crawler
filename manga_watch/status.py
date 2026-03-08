@@ -4,7 +4,7 @@ import os
 import time
 from datetime import datetime
 from typing import Dict, List, Mapping, Optional
-from zoneinfo import ZoneInfo
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
 
@@ -22,9 +22,18 @@ def status_timezone_name() -> str:
     return os.environ.get("TZ", DEFAULT_TIMEZONE)
 
 
+def validated_timezone_name(timezone_name: str) -> str:
+    try:
+        ZoneInfo(timezone_name)
+    except ZoneInfoNotFoundError as exc:
+        raise ValueError(f"Unknown TZ value: {timezone_name}") from exc
+    return timezone_name
+
+
 def format_timestamp(unix_ts: Optional[int], timezone_name: str) -> str:
     if unix_ts is None:
         return "-"
+    timezone_name = validated_timezone_name(timezone_name)
     return datetime.fromtimestamp(unix_ts, tz=ZoneInfo(timezone_name)).strftime("%Y-%m-%d %H:%M:%S %Z")
 
 
@@ -57,6 +66,7 @@ def expected_interval_seconds_from_schedule(
     now: int,
     timezone_name: str,
 ) -> int:
+    timezone_name = validated_timezone_name(timezone_name)
     reference = datetime.fromtimestamp(now, tz=ZoneInfo(timezone_name))
     iterator = croniter(schedule, reference)
     previous = iterator.get_next(datetime)
@@ -161,7 +171,7 @@ def build_status_report(
     timezone_name: Optional[str] = None,
 ) -> Dict[str, object]:
     current_time = int(time.time()) if now is None else int(now)
-    timezone_name = timezone_name or status_timezone_name()
+    timezone_name = validated_timezone_name(timezone_name or status_timezone_name())
     watchlist = load_watchlist(watchlist_path)
     state = load_state(state_path)
     works_state = state.get("works", {})
