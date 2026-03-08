@@ -258,6 +258,12 @@ class CheckTests(unittest.TestCase):
             entry["notification_policy"],
         )
 
+    def test_build_watchlist_entry_accepts_kakuyomu_work_url(self):
+        entry = check.build_watchlist_entry("https://kakuyomu.jp/works/123")
+
+        self.assertEqual("kakuyomu:123", entry["id"])
+        self.assertEqual("https://kakuyomu.jp/works/123", entry["seed_url"])
+
     def test_build_watchlist_entry_uses_stable_comic_action_work_id(self):
         fake_client = mock.Mock()
         fake_client.get_text.return_value = (

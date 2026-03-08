@@ -52,6 +52,79 @@
 - `notification_policy.mode`: v2 migration では既定値 `all`
 - `notification_policy.allowed_update_types`: 明示設定が無ければ `null`
 
+### `watchlist add` CLI
+
+```bash
+python3 -m manga_watch.watchlist add <url>
+python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
+```
+
+- 出力は常に JSON
+- `action=added` / `duplicate` は exit code `0`
+- `action=error` は exit code `1`
+- 書き込み前に normalize preview と duplicate 判定を行う
+- duplicate は `work_id` 単位で判定する
+
+#### Response contract
+
+成功時:
+
+```json
+{
+  "action": "added",
+  "input_url": "https://kakuyomu.jp/works/123",
+  "watchlist_path": "manga_watch/watchlist.json",
+  "entry": {
+    "id": "kakuyomu:123",
+    "source": "kakuyomu",
+    "seed_url": "https://kakuyomu.jp/works/123",
+    "enabled": true,
+    "notification_policy": {"mode": "all", "allowed_update_types": null}
+  },
+  "work_count": 1
+}
+```
+
+重複時:
+
+```json
+{
+  "action": "duplicate",
+  "input_url": "https://kakuyomu.jp/works/123",
+  "watchlist_path": "manga_watch/watchlist.json",
+  "entry": {"id": "kakuyomu:123"},
+  "existing": {"id": "kakuyomu:123"},
+  "work_count": 1
+}
+```
+
+エラー時:
+
+```json
+{
+  "action": "error",
+  "input_url": "https://comic-action.com/series/123",
+  "watchlist_path": "manga_watch/watchlist.json",
+  "error": {
+    "kind": "unsupported_url_type",
+    "message": "...",
+    "next_action": "..."
+  }
+}
+```
+
+`error.kind` は少なくとも `invalid_url`, `unsupported_source`, `unsupported_url_type`, `normalize_failed`, `load_watchlist`, `save_watchlist` を使う。
+
+#### Capability matrix
+
+| Source | accepted input URL types | canonical / stored `seed_url` |
+| --- | --- | --- |
+| ComicWalker | canonical series URL, episode URL | `https://comic-walker.com/detail/<series>` |
+| webアクション | episode URL only | 入力 URL のまま |
+| Kakuyomu | work URL, episode URL | 入力 URL のまま |
+
+Phase 1 はこの matrix を source of truth とし、未記載の URL 種別は `unsupported_url_type` にする。
+
 ### work_id contract
 
 - ComicWalker: `KC_XXXXXX_S`
