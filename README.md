@@ -298,7 +298,9 @@ python3.12 -m venv .venv
 .venv/bin/python -m manga_watch.backlog --unread-only
 .venv/bin/python -m manga_watch.check --status
 .venv/bin/python -m manga_watch.check --status --format json
-.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
+.venv/bin/python -m manga_watch.source_drift
+.venv/bin/python -m manga_watch.source_drift --format json
+.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
 ```
 
 runner をローカル起動する場合は notifier 環境変数を入れてから実行します。
@@ -322,14 +324,42 @@ export MANGA_WATCH_NOTIFIER_BACKENDS=stdout
 - stale 判定: 固定 48 時間ではなく `health_policy.expected_interval_seconds`、無ければ `CRAWL_INTERVAL` / `CRAWL_SCHEDULE` 由来の expected interval を 2 倍した窓で判定
 - health state: `healthy`, `degraded`, `stale`, `broken`, `pending`
 
+## Source Drift Canary
+
+fixture regression だけでは拾えない upstream HTML / embedded JSON drift を早めに見るために、各 source に 1 本ずつ live canary を持たせています。
+
+```bash
+.venv/bin/python -m manga_watch.source_drift
+.venv/bin/python -m manga_watch.source_drift --source comic-action
+.venv/bin/python -m manga_watch.source_drift --format json
+```
+
+- exit code `0`: 選択した source の canary がすべて通過
+- exit code `1`: 少なくとも 1 source で drift。`fixtureBundle`, `monitoredSignals`, `nextAction` を見て fixture refresh に進む
+- live URL は `manga_watch/source_drift.py` の canary contract が source of truth
+
+| Source | Seed URL | Monitored URL / signal | Fixture bundle |
+| --- | --- | --- | --- |
+| ComicWalker | `https://comic-walker.com/detail/KC_003913_S` | canonical series page の `__NEXT_DATA__`、同一 series の最新 `episodeCode`、最新 episode page title parse | `tests/fixtures/comic-walker/normal` |
+| webアクション | `https://comic-action.com/episode/2550689798784879524` | seed episode page の `series_id`、`nextReadableProductUri`、最終到達 episode page title parse | `tests/fixtures/comic-action/normal` |
+| Kakuyomu | `https://kakuyomu.jp/works/16818093092974667738/episodes/822139844009936710` | work page の `__NEXT_DATA__`、最新 episode id/title、最新 episode page title | `tests/fixtures/kakuyomu/normal` |
+
+drift を検知したら、次の順で進めます。
+
+1. `.venv/bin/python -m manga_watch.source_drift --source <source>` で再実行し、どの signal が落ちたかを固定する
+2. 対応する `tests/fixtures/<source>/normal` を、adapter が実際に辿る順序で raw response ごと取り直す
+3. `manifest.json` の期待値を更新し、落ちた signal に対応する parser contract を見直す
+4. `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check` を回して fixture refresh と parser contract の両方を確認する
+
 ## Adding a source adapter
 
 `manga_watch/sources/registry.py` の `REGISTERED_ADAPTERS` が adapter registration の single source of truth です。
 
 1. `manga_watch/sources/` に concrete `SourceAdapter` module を追加する
 2. `manga_watch/sources/registry.py` の `REGISTERED_ADAPTERS` に adapter instance を追加する
-3. fixture / state contract に影響がある場合は `tests/fixtures/` や関連 test を更新する
-4. `.venv/bin/python -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2` を実行する
+3. `manga_watch/source_drift.py` に live canary target URL と monitored signal contract を追加する
+4. fixture / state contract に影響がある場合は `tests/fixtures/` や関連 test を更新する
+5. `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2` を実行する
 
 2 を忘れると `tests.test_sources.SourceAdapterTests.test_registry_covers_every_concrete_adapter_module` が失敗します。
 
@@ -376,6 +406,7 @@ Post-rollback smoke checks:
 - `manga_watch/check.py`: watchlist/state v2 を読む checker
 - `manga_watch/backlog.py`: 更新履歴 / 未読確認と既読化の最小 CLI
 - `manga_watch/migrate_v2.py`: v1 から v2 への one-time migration CLI
+- `manga_watch/source_drift.py`: live source drift canary と fixture refresh 導線
 - `manga_watch/status.py`: status CLI 向けの health 集約と text / JSON 表示
 - `manga_watch/storage.py`: watchlist/state v2 validation と atomic write
 - `manga_watch/notifier.py`: update event schema + stdout/webhook backend
@@ -393,8 +424,9 @@ Post-rollback smoke checks:
 
 - ローカル venv は常に `python3.12 -m venv .venv` で作る。Python `3.10` / `3.11` compatibility は追わない
 - サイトの HTML が変わって検知が止まったら `.venv/bin/python -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
+- upstream drift が silent に見えるときは `.venv/bin/python -m manga_watch.source_drift` を先に回して、source ごとの canary signal がまだ生きているか確認する
 - silent failure が疑わしいときは `.venv/bin/python -m manga_watch.check --status` で stale / degraded / broken な作品を先に確認する
-- migration や state contract を更新したら `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
+- migration や state contract を更新したら `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
 - 未読の確認や既読化を手動で行いたいときは `.venv/bin/python -m manga_watch.backlog --unread-only` または `.venv/bin/python -m manga_watch.backlog --mark-read <work_id>` を使う
-- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` で runner まで確認する
-- 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` に登録して fixture / source tests を更新する
+- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` で runner まで確認する
+- 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` と `manga_watch/source_drift.py` の canary contract を更新して fixture / source tests を更新する
