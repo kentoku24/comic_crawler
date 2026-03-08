@@ -27,9 +27,9 @@ from manga_watch.runner import (
     TRIGGER_SOURCE_STARTUP,
     RunCoordinator,
     RunnerConfig,
-    handle_fetch_trigger,
     replay_outbox_once,
     run_once,
+    start_fetch_run,
 )
 from manga_watch.storage import load_state, save_state
 
@@ -641,7 +641,7 @@ class RunnerTests(unittest.TestCase):
             error_logger=lambda _: self.fail("unexpected error log"),
         )
 
-        outcome = handle_fetch_trigger(coordinator)
+        outcome = start_fetch_run(coordinator)
 
         self.assertTrue(outcome["ok"])
         self.assertTrue(outcome["accepted"])
@@ -676,7 +676,7 @@ class RunnerTests(unittest.TestCase):
             error_logger=lambda _: self.fail("unexpected error log"),
         )
 
-        fetch_outcome = handle_fetch_trigger(coordinator)
+        fetch_outcome = start_fetch_run(coordinator)
         self.assertTrue(fetch_outcome["accepted"])
         self.assertTrue(checker_started.wait(0.5))
 
@@ -710,7 +710,7 @@ class RunnerTests(unittest.TestCase):
             error_logger=lambda _: self.fail("unexpected error log"),
         )
 
-        fetch_outcome = handle_fetch_trigger(coordinator)
+        fetch_outcome = start_fetch_run(coordinator)
         self.assertTrue(fetch_outcome["accepted"])
         self.assertTrue(checker_started.wait(0.5))
 
@@ -746,11 +746,11 @@ class RunnerTests(unittest.TestCase):
             error_logger=errors.append,
         )
 
-        first_outcome = handle_fetch_trigger(coordinator)
+        first_outcome = start_fetch_run(coordinator)
         self.assertTrue(first_outcome["accepted"])
         self.wait_until(lambda: not coordinator.is_running())
 
-        second_outcome = handle_fetch_trigger(coordinator)
+        second_outcome = start_fetch_run(coordinator)
         self.assertTrue(second_outcome["accepted"])
         self.wait_until(lambda: not coordinator.is_running())
 
@@ -790,11 +790,11 @@ class RunnerTests(unittest.TestCase):
             error_logger=lambda _: self.fail("unexpected error log"),
         )
 
-        accepted_outcome = handle_fetch_trigger(coordinator)
+        accepted_outcome = start_fetch_run(coordinator)
         self.assertTrue(accepted_outcome["accepted"])
         self.assertTrue(checker_started.wait(0.5))
 
-        rejected_outcome = handle_fetch_trigger(coordinator)
+        rejected_outcome = start_fetch_run(coordinator)
 
         self.assertFalse(rejected_outcome["ok"])
         self.assertTrue(rejected_outcome["rejected"])

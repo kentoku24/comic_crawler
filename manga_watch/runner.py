@@ -607,7 +607,7 @@ class RunCoordinator:
         }
 
 
-def handle_fetch_trigger(coordinator: RunCoordinator) -> Dict[str, object]:
+def start_fetch_run(coordinator: RunCoordinator) -> Dict[str, object]:
     outcome = coordinator.start_background(TRIGGER_SOURCE_DISCORD_FETCH)
     if outcome.get("rejected"):
         outcome["message"] = FETCH_REJECTED_MESSAGE
