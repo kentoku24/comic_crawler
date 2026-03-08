@@ -57,13 +57,20 @@ def default_notify_for_event(update: Dict[str, object]) -> bool:
     return update_type_for_event(update) in DEFAULT_NOTIFY_UPDATE_TYPES
 
 
-def partition_updates_by_default_notify(
+def should_notify_for_event(update: Dict[str, object]) -> bool:
+    notification = update.get("notification")
+    if isinstance(notification, dict) and notification.get("should_notify") is not None:
+        return bool(notification.get("should_notify"))
+    return default_notify_for_event(update)
+
+
+def partition_updates_by_notification_policy(
     updates: List[Dict[str, object]],
 ) -> tuple[List[Dict[str, object]], List[Dict[str, object]]]:
     notify = []
     suppressed = []
     for update in updates:
-        if default_notify_for_event(update):
+        if should_notify_for_event(update):
             notify.append(update)
         else:
             suppressed.append(update)
@@ -134,7 +141,7 @@ def format_run_report(
     updates: List[Dict[str, object]],
     errors: Dict[str, List[Dict[str, object]]],
     state: Dict[str, object],
-    default_notify_count: int,
+    notified_update_count: int,
     suppressed_update_count: int,
     update_notification_sent: bool,
 ) -> str:
@@ -142,8 +149,8 @@ def format_run_report(
     lines = [
         f"{'巡回実行に一部失敗がありました' if degraded else '巡回実行しました'} ({timestamp})",
         f"更新検知: {len(updates)}件",
-        f"既定通知対象: {default_notify_count}件",
-        f"既定抑制: {suppressed_update_count}件",
+        f"通知対象: {notified_update_count}件",
+        f"通知抑制: {suppressed_update_count}件",
         f"通知: {'送信した' if update_notification_sent else '送信なし'}",
     ]
     lines.extend(format_checker_error_lines(errors))
@@ -230,6 +237,8 @@ def run_once(
     detected_at = detected_at_for_timestamp(now)
     update_count = 0
     error_count = 0
+    notified_update_count = 0
+    suppressed_update_count = 0
 
     try:
         result = checker(config.watchlist_path)
@@ -239,12 +248,14 @@ def run_once(
         update_count = len(updates)
         errors = normalize_checker_errors(result)
         error_count = checker_error_count(errors)
-        default_notify_updates, suppressed_updates = partition_updates_by_default_notify(updates)
+        notify_updates, suppressed_updates = partition_updates_by_notification_policy(updates)
+        notified_update_count = len(notify_updates)
+        suppressed_update_count = len(suppressed_updates)
 
         state = state_loader()
         update_notification_sent = False
         delivery_errors: List[str] = []
-        for update in default_notify_updates:
+        for update in notify_updates:
             try:
                 notifier.send(build_update_event(update, detected_at=detected_at))
                 update_notification_sent = True
@@ -260,14 +271,16 @@ def run_once(
                 updates=updates,
                 errors=errors,
                 state=state,
-                default_notify_count=len(default_notify_updates),
-                suppressed_update_count=len(suppressed_updates),
+                notified_update_count=notified_update_count,
+                suppressed_update_count=suppressed_update_count,
                 update_notification_sent=update_notification_sent,
             )
         )
         return {
             "ok": error_count == 0,
             "updateCount": update_count,
+            "notifiedUpdateCount": notified_update_count,
+            "suppressedUpdateCount": suppressed_update_count,
             "errorCount": error_count,
             "timestamp": timestamp,
         }
@@ -276,6 +289,8 @@ def run_once(
         return {
             "ok": False,
             "updateCount": update_count,
+            "notifiedUpdateCount": notified_update_count,
+            "suppressedUpdateCount": suppressed_update_count,
             "errorCount": error_count,
             "timestamp": timestamp,
             "error": f"{exc.__class__.__name__}: {exc}",

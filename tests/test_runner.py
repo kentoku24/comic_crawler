@@ -87,6 +87,23 @@ class RunnerTests(unittest.TestCase):
             notifier_config=NotifierConfig(backends=("stdout",)),
         )
 
+    def make_notification(
+        self,
+        *,
+        mode="important_only",
+        allowed_update_types=None,
+        should_notify=True,
+        applied_via="mode",
+        reason="test notification policy",
+    ):
+        return {
+            "mode": mode,
+            "allowed_update_types": allowed_update_types,
+            "should_notify": should_notify,
+            "applied_via": applied_via,
+            "reason": reason,
+        }
+
     def make_update(
         self,
         *,
@@ -95,6 +112,7 @@ class RunnerTests(unittest.TestCase):
         latest_key="episode-2",
         episode_title="第2話",
         classification_reason=None,
+        notification=None,
     ):
         update = {
             "id": "work-1",
@@ -113,6 +131,12 @@ class RunnerTests(unittest.TestCase):
             },
             "update_type": update_type,
             "default_notify": default_notify,
+            "notification": dict(
+                notification
+                or self.make_notification(
+                    should_notify=default_notify,
+                )
+            ),
         }
         if classification_reason is not None:
             update["classification_reason"] = classification_reason
@@ -167,6 +191,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual("work-1", payload["work_id"])
         self.assertEqual("episode-2", payload["latest_key"])
         self.assertEqual("作品A", payload["series_title"])
+        self.assertTrue(payload["notification"]["should_notify"])
 
     def test_webhook_notifier_treats_2xx_as_success(self):
         event = build_update_event(
@@ -246,12 +271,14 @@ class RunnerTests(unittest.TestCase):
         )
 
         self.assertTrue(outcome["ok"])
+        self.assertEqual(0, outcome["notifiedUpdateCount"])
+        self.assertEqual(0, outcome["suppressedUpdateCount"])
         self.assertEqual(0, outcome["errorCount"])
         self.assertEqual([], notifier.events)
         self.assertEqual(1, len(reports))
         self.assertIn("通知: 送信なし", reports[0])
-        self.assertIn("既定通知対象: 0件", reports[0])
-        self.assertIn("既定抑制: 0件", reports[0])
+        self.assertIn("通知対象: 0件", reports[0])
+        self.assertIn("通知抑制: 0件", reports[0])
         self.assertIn("エラー: 0件", reports[0])
         self.assertEqual([], errors)
 
@@ -270,6 +297,8 @@ class RunnerTests(unittest.TestCase):
         )
 
         self.assertTrue(outcome["ok"])
+        self.assertEqual(1, outcome["notifiedUpdateCount"])
+        self.assertEqual(0, outcome["suppressedUpdateCount"])
         self.assertEqual(1, len(notifier.events))
         payload = notifier.events[0].as_payload()
         self.assertEqual("work-1", payload["work_id"])
@@ -277,9 +306,10 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual("作品A", payload["series_title"])
         self.assertEqual("main_story", payload["update_type"])
         self.assertEqual("2023-11-14T22:13:20Z", payload["detected_at"])
+        self.assertTrue(payload["notification"]["should_notify"])
         self.assertIn("通知: 送信した", reports[0])
-        self.assertIn("既定通知対象: 1件", reports[0])
-        self.assertIn("既定抑制: 0件", reports[0])
+        self.assertIn("通知対象: 1件", reports[0])
+        self.assertIn("通知抑制: 0件", reports[0])
 
     def test_run_once_suppresses_bonus_updates_from_notifier_but_reports_them(self):
         notifier = FakeNotifier()
@@ -305,27 +335,29 @@ class RunnerTests(unittest.TestCase):
         )
 
         self.assertTrue(outcome["ok"])
+        self.assertEqual(0, outcome["notifiedUpdateCount"])
+        self.assertEqual(1, outcome["suppressedUpdateCount"])
         self.assertEqual([], notifier.events)
         self.assertIn("更新検知: 1件", reports[0])
-        self.assertIn("既定通知対象: 0件", reports[0])
-        self.assertIn("既定抑制: 1件", reports[0])
+        self.assertIn("通知対象: 0件", reports[0])
+        self.assertIn("通知抑制: 1件", reports[0])
         self.assertIn("通知: 送信なし", reports[0])
 
     def test_run_once_unknown_updates_fail_open_to_notifier(self):
         notifier = FakeNotifier()
+        update = self.make_update(
+            update_type="unknown",
+            default_notify=True,
+            episode_title="春の特別掲載",
+            classification_reason="matched both story and bonus markers",
+        )
+        update.pop("notification")
 
         outcome = run_once(
             self.make_config(),
             notifier=notifier,
             checker=lambda _: {
-                "updates": [
-                    self.make_update(
-                        update_type="unknown",
-                        default_notify=True,
-                        episode_title="春の特別掲載",
-                        classification_reason="matched both story and bonus markers",
-                    )
-                ]
+                "updates": [update]
             },
             state_loader=self.make_state,
             now_fn=lambda: 1_700_000_000,
@@ -341,6 +373,43 @@ class RunnerTests(unittest.TestCase):
             "matched both story and bonus markers",
             payload["to"]["classification_reason"],
         )
+
+    def test_run_once_mode_all_notifies_bonus_updates_even_when_default_notify_is_false(self):
+        notifier = FakeNotifier()
+
+        outcome = run_once(
+            self.make_config(),
+            notifier=notifier,
+            checker=lambda _: {
+                "updates": [
+                    self.make_update(
+                        update_type="bonus",
+                        default_notify=False,
+                        episode_title="番外編",
+                        classification_reason="episode_title matched bonus marker",
+                        notification=self.make_notification(
+                            mode="all",
+                            should_notify=True,
+                            reason="mode=all notifies every update_type",
+                        ),
+                    )
+                ]
+            },
+            state_loader=self.make_state,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: None,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        self.assertTrue(outcome["ok"])
+        self.assertEqual(1, outcome["notifiedUpdateCount"])
+        self.assertEqual(0, outcome["suppressedUpdateCount"])
+        self.assertEqual(1, len(notifier.events))
+        payload = notifier.events[0].as_payload()
+        self.assertEqual("bonus", payload["update_type"])
+        self.assertFalse(payload["to"]["default_notify"])
+        self.assertEqual("all", payload["notification"]["mode"])
+        self.assertTrue(payload["notification"]["should_notify"])
 
     def test_run_once_marks_source_errors_as_degraded_while_still_sending_events(self):
         notifier = FakeNotifier()
@@ -378,10 +447,12 @@ class RunnerTests(unittest.TestCase):
         )
 
         self.assertFalse(outcome["ok"])
+        self.assertEqual(1, outcome["notifiedUpdateCount"])
+        self.assertEqual(0, outcome["suppressedUpdateCount"])
         self.assertEqual(1, outcome["errorCount"])
         self.assertEqual(1, len(notifier.events))
         self.assertIn("巡回実行に一部失敗がありました", reports[0])
-        self.assertIn("既定通知対象: 1件", reports[0])
+        self.assertIn("通知対象: 1件", reports[0])
         self.assertIn("エラー: 1件", reports[0])
         self.assertIn("source/parse [fetch_latest] work-2: parse failed", reports[0])
 
@@ -402,6 +473,8 @@ class RunnerTests(unittest.TestCase):
 
         self.assertFalse(outcome["ok"])
         self.assertEqual(1, outcome["updateCount"])
+        self.assertEqual(1, outcome["notifiedUpdateCount"])
+        self.assertEqual(0, outcome["suppressedUpdateCount"])
         self.assertEqual([], reports)
         self.assertEqual(1, len(errors))
         self.assertIn("巡回実行に失敗しました", errors[0])

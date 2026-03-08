@@ -20,6 +20,8 @@ from manga_watch.sources import (
 from manga_watch.sources.base import SourceParseError
 from manga_watch.sources.comic_action import extract_comic_action_series_id
 from manga_watch.storage import (
+    NOTIFICATION_POLICY_MODE_ALL,
+    evaluate_notification_policy,
     history_retention_for_work,
     latest_runtime_to_storage,
     latest_storage_to_runtime,
@@ -36,6 +38,10 @@ DEFAULT_RETRY_COUNT = 2
 DEFAULT_RETRY_BACKOFF = 0.5
 DEFAULT_MAX_WORKERS = 4
 DEFAULT_MAX_WORKERS_PER_HOST = 2
+DEFAULT_NOTIFICATION_POLICY = {
+    "mode": NOTIFICATION_POLICY_MODE_ALL,
+    "allowed_update_types": None,
+}
 
 
 class CheckRunError(RuntimeError):
@@ -125,6 +131,13 @@ def latest_id_for_state(latest: Mapping[str, object]) -> str:
     return str(latest.get("latestKey") or latest.get("episodeCode") or latest.get("url") or "")
 
 
+def update_type_for_latest(latest: Mapping[str, object]) -> str:
+    update_type = latest.get("update_type")
+    if isinstance(update_type, str) and update_type:
+        return update_type
+    return "unknown"
+
+
 def default_notify_for_latest(latest: Mapping[str, object]) -> Optional[bool]:
     if "default_notify" in latest and latest.get("default_notify") is not None:
         return bool(latest.get("default_notify"))
@@ -135,6 +148,20 @@ def default_notify_for_latest(latest: Mapping[str, object]) -> Optional[bool]:
     if update_type in SUPPRESSED_UPDATE_TYPES:
         return False
     return None
+
+
+def notification_metadata(
+    latest: Mapping[str, object],
+    *,
+    notification_policy: Optional[Mapping[str, object]],
+) -> Dict[str, object]:
+    effective_policy = DEFAULT_NOTIFICATION_POLICY if notification_policy is None else notification_policy
+    if not isinstance(effective_policy, Mapping):
+        raise ValueError("notification_policy must be an object")
+    return evaluate_notification_policy(
+        effective_policy,
+        update_type=update_type_for_latest(latest),
+    )
 
 
 def update_event_metadata(latest: Mapping[str, object]) -> Dict[str, object]:
@@ -237,6 +264,7 @@ def apply_item_transition(
     *,
     seen_at: int,
     history_retention: int,
+    notification_policy: Optional[Mapping[str, object]] = None,
 ) -> Tuple[Dict[str, object], Optional[Dict[str, object]]]:
     latest_copy = dict(latest)
     latest_copy.setdefault("workId", item_id)
@@ -266,6 +294,10 @@ def apply_item_transition(
             unread_event_ids.append(latest_id)
         history, unread_event_ids = trim_history(history, unread_event_ids, history_retention)
         update = {"id": item_id, "from": previous_latest, "to": latest_copy}
+        update["notification"] = notification_metadata(
+            latest_copy,
+            notification_policy=notification_policy,
+        )
         update.update(update_event_metadata(latest_copy))
         return (
             {
@@ -531,6 +563,7 @@ def run_check(
             source_result.latest or {},
             seen_at=now,
             history_retention=history_retention,
+            notification_policy=entry.get("notification_policy"),
         )
         works_state[source_result.item_id] = next_entry
         if update is not None:

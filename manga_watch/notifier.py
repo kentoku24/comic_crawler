@@ -75,6 +75,45 @@ def normalize_update_snapshot(snapshot: object) -> Dict[str, object]:
     return normalized
 
 
+def normalize_notification_metadata(notification: object) -> Dict[str, object]:
+    if not isinstance(notification, Mapping):
+        return {}
+
+    normalized: Dict[str, object] = {}
+
+    mode = _coerce_text(notification.get("mode"))
+    if mode:
+        normalized["mode"] = mode
+
+    if "allowed_update_types" in notification:
+        allowed_update_types = notification.get("allowed_update_types")
+        if allowed_update_types is None:
+            normalized["allowed_update_types"] = None
+        elif isinstance(allowed_update_types, list):
+            normalized_allowed_update_types = []
+            seen_update_types = set()
+            for item in allowed_update_types:
+                normalized_update_type = _coerce_text(item)
+                if not normalized_update_type or normalized_update_type in seen_update_types:
+                    continue
+                seen_update_types.add(normalized_update_type)
+                normalized_allowed_update_types.append(normalized_update_type)
+            normalized["allowed_update_types"] = normalized_allowed_update_types
+
+    if "should_notify" in notification and notification.get("should_notify") is not None:
+        normalized["should_notify"] = bool(notification.get("should_notify"))
+
+    applied_via = _coerce_text(notification.get("applied_via"))
+    if applied_via:
+        normalized["applied_via"] = applied_via
+
+    reason = _coerce_text(notification.get("reason"))
+    if reason:
+        normalized["reason"] = reason
+
+    return normalized
+
+
 def derive_event_id(work_id: str, latest_key: str) -> str:
     digest = hashlib.sha256(f"{work_id}\n{latest_key}".encode("utf-8")).hexdigest()
     return f"{work_id}:{digest}"
@@ -94,9 +133,10 @@ class UpdateEvent:
     detected_at: str
     before: Dict[str, object]
     after: Dict[str, object]
+    notification: Dict[str, object]
 
     def as_payload(self) -> Dict[str, object]:
-        return {
+        payload = {
             "schema_version": 1,
             "event_id": self.event_id,
             "work_id": self.work_id,
@@ -107,6 +147,9 @@ class UpdateEvent:
             "from": dict(self.before),
             "to": dict(self.after),
         }
+        if self.notification:
+            payload["notification"] = dict(self.notification)
+        return payload
 
 
 def build_update_event(update: Mapping[str, object], *, detected_at: str) -> UpdateEvent:
@@ -123,6 +166,7 @@ def build_update_event(update: Mapping[str, object], *, detected_at: str) -> Upd
 
     series_title = _coerce_text(after.get("series_title") or before.get("series_title")) or work_id
     update_type = _coerce_text(update.get("update_type") or after.get("update_type")) or "unknown"
+    notification = normalize_notification_metadata(update.get("notification"))
 
     return UpdateEvent(
         event_id=derive_event_id(work_id, latest_key),
@@ -133,6 +177,7 @@ def build_update_event(update: Mapping[str, object], *, detected_at: str) -> Upd
         detected_at=detected_at,
         before=before,
         after=after,
+        notification=notification,
     )
 
 
