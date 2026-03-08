@@ -305,12 +305,12 @@ def main(argv=None) -> int:
     watchlist_v2 = migrate_watchlist_v1_to_v2(urls)
     state_v1 = load_v1_state(args.state_v1)
     state_v2, orphaned_state_ids = migrate_state_v1_to_v2(state_v1, watchlist_v2)
+    pre_cutover_image_ref = validate_pre_cutover_image_ref(args.pre_cutover_image_ref)
+    pre_cutover_git_commit = resolve_pre_cutover_git_commit(args.pre_cutover_git_commit)
     backup_records = backup_inputs(
         [("watchlist_v1", args.watchlist_v1), ("state_v1", args.state_v1)],
         args.backup_dir,
     )
-    pre_cutover_image_ref = validate_pre_cutover_image_ref(args.pre_cutover_image_ref)
-    pre_cutover_git_commit = resolve_pre_cutover_git_commit(args.pre_cutover_git_commit)
     rollback_manifest_path = write_rollback_manifest(
         args.backup_dir,
         backup_records=backup_records,

@@ -1,12 +1,15 @@
 import json
+import io
 import subprocess
 import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from pathlib import Path
 from unittest import mock
 
 from manga_watch.migrate_v2 import (
+    main,
     migrate_state_v1_to_v2,
     migrate_watchlist_v1_to_v2,
     validate_pre_cutover_image_ref,
@@ -146,6 +149,68 @@ class MigrationTests(unittest.TestCase):
     def test_validate_pre_cutover_image_ref_rejects_floating_refs(self):
         with self.assertRaisesRegex(ValueError, "immutable"):
             validate_pre_cutover_image_ref("latest")
+
+    def test_main_captures_git_commit_before_creating_backups(self):
+        call_order = []
+
+        def record_git_commit(*args, **kwargs):
+            call_order.append("resolve_pre_cutover_git_commit")
+            return {"ref": "0" * 40, "captured_via": "cli", "git_dirty": False}
+
+        def record_backups(*args, **kwargs):
+            call_order.append("backup_inputs")
+            return [
+                {
+                    "kind": "watchlist_v1",
+                    "source_path": "/tmp/urls.txt",
+                    "backup_path": "/tmp/backups/urls.txt",
+                    "restore_to_path": "/tmp/urls.txt",
+                }
+            ]
+
+        with (
+            mock.patch("manga_watch.migrate_v2.read_v1_urls", return_value=[]),
+            mock.patch("manga_watch.migrate_v2.migrate_watchlist_v1_to_v2", return_value={"version": 2, "works": []}),
+            mock.patch("manga_watch.migrate_v2.load_v1_state", return_value={"version": 1, "items": {}, "lastRunAt": None}),
+            mock.patch(
+                "manga_watch.migrate_v2.migrate_state_v1_to_v2",
+                return_value=({"version": 2, "works": {}, "last_run_at": None}, []),
+            ),
+            mock.patch("manga_watch.migrate_v2.validate_pre_cutover_image_ref", return_value="sha256:" + "0" * 64),
+            mock.patch(
+                "manga_watch.migrate_v2.resolve_pre_cutover_git_commit",
+                side_effect=record_git_commit,
+            ),
+            mock.patch("manga_watch.migrate_v2.backup_inputs", side_effect=record_backups),
+            mock.patch(
+                "manga_watch.migrate_v2.write_rollback_manifest",
+                return_value="/tmp/backups/rollback-manifest.json",
+            ),
+            mock.patch("manga_watch.migrate_v2.atomic_write_json"),
+            redirect_stdout(io.StringIO()),
+        ):
+            result = main(
+                [
+                    "--watchlist-v1",
+                    "/tmp/urls.txt",
+                    "--state-v1",
+                    "/tmp/state.json",
+                    "--watchlist-v2",
+                    "/tmp/watchlist.json",
+                    "--state-v2",
+                    "/tmp/state-v2.json",
+                    "--backup-dir",
+                    "/tmp/backups",
+                    "--pre-cutover-image-ref",
+                    "sha256:" + "0" * 64,
+                ]
+            )
+
+        self.assertEqual(0, result)
+        self.assertEqual(
+            ["resolve_pre_cutover_git_commit", "backup_inputs"],
+            call_order,
+        )
 
     def test_migration_cli_writes_backups_and_v2_outputs(self):
         repo_root = Path(__file__).resolve().parents[1]
