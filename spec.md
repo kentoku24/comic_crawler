@@ -1,5 +1,11 @@
 # comic_crawler / spec
 
+## Runtime baseline
+
+- ローカル実行 / Docker / 将来の CI は Python `3.12` を単一の runtime baseline とする
+- Docker image policy は `python:3.12-slim` に合わせ、ローカル virtualenv は `python3.12` で作る
+- Python `3.10` / `3.11` compatibility は required ではない
+
 ## Glossary
 
 - **watchlist v2**: `manga_watch/watchlist.json`

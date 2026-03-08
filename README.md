@@ -2,6 +2,11 @@
 
 Docker コンテナ 1 つで定期クロールし、`stdout` と generic webhook に新着通知 event を送れる漫画更新監視アプリです。run report は毎回標準出力に出します。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
 
+## Python 3.12 baseline
+
+Docker / ローカル開発 / 将来の CI はすべて Python `3.12` を単一の runtime baseline とします。Docker image policy は `python:3.12-slim` に合わせ、ローカルツール向けには `.python-version` でも `3.12` を宣言します。Python `3.10` / `3.11` compatibility は要求しません。
+`python3.12` が PATH に無い場合は、pyenv / asdf / OS package manager などで 3.12 を先に導入または選択してから `.venv` を作ってください。
+
 ## What it does
 
 1. `manga_watch/watchlist.json` の watchlist v2 を読む
@@ -276,23 +281,24 @@ compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は 
 
 ## Local run
 
+ローカル実行は `python3.12` で作った `.venv` を前提にします。Python `3.10` / `3.11` での互換確認は不要です。
+
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.txt
-python3 -m manga_watch.check manga_watch/watchlist.json
-python3 -m manga_watch.backlog --unread-only
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -U pip
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m manga_watch.check manga_watch/watchlist.json
+.venv/bin/python -m manga_watch.backlog --unread-only
 .venv/bin/python -m manga_watch.check --status
 .venv/bin/python -m manga_watch.check --status --format json
-python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
+.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
 ```
 
 runner をローカル起動する場合は notifier 環境変数を入れてから実行します。
 
 ```bash
 export MANGA_WATCH_NOTIFIER_BACKENDS=stdout
-python3 -m manga_watch.runner
+.venv/bin/python -m manga_watch.runner
 ```
 
 ## Status CLI
@@ -322,8 +328,10 @@ python3 -m manga_watch.runner
 
 ## One-time migration from v1
 
+migration も `python3.12` で作った `.venv` から実行します。
+
 ```bash
-python3 -m manga_watch.migrate_v2 \
+.venv/bin/python -m manga_watch.migrate_v2 \
   --watchlist-v1 manga_watch/urls.txt \
   --state-v1 /data/state.json \
   --watchlist-v2 manga_watch/watchlist.json \
@@ -357,9 +365,10 @@ python3 -m manga_watch.migrate_v2 \
 
 ## Maintenance tips
 
-- サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
+- ローカル venv は常に `python3.12 -m venv .venv` で作る。Python `3.10` / `3.11` compatibility は追わない
+- サイトの HTML が変わって検知が止まったら `.venv/bin/python -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
 - silent failure が疑わしいときは `.venv/bin/python -m manga_watch.check --status` で stale / degraded / broken な作品を先に確認する
-- migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
-- 未読の確認や既読化を手動で行いたいときは `python3 -m manga_watch.backlog --unread-only` または `python3 -m manga_watch.backlog --mark-read <work_id>` を使う
+- migration や state contract を更新したら `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
+- 未読の確認や既読化を手動で行いたいときは `.venv/bin/python -m manga_watch.backlog --unread-only` または `.venv/bin/python -m manga_watch.backlog --mark-read <work_id>` を使う
 - run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` で runner まで確認する
 - 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` に登録して fixture / source tests を更新する
