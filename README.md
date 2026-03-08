@@ -69,6 +69,9 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
       "notification_policy": {
         "mode": "all",
         "allowed_update_types": null
+      },
+      "health_policy": {
+        "expected_interval_seconds": 86400
       }
     }
   ]
@@ -86,7 +89,7 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 - `unread.event_ids`: 未読イベントの source of truth
 - `health`: `last_checked_at`, `last_success_at`, `consecutive_failures`
 
-履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。詳細な schema と migration contract は [spec.md](spec.md) を source of truth とします。
+履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と migration contract は [spec.md](spec.md) を source of truth とします。
 
 ### backlog CLI
 
@@ -217,7 +220,9 @@ pip install -U pip
 pip install -r requirements.txt
 python3 -m manga_watch.check manga_watch/watchlist.json
 python3 -m manga_watch.backlog --unread-only
-python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
+.venv/bin/python -m manga_watch.check --status
+.venv/bin/python -m manga_watch.check --status --format json
+python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
 ```
 
 runner をローカル起動する場合は Discord 環境変数を入れてから実行します。
@@ -225,6 +230,20 @@ runner をローカル起動する場合は Discord 環境変数を入れてか�
 ```bash
 python3 -m manga_watch.runner
 ```
+
+## Status CLI
+
+`--status` は crawl を走らせず、現在の health を確認するための自己診断モードです。
+
+```bash
+.venv/bin/python -m manga_watch.check --status
+.venv/bin/python -m manga_watch.check --status --format json
+```
+
+- text 出力: 監視件数、最終 run 時刻、最終成功時刻、health counts、失敗中作品、stale 作品、作品別 health
+- JSON 出力: `summary` と `works[]` を返す
+- stale 判定: 固定 48 時間ではなく `health_policy.expected_interval_seconds`、無ければ `CRAWL_INTERVAL` / `CRAWL_SCHEDULE` 由来の expected interval を 2 倍した窓で判定
+- health state: `healthy`, `degraded`, `stale`, `broken`, `pending`
 
 ## Adding a source adapter
 
@@ -259,6 +278,7 @@ python3 -m manga_watch.migrate_v2 \
 - `manga_watch/check.py`: watchlist/state v2 を読む checker
 - `manga_watch/backlog.py`: 更新履歴 / 未読確認と既読化の最小 CLI
 - `manga_watch/migrate_v2.py`: v1 から v2 への one-time migration CLI
+- `manga_watch/status.py`: status CLI 向けの health 集約と text / JSON 表示
 - `manga_watch/storage.py`: watchlist/state v2 validation と atomic write
 - `manga_watch/watchlist.py`: `watchlist add <url>` CLI
 - `manga_watch/runner.py`: スケジューラ + Discord 通知
@@ -273,7 +293,8 @@ python3 -m manga_watch.migrate_v2 \
 ## Maintenance tips
 
 - サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
-- migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
+- silent failure が疑わしいときは `.venv/bin/python -m manga_watch.check --status` で stale / degraded / broken な作品を先に確認する
+- migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
 - 未読の確認や既読化を手動で行いたいときは `python3 -m manga_watch.backlog --unread-only` または `python3 -m manga_watch.backlog --mark-read <work_id>` を使う
-- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` で runner まで確認する
+- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` で runner まで確認する
 - 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` に登録して fixture / source tests を更新する

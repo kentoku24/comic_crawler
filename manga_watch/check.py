@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+import argparse
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 import json
@@ -547,12 +548,41 @@ def run_check(
 
 def main(argv=None):
     argv = argv if argv is not None else sys.argv[1:]
-    if not argv:
+    parser = argparse.ArgumentParser(description="Run the checker or inspect persisted monitoring status.")
+    parser.add_argument("watchlist_path", nargs="?", help="watchlist path for crawl mode")
+    parser.add_argument("--status", action="store_true", help="show current monitoring status without crawling")
+    parser.add_argument("--format", choices=("text", "json"), help="status output format")
+    parser.add_argument("--watchlist", dest="status_watchlist_path", help="watchlist path for status mode")
+    parser.add_argument("--state", dest="status_state_path", help="state path for status mode")
+    parser.add_argument("--now", type=int, help="override current UNIX timestamp for status mode")
+    args = parser.parse_args(argv)
+
+    if args.status:
+        from manga_watch.status import build_status_report, render_status_report
+
+        if args.watchlist_path and args.status_watchlist_path:
+            parser.error("use either positional watchlist_path or --watchlist with --status")
+        watchlist_path = args.status_watchlist_path or args.watchlist_path
+        try:
+            report = build_status_report(
+                watchlist_path=watchlist_path,
+                state_path=args.status_state_path,
+                now=args.now,
+            )
+        except Exception as exc:
+            print(f"[status] error: {exc}", file=sys.stderr)
+            return 1
+        print(render_status_report(report, output_format=args.format or "text"))
+        return 0
+
+    if args.watchlist_path is None:
         print("usage: check.py <watchlist.json>", file=sys.stderr)
         return 2
+    if args.format or args.status_watchlist_path or args.status_state_path or args.now:
+        parser.error("--format, --watchlist, --state, and --now require --status")
 
     try:
-        result = run_check(argv[0])
+        result = run_check(args.watchlist_path)
         print(json.dumps(result, ensure_ascii=False))
         return 0
     except CheckRunError as exc:

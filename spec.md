@@ -36,6 +36,9 @@
       "notification_policy": {
         "mode": "all",
         "allowed_update_types": null
+      },
+      "health_policy": {
+        "expected_interval_seconds": 86400
       }
     }
   ]
@@ -51,6 +54,7 @@
 - `history_retention`: 任意。作品ごとの既読履歴保持件数。未指定時は既定値 `20`
 - `notification_policy.mode`: v2 migration では既定値 `all`
 - `notification_policy.allowed_update_types`: 明示設定が無ければ `null`
+- `health_policy.expected_interval_seconds`: stale 判定用の期待巡回間隔。未指定時は `CRAWL_INTERVAL`、無ければ `CRAWL_SCHEDULE`、さらに無ければ既定 cron (`0 19 * * *`) から導出する
 
 ### `watchlist add` CLI
 
@@ -202,6 +206,18 @@ Phase 1 はこの matrix を source of truth とし、未記載の URL 種別は
 - `health.consecutive_failures`: 連続失敗回数
 - `last_run_at`: checker 全体の最終実行時刻
 
+### Derived health states
+
+status CLI と後続の通知設計では、state v2 に保存された `health` を次の離散状態へ射影して使う。
+
+- `healthy`: 連続失敗がなく、`last_success_at` が stale 窓内にある
+- `degraded`: `consecutive_failures` が 1 以上 3 未満
+- `broken`: `consecutive_failures` が 3 以上
+- `stale`: 連続失敗は無いが、`now - last_success_at > expected_interval_seconds * 2.0`
+- `pending`: まだ成功実績が無く、`last_checked_at` / `last_success_at` が `null`
+
+`stale` は固定 48 時間ではなく、作品ごとの `health_policy.expected_interval_seconds` または runtime cadence から求める。
+
 ### latest_key contract
 
 - ComicWalker: `episode_code`
@@ -240,6 +256,18 @@ python3 -m manga_watch.check manga_watch/watchlist.json
 - 同一 host への同時 request 数は `MANGA_WATCH_HTTP_WORKERS_PER_HOST` で抑制する
 - 失敗した作品も `health.last_checked_at` と `health.consecutive_failures` は更新する
 - watchlist/state の読み込みや state 保存のような run-level failure は `errors.run` に記録し、`CheckRunError` として返す
+
+### Status CLI
+
+```bash
+python3 -m manga_watch.check --status
+python3 -m manga_watch.check --status --format json
+```
+
+- `--status` は crawl を実行せず、watchlist/state v2 から現在の監視状態を表示する
+- text 出力は監視件数、最終 run 時刻、最終成功時刻、health counts、失敗中作品、stale 作品、作品別 health を含む
+- JSON 出力は同じ情報を `summary` と `works[]` に分けて返す
+- `works[].health` には `state`, `last_checked_at`, `last_success_at`, `consecutive_failures`, `expected_interval_seconds`, `stale_after_seconds` を含む
 
 ## Backlog CLI
 
