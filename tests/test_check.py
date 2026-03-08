@@ -19,6 +19,8 @@ from manga_watch.storage import (
     evaluate_notification_policy,
     latest_runtime_to_storage,
     latest_storage_to_runtime,
+    load_watchlist,
+    save_watchlist,
     validate_state,
     validate_watchlist,
 )
@@ -58,8 +60,9 @@ def watchlist_entry(
     seed_url="https://example.com/work",
     enabled=True,
     notification_policy=None,
+    health_policy=None,
 ):
-    return {
+    entry = {
         "id": work_id,
         "source": source,
         "seed_url": seed_url,
@@ -70,6 +73,9 @@ def watchlist_entry(
             "allowed_update_types": None,
         },
     }
+    if health_policy is not None:
+        entry["health_policy"] = health_policy
+    return entry
 
 
 def write_watchlist(path: Path, works):
@@ -272,6 +278,12 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("kakuyomu:123", entry["id"])
         self.assertEqual("https://kakuyomu.jp/works/123", entry["seed_url"])
 
+    def test_build_watchlist_entry_preserves_kakuyomu_trailing_slash(self):
+        entry = check.build_watchlist_entry("https://kakuyomu.jp/works/123/")
+
+        self.assertEqual("kakuyomu:123", entry["id"])
+        self.assertEqual("https://kakuyomu.jp/works/123/", entry["seed_url"])
+
     def test_build_watchlist_entry_uses_stable_comic_action_work_id(self):
         fake_client = mock.Mock()
         fake_client.get_text.return_value = (
@@ -327,6 +339,66 @@ class CheckTests(unittest.TestCase):
                     ],
                 }
             )
+
+    def test_validate_watchlist_rejects_non_integer_health_policy_expected_interval_seconds(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "health_policy.expected_interval_seconds must be an integer",
+        ):
+            validate_watchlist(
+                {
+                    "version": 2,
+                    "works": [
+                        watchlist_entry(
+                            notification_policy={
+                                "mode": "all",
+                                "allowed_update_types": None,
+                            },
+                            health_policy={"expected_interval_seconds": "oops"},
+                        )
+                    ],
+                }
+            )
+
+    def test_load_watchlist_rejects_invalid_health_policy_expected_interval_seconds(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(
+                watchlist_path,
+                [
+                    {
+                        **watchlist_entry(),
+                        "health_policy": {"expected_interval_seconds": "oops"},
+                    }
+                ],
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "health_policy.expected_interval_seconds must be an integer",
+            ):
+                load_watchlist(str(watchlist_path))
+
+    def test_save_watchlist_rejects_invalid_health_policy_expected_interval_seconds(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "health_policy.expected_interval_seconds must be an integer",
+            ):
+                save_watchlist(
+                    {
+                        "version": 2,
+                        "works": [
+                            {
+                                **watchlist_entry(),
+                                "health_policy": {"expected_interval_seconds": "oops"},
+                            }
+                        ],
+                    },
+                    str(watchlist_path),
+                )
 
     def test_evaluate_notification_policy_rejects_unknown_allowed_update_type(self):
         with self.assertRaisesRegex(

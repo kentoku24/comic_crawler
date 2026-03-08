@@ -31,7 +31,7 @@ class KakuyomuAdapter(SourceAdapter):
         return WorkDescriptor(
             source=self.source,
             work_id=work_id,
-            seed_url=seed_url.rstrip("/"),
+            seed_url=seed_url,
             metadata=metadata,
         )
 

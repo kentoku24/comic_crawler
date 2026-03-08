@@ -189,7 +189,7 @@ class SourceAdapterTests(unittest.TestCase):
                 "source": "kakuyomu",
                 "kind": "kakuyomu",
                 "workId": "kakuyomu:123",
-                "seedUrl": "https://kakuyomu.jp/works/123",
+                "seedUrl": "https://kakuyomu.jp/works/123/",
                 "series": "kakuyomu:123",
                 "numericWorkId": "123",
             },
