@@ -123,9 +123,13 @@ python3 -m manga_watch.check manga_watch/watchlist.json
 
 - checker は常に JSON を出力する
 - watchlist は入力順で処理し、`updates` の順序も watchlist 順で deterministic にする
+- source fetch は `MANGA_WATCH_HTTP_WORKERS` 本で並列実行できるが、state 更新順・`updates`・`errors.sources` は watchlist 入力順で deterministic に固定する
 - `latest_key` が変わったときだけ `updates` に積む
 - `latest_key` が同じで `seriesTitle` / `episodeTitle` / `pageTitle` / 補足 metadata だけ改善された場合は silent merge する
 - source ごとの parser/runtime failure は `errors.sources` に積み、成功した作品の state 更新は継続する
+- retry 対象は transport error / timeout / HTTP `429` / `5xx` に限定する
+- HTTP `404`、unsupported URL、parse error は即失敗として `errors.sources` に積む
+- 同一 host への同時 request 数は `MANGA_WATCH_HTTP_WORKERS_PER_HOST` で抑制する
 - 失敗した作品も `health.last_checked_at` と `health.consecutive_failures` は更新する
 - watchlist/state の読み込みや state 保存のような run-level failure は `errors.run` に記録し、`CheckRunError` として返す
 
@@ -176,6 +180,11 @@ python3 -m manga_watch.runner
 - `RUN_ON_STARTUP`
 - `MANGA_WATCH_WATCHLIST` または `MANGA_WATCH_URLS`
 - `MANGA_WATCH_STATE`
+- `MANGA_WATCH_HTTP_TIMEOUT`
+- `MANGA_WATCH_HTTP_RETRIES`
+- `MANGA_WATCH_HTTP_RETRY_BACKOFF`
+- `MANGA_WATCH_HTTP_WORKERS`
+- `MANGA_WATCH_HTTP_WORKERS_PER_HOST`
 
 ## Reader / Writer compatibility matrix
 

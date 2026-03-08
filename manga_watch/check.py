@@ -1,8 +1,11 @@
 #!/usr/bin/env python3
+from concurrent.futures import Future, ThreadPoolExecutor
+from dataclasses import dataclass
 import json
+import os
 import sys
 import time
-from typing import Dict, Mapping, Optional, Sequence, Tuple
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from manga_watch.sources import (
     DEFAULT_ADAPTERS,
@@ -23,6 +26,12 @@ from manga_watch.storage import (
     save_state,
 )
 
+DEFAULT_REQUEST_TIMEOUT = 25
+DEFAULT_RETRY_COUNT = 2
+DEFAULT_RETRY_BACKOFF = 0.5
+DEFAULT_MAX_WORKERS = 4
+DEFAULT_MAX_WORKERS_PER_HOST = 2
+
 
 class CheckRunError(RuntimeError):
     def __init__(self, stage: str, exc: Exception, result: Mapping[str, object]):
@@ -30,6 +39,73 @@ class CheckRunError(RuntimeError):
         self.stage = stage
         self.result = dict(result)
         self.original_error = exc
+
+
+def _read_int_env(name: str, default: int, *, minimum: int) -> int:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = int(raw)
+    if value < minimum:
+        raise ValueError(f"{name} must be >= {minimum}")
+    return value
+
+
+def _read_float_env(name: str, default: float, *, minimum: float) -> float:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    value = float(raw)
+    if value < minimum:
+        raise ValueError(f"{name} must be >= {minimum}")
+    return value
+
+
+@dataclass(frozen=True)
+class HttpConfig:
+    request_timeout: int = DEFAULT_REQUEST_TIMEOUT
+    retry_count: int = DEFAULT_RETRY_COUNT
+    retry_backoff: float = DEFAULT_RETRY_BACKOFF
+    max_workers: int = DEFAULT_MAX_WORKERS
+    max_workers_per_host: int = DEFAULT_MAX_WORKERS_PER_HOST
+
+    @classmethod
+    def from_env(cls) -> "HttpConfig":
+        return cls(
+            request_timeout=_read_int_env(
+                "MANGA_WATCH_HTTP_TIMEOUT",
+                DEFAULT_REQUEST_TIMEOUT,
+                minimum=1,
+            ),
+            retry_count=_read_int_env(
+                "MANGA_WATCH_HTTP_RETRIES",
+                DEFAULT_RETRY_COUNT,
+                minimum=0,
+            ),
+            retry_backoff=_read_float_env(
+                "MANGA_WATCH_HTTP_RETRY_BACKOFF",
+                DEFAULT_RETRY_BACKOFF,
+                minimum=0.0,
+            ),
+            max_workers=_read_int_env(
+                "MANGA_WATCH_HTTP_WORKERS",
+                DEFAULT_MAX_WORKERS,
+                minimum=1,
+            ),
+            max_workers_per_host=_read_int_env(
+                "MANGA_WATCH_HTTP_WORKERS_PER_HOST",
+                DEFAULT_MAX_WORKERS_PER_HOST,
+                minimum=1,
+            ),
+        )
+
+
+@dataclass(frozen=True)
+class SourceResult:
+    url: str
+    item_id: str
+    latest: Optional[Dict[str, object]] = None
+    error: Optional[Dict[str, str]] = None
 
 
 def _selected_adapters(adapters: Optional[Sequence[SourceAdapter]]) -> Sequence[SourceAdapter]:
@@ -217,15 +293,78 @@ def ensure_watchlist_contract(entry: Mapping[str, object], item: Mapping[str, ob
         )
 
 
+def _check_watchlist_entry(
+    entry: Mapping[str, object],
+    *,
+    adapters: Optional[Sequence[SourceAdapter]],
+    http_client: Optional[HttpClient],
+) -> SourceResult:
+    item_id = str(entry["id"])
+    seed_url = str(entry["seed_url"])
+    item = None
+    try:
+        item = normalize_item(seed_url, adapters=adapters)
+        ensure_watchlist_contract(entry, item)
+        item["workId"] = item_id
+        latest = compute_latest(item, adapters=adapters, http_client=http_client)
+        return SourceResult(url=seed_url, item_id=item_id, latest=latest)
+    except Exception as exc:
+        phase = "normalize" if item is None else "fetch_latest"
+        return SourceResult(
+            url=seed_url,
+            item_id=item_id,
+            error=source_error_record(seed_url, item_id=item_id, phase=phase, exc=exc),
+        )
+
+
+def _collect_source_results(
+    entries: Sequence[Mapping[str, object]],
+    *,
+    adapters: Optional[Sequence[SourceAdapter]],
+    http_client: Optional[HttpClient],
+    max_workers: int,
+) -> List[SourceResult]:
+    if not entries:
+        return []
+    if len(entries) == 1 or max_workers == 1:
+        return [
+            _check_watchlist_entry(entry, adapters=adapters, http_client=http_client)
+            for entry in entries
+        ]
+
+    ordered_results: List[Optional[SourceResult]] = [None] * len(entries)
+    with ThreadPoolExecutor(max_workers=min(max_workers, len(entries))) as executor:
+        futures: Dict[Future[SourceResult], int] = {}
+        for index, entry in enumerate(entries):
+            futures[executor.submit(
+                _check_watchlist_entry,
+                entry,
+                adapters=adapters,
+                http_client=http_client,
+            )] = index
+
+        for future, index in futures.items():
+            ordered_results[index] = future.result()
+
+    return [result for result in ordered_results if result is not None]
+
+
 def run_check(
     watchlist_path: str,
     *,
     adapters: Optional[Sequence[SourceAdapter]] = None,
     http_client: Optional[HttpClient] = None,
+    http_config: Optional[HttpConfig] = None,
 ):
     updates = []
     errors = empty_errors()
     result = {"updates": updates, "errors": errors}
+    try:
+        http_config = http_config or HttpConfig.from_env()
+    except Exception as exc:
+        errors["run"].append(run_error_record("http_config", exc))
+        raise CheckRunError("http_config", exc, result) from exc
+
     try:
         watchlist = load_watchlist(watchlist_path)
     except Exception as exc:
@@ -240,38 +379,36 @@ def run_check(
 
     works_state = state.setdefault("works", {})
     now = int(time.time())
+    effective_http_client = http_client or RequestsHttpClient(
+        timeout=http_config.request_timeout,
+        retry_count=http_config.retry_count,
+        retry_backoff=http_config.retry_backoff,
+        max_requests_per_host=http_config.max_workers_per_host,
+    )
+    enabled_entries = [entry for entry in watchlist["works"] if entry["enabled"]]
+    source_results = _collect_source_results(
+        enabled_entries,
+        adapters=adapters,
+        http_client=effective_http_client,
+        max_workers=http_config.max_workers,
+    )
 
-    for entry in watchlist["works"]:
-        if not entry["enabled"]:
-            continue
-
-        item_id = str(entry["id"])
-        item = None
-        try:
-            item = normalize_item(str(entry["seed_url"]), adapters=adapters)
-            ensure_watchlist_contract(entry, item)
-            item["workId"] = item_id
-            latest = compute_latest(item, adapters=adapters, http_client=http_client)
-        except Exception as exc:
-            phase = "normalize" if item is None else "fetch_latest"
-            errors["sources"].append(
-                source_error_record(
-                    str(entry["seed_url"]),
-                    item_id=item_id,
-                    phase=phase,
-                    exc=exc,
-                )
+    for source_result in source_results:
+        if source_result.error is not None:
+            errors["sources"].append(source_result.error)
+            works_state[source_result.item_id] = failure_entry(
+                works_state.get(source_result.item_id),
+                seen_at=now,
             )
-            works_state[item_id] = failure_entry(works_state.get(item_id), seen_at=now)
             continue
 
         next_entry, update = apply_item_transition(
-            item_id,
-            works_state.get(item_id),
-            latest,
+            source_result.item_id,
+            works_state.get(source_result.item_id),
+            source_result.latest or {},
             seen_at=now,
         )
-        works_state[item_id] = next_entry
+        works_state[source_result.item_id] = next_entry
         if update is not None:
             updates.append(update)
 
