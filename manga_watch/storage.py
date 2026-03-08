@@ -140,6 +140,7 @@ def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
         entry.get("history_retention"),
         field_name=f"watchlist entry {work_id} history_retention",
     )
+    health_policy = normalize_health_policy(entry.get("health_policy"), work_id)
     normalized = {
         "id": work_id,
         "source": source,
@@ -149,6 +150,8 @@ def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
     }
     if history_retention is not None:
         normalized["history_retention"] = history_retention
+    if health_policy is not None:
+        normalized["health_policy"] = health_policy
     for key, value in entry.items():
         if key in normalized or value is None:
             continue
@@ -175,6 +178,33 @@ def normalize_notification_policy(policy: object, work_id: str) -> Dict[str, obj
         "mode": mode,
         "allowed_update_types": allowed_update_types,
     }
+
+
+def normalize_health_policy(
+    policy: object,
+    work_id: str,
+) -> Optional[Dict[str, object]]:
+    if policy is None:
+        return None
+    if not isinstance(policy, Mapping):
+        raise ValueError(f"watchlist entry {work_id} health_policy must be an object")
+
+    normalized: Dict[str, object] = dict(policy)
+    expected_interval = policy.get("expected_interval_seconds")
+    if expected_interval is not None:
+        try:
+            expected_interval = int(expected_interval)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"watchlist entry {work_id} health_policy.expected_interval_seconds must be an integer"
+            ) from exc
+        if expected_interval <= 0:
+            raise ValueError(
+                f"watchlist entry {work_id} health_policy.expected_interval_seconds must be > 0"
+            )
+        normalized["expected_interval_seconds"] = expected_interval
+
+    return normalized
 
 
 def normalize_allowed_update_types(
