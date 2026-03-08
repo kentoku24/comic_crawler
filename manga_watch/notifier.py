@@ -217,6 +217,7 @@ class WebhookNotifier:
                 self.webhook_url,
                 json=event.as_payload(),
                 timeout=self.timeout,
+                allow_redirects=False,
             )
         except requests.RequestException as exc:
             raise RuntimeError(f"Webhook delivery failed: {exc}") from exc

@@ -41,8 +41,15 @@ class FakeSession:
         self.error = error
         self.calls = []
 
-    def post(self, url, json=None, timeout=None):
-        self.calls.append({"url": url, "json": json, "timeout": timeout})
+    def post(self, url, json=None, timeout=None, allow_redirects=None):
+        self.calls.append(
+            {
+                "url": url,
+                "json": json,
+                "timeout": timeout,
+                "allow_redirects": allow_redirects,
+            }
+        )
         if self.error is not None:
             raise self.error
         if not self.responses:
@@ -174,6 +181,7 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(session.calls))
         self.assertEqual("https://example.com/hook", session.calls[0]["url"])
         self.assertEqual(7, session.calls[0]["timeout"])
+        self.assertFalse(session.calls[0]["allow_redirects"])
         self.assertEqual(event.as_payload(), session.calls[0]["json"])
 
     def test_build_notifier_fans_out_to_all_configured_backends(self):
