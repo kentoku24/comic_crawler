@@ -1,4 +1,5 @@
-# Manga watch list (seed URLs)
+# Legacy v1 watch list (migration input only)
+# Runtime no longer reads this file after the v2 cutover.
 # comic-walker: any episode URL is OK; we derive series code and fetch /detail/<KC_xxx_S>
 # comic-action: give an episode URL; we follow nextReadableProductUri chain.
 

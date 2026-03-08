@@ -5,30 +5,31 @@ description: >
   Codex で回す専用ループ。指定 Issue から accepted scope と制約を抽出し、
   独立した作業単位ごとに `maker` エージェントを必要に応じて並列起動して実装し、
   親セッションで統合して PR を作成または更新し、その PR を
-  `$spacex-chief-reviewer` でレビューする。reviewer が NG を返したら指摘を
-  次の maker work packet に落として再実装し、承認されるまで繰り返す。Use when:
+  `$spacex-chief-reviewer` でレビューし、最後に `$merger` で merge まで進める。
+  reviewer または merger が NG を返したら指摘を次の maker work packet に落として
+  再実装し、マージされるまで繰り返す。Use when:
   GitHub Issue URL/番号だけを渡して作業を開始したいとき、Issue に既存の Chief
-  Engineer レビューがあるとき、実装から PR 更新と `$spacex-chief-reviewer`
-  による再レビューまでを標準ループで自動的に進めたいとき。
+  Engineer レビューがあるとき、実装から PR 更新、`$spacex-chief-reviewer`
+  による再レビュー、`$merger` による merge までを標準ループで自動的に進めたいとき。
 ---
 
-# GitHub Issue Maker / Chief Reviewer Loop
+# GitHub Issue Maker / Chief Reviewer / Merger Loop
 
 ## Overview
 
-`codex-mission-control` の派生版として、Issue 起点の実装ループだけに責務を絞る。親セッションが Mission Planner と Mission Control を兼務し、実装は原則 `maker` が担い、PR gate は `$spacex-chief-reviewer` が担う。
+`codex-mission-control` の派生版として、Issue 起点の実装ループだけに責務を絞る。親セッションが Mission Planner と Mission Control を兼務し、実装は原則 `maker` が担い、PR gate は `$spacex-chief-reviewer` と `$merger` が担う。
 
-Issue に既存の Chief Engineer レビューがある前提で始め、`maker` が実装し、親セッションが結果を統合して PR を作成または更新し、その PR を `$spacex-chief-reviewer` が gate として判定する。reviewer が `NG` を返した場合は、その指摘を次 cycle の maker packet に変換して再実装する。
+Issue に既存の Chief Engineer レビューがある前提で始め、`maker` が実装し、親セッションが結果を統合して PR を作成または更新し、その PR を `$spacex-chief-reviewer` が review gate として判定し、`$merger` が merge gate と実マージを担当する。reviewer または merger が `NG` を返した場合は、その指摘を次 cycle の maker packet に変換して再実装または PR 状態の修正を行う。
 
 `orchestrated-child` では、PR 作成や reviewer `APPROVE` は途中 checkpoint にすぎない。
 親 orchestrator が lane を追跡できるよう、child は `worktree_ready`, `pr_opened`, `review_state_changed`, `merged`, `issue_closed` を structured に報告し、requested terminal state を満たすまで走り切るか、未達なら pending state を返す。
 
 この skill には 2 つの完了モードがある。
 
-- `standalone`: reviewer gate が `APPROVE` になり、PR が最新化された時点でこの skill は完了してよい
+- `standalone`: reviewer gate が `APPROVE` になり、merger gate を通って PR が実際に merge された時点でこの skill は完了してよい
 - `orchestrated-child`: 親 orchestrator から terminal state が指定されている。reviewer `APPROVE` は中間状態であり、merge / issue close まで追うか、少なくとも `merge_pending` を返して親に control を戻す
 
-この loop でいう `APPROVE` / `NG` gate は、**親セッションや maker と別 agent の context で reviewer が判定したときだけ有効**とする。親セッションが reviewer 手順を自己適用して得た結論は、evidence 整理や事前点検には使えても gate 完了には数えない。
+この loop でいう review / merge gate は、**親セッションや maker と別 agent の context で reviewer / merger が判定したときだけ有効**とする。親セッションが reviewer や merger の手順を自己適用して得た結論は、evidence 整理や事前点検には使えても gate 完了には数えない。
 
 この skill は、呼び出し時に進め方を毎回指定しなくてよい。Issue を指定されたら、この標準ループをデフォルト動作として実行する。
 
@@ -58,7 +59,9 @@ Issue に既存の Chief Engineer レビューがある前提で始め、`maker`
 - maker の成果を統合し、必要な verification を走らせる。
 - 統合した変更から PR を作成または既存 PR を更新する。
 - `$spacex-chief-reviewer` を**別 agent**として起動し、PR review packet を渡し、`APPROVE` か `NG` を受け取る。
-- reviewer の `NG` を、次 cycle の maker packet に変換する。
+- reviewer に、chat 上の判定だけでなく PR 上へ `$spacex-chief-reviewer` 署名付きの gate comment を残させる。
+- reviewer `APPROVE` 後に `$merger` を**別 agent**として起動し、merge gate と実マージを委譲する。
+- reviewer または merger の `NG` を、次 cycle の maker packet または PR hygiene 作業に変換する。
 
 `explorer` や `telemetry` は常用しない。対象ファイルが広すぎて file mapping ができない場合だけ `explorer` を補助的に使い、検証が複雑で maker の自己検証だけでは不十分な場合だけ `telemetry` を追加する。
 
@@ -172,8 +175,10 @@ PR の扱いは次を原則とする。
 - reviewer agent には `fork_context=false` を優先し、親セッションの実装 reasoning を丸ごと渡さず、PR URL、統合後の diff, changed files, test evidence, known gaps など review に必要な最小限の packet だけを渡す。
 - reviewer は計画ではなく、PR 上の実装済み差分をレビューする。
 - reviewer は `spacex-chief-reviewer` の標準フローで review を行い、`APPROVE` か `NG` を返す。
+- reviewer には、chat 上の判定に加えて PR 上へ gate comment を残すことを明示的に要求する。comment には literal な `$spacex-chief-reviewer` と、最終行の `APPROVE` または `NG` を含めさせる。
 - 曖昧な「ほぼよい」「条件付きでよい」は `NG` として扱い、再作業項目へ落とす。
 - 親セッションが reviewer skill を自分でなぞっても、それは gate ではなく preflight review に留まる。**別 agent の判定が返るまで cycle は完了しない。**
+- reviewer が chat では `APPROVE` を返しても、PR comment を残していなければ merge gate に進めてはいけない。
 
 reviewer への packet には次を含める。
 
@@ -184,6 +189,7 @@ reviewer への packet には次を含める。
 - 検証結果
 - 既知の未解決事項
 - 今回求める gate 判定
+- PR に残すべき gate comment 形式
 
 別 agent reviewer を起動できない場合:
 
@@ -191,15 +197,41 @@ reviewer への packet には次を含める。
 - ただし `APPROVE` 扱いで完了してはいけない。
 - 状態は `reviewer gate pending` または `degraded: reviewer unavailable` として止める。
 
-### 6. `NG` なら 2 に戻る
+### 6. `APPROVE` 後に `$merger` を実行する
 
-- reviewer の `NG` を論点ごとに分解する。
-- 各論点を、次 cycle の maker packet に落とし込む。
+- 親セッションは reviewer の PR comment を確認したあと、`$merger` を**別 agent / 別 thread**として起動する。
+- merger agent には PR URL と、chief reviewer が残した gate comment が prerequisite であることを渡す。
+- merger は次を確認する。
+  - PR 上に `$spacex-chief-reviewer` の `APPROVE` comment がある
+  - PR の review thread がすべて resolved である
+- merger は条件を満たさない、または確認不能な場合、PR に `Merge NG` コメントを残して `NG` を返す。
+- merger は条件を満たした場合だけ `gh pr merge --merge --delete-branch` で merge する。
+- 親セッションや reviewer が merger の手順を自己適用しても、それは merge gate ではない。
+
+merger への packet には次を含める。
+
+- PR URL
+- chief reviewer comment の期待形式
+- merge に使う strategy (`--merge`)
+- unresolved review thread は blocker であること
+- 今回求める merge gate 判定
+
+別 agent merger を起動できない場合:
+
+- 親セッションは reviewer gate 完了までは進めてよい。
+- ただし merge 完了扱いにしてはいけない。
+- 状態は `merger gate pending` または `degraded: merger unavailable` として止める。
+
+### 7. reviewer または merger が `NG` なら戻る
+
+- reviewer / merger の `NG` を論点ごとに分解する。
+- コード修正が必要な論点は、次 cycle の maker packet に落とし込む。
+- review thread resolve や reviewer comment 追記のような PR hygiene だけが不足している場合は、親セッションがその不足を解消して 5 または 6 に戻ってよい。
 - scope creep を防ぐため、Issue の外に広がった rework は切り離す。
 - PR は閉じず、同じ PR を更新し続けることを基本とする。
 - 同じ理由で 2 cycle 連続 `NG` になったら、packet の切り方か設計前提が悪い可能性が高い。親セッションが loop を止め、Issue Brief を再構成する。
 
-### 7. `APPROVE` で完了する
+### 8. merge 完了で終了する
 
 `APPROVE` の意味は execution mode で変わる。
 
@@ -209,6 +241,8 @@ reviewer への packet には次を含める。
 次をすべて満たしたときだけ完了とする。
 
 - **別 agent として起動された** `$spacex-chief-reviewer` が `APPROVE` を返した。
+- その reviewer が、PR 上へ `$spacex-chief-reviewer` 署名付きの `APPROVE` comment を残している。
+- **別 agent として起動された** `$merger` が merge 条件を確認し、PR を実際にマージした。
 - 対応 PR が作成済みまたは最新状態に更新済みである。
 - Issue の acceptance criteria が evidence 付きで満たされている。
 - main regression risk と test gaps が明示されている。
@@ -232,6 +266,9 @@ gh api repos/<owner>/<repo>/issues/<number>/comments --paginate
 gh pr view <pr>
 gh pr create
 gh pr edit <pr>
+gh pr comment <pr>
+gh pr merge <pr> --merge --delete-branch
+gh api graphql -f query='... reviewThreads ...'
 rg --files
 rg <pattern>
 ```
@@ -243,7 +280,7 @@ rg <pattern>
 - maker が走らせる確認は、broad なフルテストより、packet に紐づく focused check を優先する。
 - PR 操作は親セッションが行う。maker に PR 作成や更新を任せない。
 - `$spacex-chief-reviewer` review 前に、親セッションが最低限の integration check を行う。
-- reviewer gate は親セッションではなく、別 agent 起動で実行する。
+- reviewer gate と merger gate は親セッションではなく、別 agent 起動で実行する。
 
 ## Guardrails
 
@@ -253,8 +290,10 @@ rg <pattern>
 - maker が返した「done」を鵜呑みにせず、親セッションが evidence を確認する。
 - PR は parent-owned artifact として扱い、子エージェントに ownership を分散しない。
 - PR gate は必ず `$spacex-chief-reviewer` を通し、review は実コードと検証結果に対して行い、口頭の説明だけで通さない。
+- reviewer の chat 上の `APPROVE` だけを根拠に merge してはいけない。PR 上の `$spacex-chief-reviewer` comment が必要。
+- merge は必ず `$merger` を通し、unresolved review thread が 1 件でも残っている状態で進めてはいけない。
 - 親セッションの自己レビューや reviewer checklist の自己適用を、`APPROVE` / `NG` gate とみなしてはいけない。
-- reviewer gate は必ず実装 agent と別 context で行い、別 agent を起動できない場合は completion ではなく pending / degraded として止める。
+- reviewer gate と merger gate は必ず実装 agent と別 context で行い、別 agent を起動できない場合は completion ではなく pending / degraded として止める。
 - `orchestrated-child` では reviewer `APPROVE` だけで `done` を返してはいけない。
 - `orchestrated-child` では PR 作成だけで `success` を返してはいけない。
 - `orchestrated-child` の heartbeat は non-terminal report であり、session 完了と混同してはいけない。
