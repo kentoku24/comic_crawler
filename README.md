@@ -333,17 +333,36 @@ export MANGA_WATCH_NOTIFIER_BACKENDS=stdout
 migration も `python3.12` で作った `.venv` から実行します。
 
 ```bash
+docker compose images comic-crawler
+
 .venv/bin/python -m manga_watch.migrate_v2 \
   --watchlist-v1 manga_watch/urls.txt \
   --state-v1 /data/state.json \
   --watchlist-v2 manga_watch/watchlist.json \
   --state-v2 /data/state.json \
-  --backup-dir /data/migration-backups/20260308T080000Z
+  --backup-dir /data/migration-backups/20260308T080000Z \
+  --pre-cutover-image-ref sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
-- migration は v1 入力の backup を先に取ります
+- migration は v1 入力の backup を先に取り、`--backup-dir/rollback-manifest.json` を書きます
+- `rollback-manifest.json` が rollback の source of truth です。戻すべき `urls.txt` / `state.json` backup と、差し戻すべき pre-cutover image / git commit をここで特定します
+- `--pre-cutover-image-ref` には immutable な image digest (`repo@sha256:...`) または local image ID (`sha256:...`) を渡します。`latest` は受け付けません
+- `rollback-manifest.json` には current git `HEAD` から解決した `git_commit` も併記されます。別 commit を記録したいときは `--pre-cutover-git-commit` を明示してください
 - migration 後は runtime 設定を `MANGA_WATCH_WATCHLIST` に切り替えます
-- rollback には backup の復元に加えて pre-cutover runtime への差し戻しが必要です
+- rollback には manifest に書かれた backup の復元と pre-cutover image / commit への差し戻しが必要です
+
+### Rollback checklist
+
+Prechecks:
+
+- rollback 対象の cutover で作られた `--backup-dir/rollback-manifest.json` を開き、`data_backups[*].backup_path` と `pre_cutover_runtime.image_ref` / `pre_cutover_runtime.git_commit` が今回戻す対象と一致していることを確認する
+- `data_backups[*].backup_path` が実在し、`restore_to_path` が元の v1 `urls.txt` / `state.json` を指していることを確認する
+- v2 runner を停止し、rollback 判断の根拠になった source error / state corruption / update spam の証跡を残す
+
+Post-rollback smoke checks:
+
+- manifest に書かれた backup と pre-cutover image / commit を戻したあと、復元した pre-cutover runtime 上で `python3 -m manga_watch.check manga_watch/urls.txt` を実行し、v1 data を正常に読めることを確認する
+- `docker compose up -d comic-crawler` で pre-cutover runner を再起動し、初回 run のログに想定外の parser/state error や notification burst が無いことを確認する
 
 詳細な mapping / cutover / rollback 条件は [spec.md](spec.md) を参照してください。
 

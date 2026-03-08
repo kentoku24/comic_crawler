@@ -428,19 +428,22 @@ python3 -m manga_watch.runner
 | `python3 -m manga_watch.runner` | no | yes | no | yes (`state.json`) |
 
 - runtime は v1 / v2 混在運用をサポートしない
-- rollback は backup を戻すだけでなく、v1 runtime へ戻せる pre-cutover image / commit が必要
+- rollback は cutover 時に作成した `rollback-manifest.json` に従って data backup と pre-cutover runtime/image の両方を戻す
 
 ## One-time migration
 
 ### CLI
 
 ```bash
+docker compose images comic-crawler
+
 python3 -m manga_watch.migrate_v2 \
   --watchlist-v1 manga_watch/urls.txt \
   --state-v1 /data/state.json \
   --watchlist-v2 manga_watch/watchlist.json \
   --state-v2 /data/state.json \
-  --backup-dir /data/migration-backups/20260308T080000Z
+  --backup-dir /data/migration-backups/20260308T080000Z \
+  --pre-cutover-image-ref sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
 ```
 
 ### Mapping rules
@@ -463,16 +466,24 @@ python3 -m manga_watch.migrate_v2 \
 
 #### Backup
 
-- migration CLI は入力 `urls.txt` と v1 `state.json` を `backup-dir` に copy2 する
+- migration CLI は入力 `urls.txt` と v1 `state.json` を `backup-dir` に copy2 し、`backup-dir/rollback-manifest.json` を書く
 - backup dir は timestamped path を使い、前回 backup を上書きしない
+- `rollback-manifest.json` は次を記録する
+  - `data_backups[]`: `kind`, `source_path`, `backup_path`, `restore_to_path`
+  - `cutover_outputs[]`: 生成した v2 `watchlist.json` / `state.json` の path
+  - `pre_cutover_runtime`: `service`, `image_ref`, `image_ref_kind`, `git_commit`, `git_commit_captured_via`, `git_dirty`
+  - `rollback_prechecks`, `rollback_steps`, `rollback_smoke_checks`
+- `pre_cutover_runtime.image_ref` は rollback 時に実際に戻せる immutable identifier を使う。`repo@sha256:...` または local image ID `sha256:...` のみを許可し、tag や `:latest` は reject する
+- `pre_cutover_runtime.git_commit` は full 40-character git SHA を記録する。`--pre-cutover-git-commit` を省略した場合は current git `HEAD` から解決する
 
 #### Cutover
 
 1. runner を停止する
-2. migration CLI で watchlist/state v2 を生成し、backup を取得する
-3. runtime 設定を `MANGA_WATCH_WATCHLIST=/app/manga_watch/watchlist.json` に切り替える
-4. `python3 -m manga_watch.check manga_watch/watchlist.json` を 1 回実行して state validation と parser/state 挙動を確認する
-5. runner を再起動する
+2. migration CLI で watchlist/state v2 を生成し、backup と `rollback-manifest.json` を取得する
+3. `rollback-manifest.json` を開き、`pre_cutover_runtime.image_ref` と `pre_cutover_runtime.git_commit` が今回の rollback target と一致していることを確認する
+4. runtime 設定を `MANGA_WATCH_WATCHLIST=/app/manga_watch/watchlist.json` に切り替える
+5. `python3 -m manga_watch.check manga_watch/watchlist.json` を 1 回実行して state validation と parser/state 挙動を確認する
+6. runner を再起動する
 
 #### Rollback conditions
 
@@ -480,12 +491,27 @@ python3 -m manga_watch.migrate_v2 \
 - migrated data で #11 の parser/state regression が落ちた
 - cutover 後の初回 run で期待しない source errors / state corruption / update spam が出た
 
+#### Rollback prechecks
+
+- rollback 対象の cutover で作られた `backup-dir/rollback-manifest.json` を選び、その manifest を今回の source of truth に固定する
+- `data_backups[*].backup_path` が全て存在し、`restore_to_path` が元の v1 `urls.txt` / `state.json` であることを確認する
+- `pre_cutover_runtime.image_ref` が今回戻す runtime/image artifact と一致し、digest か image ID であることを確認する
+- `pre_cutover_runtime.git_commit` が今回戻す pre-cutover checkout と一致していることを確認する
+- v2 runner を停止し、rollback 判断に使う source error / state corruption / update spam の証跡を残す
+
 #### Rollback steps
 
 1. v2 runner を停止する
-2. backup-dir から v1 `urls.txt` と `state.json` を戻す
-3. pre-cutover runtime image / commit に戻す
-4. v1 runtime で `python3 -m manga_watch.check manga_watch/urls.txt` を実行して復旧確認する
+2. `rollback-manifest.json` の `data_backups[*]` に従って v1 `urls.txt` と `state.json` を `restore_to_path` へ戻す
+3. `rollback-manifest.json` の `pre_cutover_runtime.image_ref` と `pre_cutover_runtime.git_commit` に従って pre-cutover image / checkout に戻す
+4. 復元した pre-cutover runtime で `python3 -m manga_watch.check manga_watch/urls.txt` を実行する
+5. `docker compose up -d comic-crawler` で pre-cutover runner を起動する
+
+#### Post-rollback smoke checks
+
+- 復元した pre-cutover runtime で `python3 -m manga_watch.check manga_watch/urls.txt` が成功し、v1 data load / state save error を出さない
+- `docker compose up -d comic-crawler` 後、pre-cutover runner の初回 run に想定外の parser/state error が無い
+- pre-cutover runner の初回 run で notification burst や既読 data の再送が起きていない
 
 ## Verification gate for migrated data
 
