@@ -7,27 +7,32 @@ from .util import html_title
 
 class KakuyomuAdapter(SourceAdapter):
     source = "kakuyomu"
+    _SUPPORTED_URL = re.compile(
+        r"^https?://(?:www\.)?kakuyomu\.jp/works/(\d+)(?:/episodes/(\d+))?/?(?:\?.*)?$"
+    )
 
     def can_handle(self, seed_url: str) -> bool:
-        return "kakuyomu.jp/works/" in seed_url and "/episodes/" in seed_url
+        return bool(self._SUPPORTED_URL.match(seed_url))
 
     def normalize(self, seed_url: str) -> WorkDescriptor:
-        match = re.search(r"kakuyomu\.jp/works/(\d+)/episodes/(\d+)", seed_url)
+        match = self._SUPPORTED_URL.match(seed_url)
         if not match:
             raise RuntimeError("kakuyomu: could not parse work/episode id")
 
         numeric_work_id = match.group(1)
         seed_episode_id = match.group(2)
         work_id = f"kakuyomu:{numeric_work_id}"
+        metadata = {
+            "series": work_id,
+            "numericWorkId": numeric_work_id,
+        }
+        if seed_episode_id:
+            metadata["seedEpisodeId"] = seed_episode_id
         return WorkDescriptor(
             source=self.source,
             work_id=work_id,
-            seed_url=seed_url,
-            metadata={
-                "series": work_id,
-                "numericWorkId": numeric_work_id,
-                "seedEpisodeId": seed_episode_id,
-            },
+            seed_url=seed_url.rstrip("/"),
+            metadata=metadata,
         )
 
     def fetch_latest(self, work: WorkDescriptor, http_client: HttpClient) -> LatestEpisode:
