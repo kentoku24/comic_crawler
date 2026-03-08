@@ -118,7 +118,13 @@ repo 固有の review 観点は [references/repo-review-focus.md](references/rep
 - ...
 ```
 
-GitHub に approve を実際に投稿するのは user が明示的に求めたときだけにする。デフォルトは chat 上での gate judgement に留める。
+GitHub に reviewer 結果を実際に投稿するのは、user または親 workflow が明示的に求めたときだけにする。デフォルトは chat 上での gate judgement に留める。
+
+`$merger` の前提として PR comment が必要な workflow で呼ばれた場合は、chat 応答に加えて `gh pr comment` で同じ判定を PR に残す。その comment には少なくとも次を含める。
+
+- literal な `$spacex-chief-reviewer`
+- skill の標準フォーマット
+- 最終行の `APPROVE` または `NG`
 
 ## Guardrails
 
@@ -129,3 +135,4 @@ GitHub に approve を実際に投稿するのは user が明示的に求めた�
 - unrelated な既存問題を広げすぎない。ただし今回の変更で悪化するなら blocker として扱う。
 - `NG` を出すときは veto として扱い、approve に向かう最短の代替案を返す。
 - 「理屈は通るが、この repo では運用上つらい」「局所的には直ったが全体として無理がある」も reviewer の正当な `NG` になりうる。
+- PR comment posting を求められた場合は、chat 上の判定と PR 上の判定を食い違わせてはいけない。
