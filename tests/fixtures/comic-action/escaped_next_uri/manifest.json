@@ -1,0 +1,28 @@
+{
+  "seedUrl": "https://comic-action.com/episode/444",
+  "expectedWork": {
+    "source": "comic-action",
+    "kind": "comic-action",
+    "workId": "https://comic-action.com/episode/444",
+    "seedUrl": "https://comic-action.com/episode/444"
+  },
+  "steps": [
+    {
+      "url": "https://comic-action.com/episode/444",
+      "response": "01-seed.html"
+    },
+    {
+      "url": "https://comic-action.com/episode/555",
+      "response": "02-latest.html"
+    }
+  ],
+  "expectedLatest": {
+    "source": "comic-action",
+    "workId": "https://comic-action.com/episode/444",
+    "latestKey": "https://comic-action.com/episode/555",
+    "url": "https://comic-action.com/episode/555",
+    "seriesTitle": "作品B",
+    "episodeTitle": "第5話",
+    "pageTitle": "第5話 / 作品B - webアクション | comic-action"
+  }
+}

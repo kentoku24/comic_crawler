@@ -1,0 +1,28 @@
+{
+  "seedUrl": "https://comic-action.com/episode/777",
+  "expectedWork": {
+    "source": "comic-action",
+    "kind": "comic-action",
+    "workId": "https://comic-action.com/episode/777",
+    "seedUrl": "https://comic-action.com/episode/777"
+  },
+  "steps": [
+    {
+      "url": "https://comic-action.com/episode/777",
+      "response": "01-seed.html"
+    },
+    {
+      "url": "https://comic-action.com/episode/888",
+      "response": "02-loop.html"
+    }
+  ],
+  "expectedLatest": {
+    "source": "comic-action",
+    "workId": "https://comic-action.com/episode/777",
+    "latestKey": "https://comic-action.com/episode/888",
+    "url": "https://comic-action.com/episode/888",
+    "seriesTitle": "作品B",
+    "episodeTitle": "第8話",
+    "pageTitle": "第8話 / 作品B - webアクション | comic-action"
+  }
+}

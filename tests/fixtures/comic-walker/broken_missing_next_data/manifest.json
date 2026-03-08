@@ -1,0 +1,21 @@
+{
+  "seedUrl": "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456001_E",
+  "expectedWork": {
+    "source": "comic-walker",
+    "kind": "comic-walker",
+    "workId": "KC_123456_S",
+    "seedUrl": "https://comic-walker.com/detail/KC_123456_S",
+    "series": "KC_123456_S",
+    "seriesCode": "KC_123456_S"
+  },
+  "steps": [
+    {
+      "url": "https://comic-walker.com/detail/KC_123456_S",
+      "response": "01-series.html"
+    }
+  ],
+  "expectedError": {
+    "type": "SourceParseError",
+    "message": "comic-walker: __NEXT_DATA__ not found"
+  }
+}

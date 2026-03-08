@@ -40,7 +40,7 @@ class RunnerTests(unittest.TestCase):
             discord_main_channel_id="main",
             discord_run_report_channel_id="report",
             timezone_name="Asia/Tokyo",
-            urls_path="/tmp/urls.txt",
+            watchlist_path="/tmp/watchlist.json",
             crawl_schedule="0 19 * * *",
             crawl_interval=None,
             run_on_startup=True,
@@ -50,9 +50,15 @@ class RunnerTests(unittest.TestCase):
     def test_run_once_without_updates_only_sends_report(self):
         messenger = FakeMessenger()
         state = {
-            "items": {
+            "works": {
                 "work-1": {
-                    "latest": {"seriesTitle": "作品A", "episodeTitle": "第1話"},
+                    "latest": {"series_title": "作品A", "episode_title": "第1話"},
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
                 }
             }
         }
@@ -66,9 +72,11 @@ class RunnerTests(unittest.TestCase):
         )
 
         self.assertTrue(outcome["ok"])
+        self.assertEqual(0, outcome["errorCount"])
         self.assertEqual(1, len(messenger.messages))
         self.assertEqual("report", messenger.messages[0][0])
         self.assertIn("通知: 送信なし", messenger.messages[0][1])
+        self.assertIn("エラー: 0件", messenger.messages[0][1])
         self.assertIn("作品A：第1話", messenger.messages[0][1])
 
     def test_run_once_with_updates_sends_main_then_report(self):
@@ -76,18 +84,24 @@ class RunnerTests(unittest.TestCase):
         updates = [
             {
                 "id": "work-1",
-                "from": {"seriesTitle": "作品A", "episodeTitle": "第1話"},
+                "from": {"series_title": "作品A", "episode_title": "第1話"},
                 "to": {
-                    "seriesTitle": "作品A",
-                    "episodeTitle": "第2話",
+                    "series_title": "作品A",
+                    "episode_title": "第2話",
                     "url": "https://example.com/2",
                 },
             }
         ]
         state = {
-            "items": {
+            "works": {
                 "work-1": {
-                    "latest": {"seriesTitle": "作品A", "episodeTitle": "第2話"},
+                    "latest": {"series_title": "作品A", "episode_title": "第2話"},
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
                 }
             }
         }
@@ -101,27 +115,99 @@ class RunnerTests(unittest.TestCase):
         )
 
         self.assertTrue(outcome["ok"])
+        self.assertEqual(0, outcome["errorCount"])
         self.assertEqual("main", messenger.messages[0][0])
         self.assertIn("作品A：第1話 → 第2話", messenger.messages[0][1])
         self.assertEqual("report", messenger.messages[1][0])
         self.assertIn("通知: 送信した", messenger.messages[1][1])
+        self.assertIn("エラー: 0件", messenger.messages[1][1])
+
+    def test_run_once_marks_source_errors_as_degraded_while_still_sending_updates(self):
+        messenger = FakeMessenger()
+        updates = [
+            {
+                "id": "work-1",
+                "from": {"series_title": "作品A", "episode_title": "第1話"},
+                "to": {
+                    "series_title": "作品A",
+                    "episode_title": "第2話",
+                    "url": "https://example.com/2",
+                },
+            }
+        ]
+        errors = {
+            "sources": [
+                {
+                    "id": "work-2",
+                    "phase": "fetch_latest",
+                    "kind": "parse",
+                    "message": "parse failed",
+                }
+            ],
+            "run": [],
+        }
+        state = {
+            "works": {
+                "work-1": {
+                    "latest": {"series_title": "作品A", "episode_title": "第2話"},
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
+                },
+                "work-2": {
+                    "latest": {"series_title": "作品B", "episode_title": "第5話"},
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 1,
+                    },
+                },
+            }
+        }
+
+        outcome = run_once(
+            self.make_config(),
+            messenger=messenger,
+            checker=lambda _: {"updates": updates, "errors": errors},
+            state_loader=lambda: state,
+            now_fn=lambda: 1_700_000_000,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(1, outcome["errorCount"])
+        self.assertEqual(1, outcome["updateCount"])
+        self.assertEqual("main", messenger.messages[0][0])
+        self.assertEqual("report", messenger.messages[1][0])
+        self.assertIn("巡回実行に一部失敗がありました", messenger.messages[1][1])
+        self.assertIn("エラー: 1件", messenger.messages[1][1])
+        self.assertIn("source/parse [fetch_latest] work-2: parse failed", messenger.messages[1][1])
 
     def test_run_once_sends_failure_report_when_notification_fails(self):
         messenger = FakeMessenger(fail_on_channel="main")
         state = {
-            "items": {
+            "works": {
                 "work-1": {
-                    "latest": {"seriesTitle": "作品A", "episodeTitle": "第2話"},
+                    "latest": {"series_title": "作品A", "episode_title": "第2話"},
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_000_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
                 }
             }
         }
         updates = [
             {
                 "id": "work-1",
-                "from": {"seriesTitle": "作品A", "episodeTitle": "第1話"},
+                "from": {"series_title": "作品A", "episode_title": "第1話"},
                 "to": {
-                    "seriesTitle": "作品A",
-                    "episodeTitle": "第2話",
+                    "series_title": "作品A",
+                    "episode_title": "第2話",
                     "url": "https://example.com/2",
                 },
             }

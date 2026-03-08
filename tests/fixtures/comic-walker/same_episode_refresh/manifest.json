@@ -1,0 +1,31 @@
+{
+  "seedUrl": "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456001_E",
+  "expectedWork": {
+    "source": "comic-walker",
+    "kind": "comic-walker",
+    "workId": "KC_123456_S",
+    "seedUrl": "https://comic-walker.com/detail/KC_123456_S",
+    "series": "KC_123456_S",
+    "seriesCode": "KC_123456_S"
+  },
+  "steps": [
+    {
+      "url": "https://comic-walker.com/detail/KC_123456_S",
+      "response": "01-series.html"
+    },
+    {
+      "url": "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456001_E?episodeType=latest",
+      "response": "02-latest.html"
+    }
+  ],
+  "expectedLatest": {
+    "source": "comic-walker",
+    "workId": "KC_123456_S",
+    "latestKey": "KC_123456001_E",
+    "url": "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456001_E?episodeType=latest",
+    "series": "KC_123456_S",
+    "seriesTitle": "作品A",
+    "episodeCode": "KC_123456001_E",
+    "episodeTitle": "第1話"
+  }
+}

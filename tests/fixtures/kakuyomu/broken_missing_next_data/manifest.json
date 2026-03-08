@@ -1,0 +1,22 @@
+{
+  "seedUrl": "https://kakuyomu.jp/works/123/episodes/456",
+  "expectedWork": {
+    "source": "kakuyomu",
+    "kind": "kakuyomu",
+    "workId": "kakuyomu:123",
+    "seedUrl": "https://kakuyomu.jp/works/123/episodes/456",
+    "series": "kakuyomu:123",
+    "numericWorkId": "123",
+    "seedEpisodeId": "456"
+  },
+  "steps": [
+    {
+      "url": "https://kakuyomu.jp/works/123",
+      "response": "01-work.html"
+    }
+  ],
+  "expectedError": {
+    "type": "SourceParseError",
+    "message": "kakuyomu: __NEXT_DATA__ not found"
+  }
+}

@@ -1,21 +1,84 @@
 import importlib
 import inspect
+import json
 import pkgutil
+import re
 import unittest
+from pathlib import Path
 
 import manga_watch.sources as source_package
-from manga_watch.sources import REGISTERED_SOURCES, SourceAdapter
+from manga_watch.sources import REGISTERED_ADAPTERS, REGISTERED_SOURCES, SourceAdapter
+from manga_watch.sources.base import SourceParseError
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
 
+FIXTURES_ROOT = Path(__file__).parent / "fixtures"
+SOURCE_CASES = {
+    "comic-walker": (
+        "normal",
+        "title_variation_or_bonus",
+        "same_episode_refresh",
+        "broken_missing_next_data",
+    ),
+    "kakuyomu": (
+        "normal",
+        "title_variation_or_bonus",
+        "same_episode_refresh",
+        "broken_missing_next_data",
+    ),
+    "comic-action": (
+        "normal",
+        "title_variation",
+        "escaped_next_uri",
+        "broken_missing_next",
+        "broken_loop",
+    ),
+}
+ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
+ERROR_TYPES = {
+    "SourceParseError": SourceParseError,
+    "RuntimeError": RuntimeError,
+}
 
-class FakeHttpClient:
-    def __init__(self, pages):
-        self.pages = pages
+
+class FixtureHttpClient:
+    def __init__(self, case_dir: Path, steps):
+        self.case_dir = case_dir
+        self.steps = steps
+        self.index = 0
 
     def get_text(self, url: str) -> str:
-        return self.pages[url]
+        if self.index >= len(self.steps):
+            raise AssertionError(f"{self.case_dir}: unexpected request after bundle exhausted: {url!r}")
+
+        step = self.steps[self.index]
+        self.index += 1
+        expected_url = step["url"]
+        if url != expected_url:
+            raise AssertionError(
+                f"{self.case_dir}: request #{self.index} expected {expected_url!r}, got {url!r}"
+            )
+        return step["body"]
+
+    def assert_consumed(self):
+        remaining = [step["url"] for step in self.steps[self.index :]]
+        if remaining:
+            raise AssertionError(f"{self.case_dir}: bundle not fully consumed: {remaining!r}")
+
+
+def load_fixture_case(source: str, case_name: str):
+    case_dir = FIXTURES_ROOT / source / case_name
+    manifest = json.loads((case_dir / "manifest.json").read_text(encoding="utf-8"))
+    steps = []
+    for step in manifest["steps"]:
+        steps.append(
+            {
+                "url": step["url"],
+                "body": (case_dir / step["response"]).read_text(encoding="utf-8"),
+            }
+        )
+    return case_dir, manifest, FixtureHttpClient(case_dir, steps)
 
 
 def discover_concrete_adapter_sources():
@@ -43,6 +106,8 @@ def discover_concrete_adapter_sources():
 
 
 class SourceAdapterTests(unittest.TestCase):
+    maxDiff = None
+
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
             ("comic-walker", "comic-action", "kakuyomu"),
@@ -61,76 +126,38 @@ class SourceAdapterTests(unittest.TestCase):
             ),
         )
 
-    def test_comic_walker_adapter_fetches_latest_episode_from_fixture(self):
-        adapter = ComicWalkerAdapter()
-        seed_url = "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456001_E"
-        work = adapter.normalize(seed_url)
+    def test_comic_walker_fixtures(self):
+        self._assert_fixture_matrix("comic-walker")
 
-        latest_url = "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456003_E?episodeType=latest"
-        client = FakeHttpClient(
-            {
-                "https://comic-walker.com/detail/KC_123456_S": (
-                    '<script id="__NEXT_DATA__" type="application/json">'
-                    '{"episodeCodes":["KC_123456001_E","KC_123456003_E"]}'
-                    "</script>"
-                ),
-                latest_url: "<title>【第3話】作品A｜カドコミ (コミックウォーカー)</title>",
-            }
-        )
+    def test_comic_action_fixtures(self):
+        self._assert_fixture_matrix("comic-action")
 
-        latest = adapter.fetch_latest(work, client)
+    def test_kakuyomu_fixtures(self):
+        self._assert_fixture_matrix("kakuyomu")
 
-        self.assertEqual("comic-walker", work.source)
-        self.assertEqual("KC_123456_S", work.work_id)
-        self.assertEqual("KC_123456003_E", latest.latest_key)
-        self.assertEqual("作品A", latest.series_title)
-        self.assertEqual("第3話", latest.episode_title)
+    def _assert_fixture_matrix(self, source: str):
+        source_dir = FIXTURES_ROOT / source
+        actual_cases = sorted(path.name for path in source_dir.iterdir() if path.is_dir())
+        self.assertEqual(sorted(SOURCE_CASES[source]), actual_cases)
 
-    def test_comic_action_adapter_follows_next_readable_chain(self):
-        adapter = ComicActionAdapter()
-        seed_url = "https://comic-action.com/episode/111"
-        work = adapter.normalize(seed_url)
-        latest_url = "https://comic-action.com/episode/222"
-        client = FakeHttpClient(
-            {
-                seed_url: 'nextReadableProductUri":"https://comic-action.com/episode/222"',
-                latest_url: "<title>第2話 / 作品B - webアクション | comic-action</title>",
-            }
-        )
+        adapter_class = ADAPTERS[source]
+        for case_name in SOURCE_CASES[source]:
+            with self.subTest(source=source, case=case_name):
+                _, manifest, client = load_fixture_case(source, case_name)
+                adapter = adapter_class()
+                work = adapter.normalize(manifest["seedUrl"])
+                self.assertEqual(manifest["expectedWork"], work.to_dict())
 
-        latest = adapter.fetch_latest(work, client)
+                expected_error = manifest.get("expectedError")
+                if expected_error:
+                    error_type = ERROR_TYPES[expected_error["type"]]
+                    with self.assertRaisesRegex(error_type, re.escape(expected_error["message"])):
+                        adapter.fetch_latest(work, client)
+                else:
+                    latest = adapter.fetch_latest(work, client)
+                    self.assertEqual(manifest["expectedLatest"], latest.to_dict())
 
-        self.assertEqual("comic-action", work.source)
-        self.assertEqual(seed_url, work.work_id)
-        self.assertEqual(latest_url, latest.latest_key)
-        self.assertEqual("作品B", latest.series_title)
-        self.assertEqual("第2話", latest.episode_title)
-
-    def test_kakuyomu_adapter_fetches_latest_episode_from_fixture(self):
-        adapter = KakuyomuAdapter()
-        seed_url = "https://kakuyomu.jp/works/123/episodes/456"
-        work = adapter.normalize(seed_url)
-        work_url = "https://kakuyomu.jp/works/123"
-        latest_url = "https://kakuyomu.jp/works/123/episodes/789"
-        client = FakeHttpClient(
-            {
-                work_url: (
-                    '<script id="__NEXT_DATA__" type="application/json">'
-                    '{"Episode:456":{"id":"456","title":"第1話","publishedAt":"2025-01-01T00:00:00Z"},'
-                    '"Episode:789":{"id":"789","title":"第2話","publishedAt":"2025-02-01T00:00:00Z"}}'
-                    "</script>"
-                ),
-                latest_url: "<title>第2話 - 作品C - カクヨム</title>",
-            }
-        )
-
-        latest = adapter.fetch_latest(work, client)
-
-        self.assertEqual("kakuyomu", work.source)
-        self.assertEqual("kakuyomu:123", work.work_id)
-        self.assertEqual("789", latest.latest_key)
-        self.assertEqual("作品C", latest.series_title)
-        self.assertEqual("第2話", latest.episode_title)
+                client.assert_consumed()
 
 
 if __name__ == "__main__":

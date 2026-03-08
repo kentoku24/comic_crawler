@@ -1,0 +1,24 @@
+{
+  "seedUrl": "https://comic-action.com/episode/333",
+  "expectedWork": {
+    "source": "comic-action",
+    "kind": "comic-action",
+    "workId": "https://comic-action.com/episode/333",
+    "seedUrl": "https://comic-action.com/episode/333"
+  },
+  "steps": [
+    {
+      "url": "https://comic-action.com/episode/333",
+      "response": "01-page.html"
+    }
+  ],
+  "expectedLatest": {
+    "source": "comic-action",
+    "workId": "https://comic-action.com/episode/333",
+    "latestKey": "https://comic-action.com/episode/333",
+    "url": "https://comic-action.com/episode/333",
+    "seriesTitle": "作品B",
+    "episodeTitle": "番外編",
+    "pageTitle": "番外編 / 作品B - 著者名 | comic-action"
+  }
+}

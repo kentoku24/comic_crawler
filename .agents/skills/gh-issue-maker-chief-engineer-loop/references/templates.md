@@ -53,6 +53,7 @@ Chief Reviewer Review Packet
 - Issue:
 - PR:
 - Cycle:
+- Review execution mode: `spawn_agent` (independent context)
 - Implemented packets:
   - ...
 - Changed files:
@@ -69,6 +70,7 @@ Chief Reviewer Review Packet
 
 ```text
 Chief Reviewer Gate
+- Reviewer agent:
 - Decision: APPROVE | NG
 - Blocking issues:
   - ...
