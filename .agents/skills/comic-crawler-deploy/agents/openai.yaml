@@ -1,0 +1,4 @@
+interface:
+  display_name: "Deploy"
+  short_description: "Deploy comic_crawler main runtime safely."
+  default_prompt: "Use $comic-crawler-deploy to deploy comic_crawler to the main runtime checkout and verify the container."
