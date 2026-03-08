@@ -1,0 +1,29 @@
+{
+  "seedUrl": "https://championcross.jp/episodes/f35108c56e75d",
+  "expectedWork": {
+    "source": "champion-cross",
+    "kind": "champion-cross",
+    "workId": "https://championcross.jp/episodes/f35108c56e75d",
+    "seedUrl": "https://championcross.jp/episodes/f35108c56e75d"
+  },
+  "steps": [
+    {
+      "url": "https://championcross.jp/episodes/f35108c56e75d",
+      "response": "01-episode.html"
+    },
+    {
+      "url": "https://championcross.jp/series/4756324e1c1b1/rss",
+      "response": "02-rss.xml"
+    }
+  ],
+  "expectedLatest": {
+    "source": "champion-cross",
+    "workId": "https://championcross.jp/episodes/f35108c56e75d",
+    "latestKey": "https://championcross.jp/episodes/f35108c56e75d",
+    "url": "https://championcross.jp/episodes/f35108c56e75d",
+    "series": "champion-cross:4756324e1c1b1",
+    "seriesTitle": "織津江大志の異世界クリ娘サバイバル日誌",
+    "episodeTitle": "第71話　ウェンディゴ2",
+    "nextUpdateLabel": "火曜更新"
+  }
+}

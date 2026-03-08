@@ -199,7 +199,13 @@ def merge_latest_metadata(
     for key, value in latest.items():
         if value is None:
             continue
-        if key in ("seriesTitle", "episodeTitle", "pageTitle", "update_type", "classification_reason"):
+        if key in (
+            "seriesTitle",
+            "episodeTitle",
+            "pageTitle",
+            "update_type",
+            "classification_reason",
+        ):
             if value and value != merged.get(key):
                 merged[key] = value
             continue
@@ -209,6 +215,21 @@ def merge_latest_metadata(
             continue
         if not merged.get(key):
             merged[key] = value
+
+    next_update_label = latest.get("nextUpdateLabel")
+    if next_update_label is None and "nextUpdateLabel" not in latest:
+        next_update_label = latest.get("next_update_label")
+
+    if "nextUpdateLabel" in latest or "next_update_label" in latest:
+        merged.pop("nextUpdateLabel", None)
+        merged.pop("next_update_label", None)
+        normalized_next_update_label = str(next_update_label or "").strip()
+        if normalized_next_update_label:
+            merged["nextUpdateLabel"] = normalized_next_update_label
+    else:
+        merged.pop("nextUpdateLabel", None)
+        merged.pop("next_update_label", None)
+
     return merged
 
 

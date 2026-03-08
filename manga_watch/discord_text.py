@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
-from typing import Mapping
+from typing import Mapping, Optional
 
 ELLIPSIS = "…"
 SUBTITLE_LIMIT = 8
@@ -103,8 +103,32 @@ def episode_label_for_snapshot(
     )
 
 
-def format_discord_link(label: object, url: object) -> str:
-    rendered_label = truncate_episode_label(label)
+def next_update_label_for_snapshot(snapshot: Mapping[str, object]) -> Optional[str]:
+    label = snapshot.get("next_update_label")
+    if label is None:
+        label = snapshot.get("nextUpdateLabel")
+    normalized = str(label or "").strip()
+    return normalized or None
+
+
+def latest_display_label_for_snapshot(
+    snapshot: Mapping[str, object],
+    *,
+    fallback: str = "未取得",
+    truncate_episode: bool = False,
+) -> str:
+    label = episode_label_for_snapshot(snapshot, fallback=fallback)
+    if truncate_episode:
+        label = truncate_episode_label(label)
+
+    next_update_label = next_update_label_for_snapshot(snapshot)
+    if next_update_label:
+        return f"{label}（{next_update_label}）"
+    return label
+
+
+def format_discord_link(label: object, url: object, *, truncate_label: bool = True) -> str:
+    rendered_label = truncate_episode_label(label) if truncate_label else str(label or "")
     rendered_url = str(url or "").strip()
     if not rendered_url:
         return rendered_label

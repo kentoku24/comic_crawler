@@ -59,16 +59,21 @@ def state_entry(
     last_checked_at,
     last_success_at,
     consecutive_failures: int,
+    next_update_label=None,
 ):
+    latest = {
+        "source": "fake",
+        "work_id": series_title,
+        "latest_key": episode_title,
+        "series_title": series_title,
+        "episode_title": episode_title,
+        "url": f"https://example.com/{series_title}/{episode_title}",
+    }
+    if next_update_label is not None:
+        latest["next_update_label"] = next_update_label
+
     return {
-        "latest": {
-            "source": "fake",
-            "work_id": series_title,
-            "latest_key": episode_title,
-            "series_title": series_title,
-            "episode_title": episode_title,
-            "url": f"https://example.com/{series_title}/{episode_title}",
-        },
+        "latest": latest,
         "history": [],
         "health": {
             "last_checked_at": last_checked_at,
@@ -262,6 +267,43 @@ class StatusReportTests(unittest.TestCase):
         self.assertIn("[broken] Broken", rendered)
         self.assertIn("[stale] Stale", rendered)
         self.assertIn("Works:", rendered)
+
+    def test_build_status_report_includes_next_update_label_in_latest_label(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir_path = Path(tmpdir)
+            watchlist_path = tmpdir_path / "watchlist.json"
+            state_path = tmpdir_path / "state.json"
+            write_watchlist(watchlist_path, [watchlist_entry("healthy-work")])
+            write_state(
+                state_path,
+                {
+                    "healthy-work": state_entry(
+                        series_title="Healthy",
+                        episode_title="第2話",
+                        next_update_label="次回更新予定 3/15",
+                        last_checked_at=9_900,
+                        last_success_at=9_900,
+                        consecutive_failures=0,
+                    ),
+                },
+                last_run_at=9_980,
+            )
+
+            with mock.patch.dict(os.environ, {"CRAWL_INTERVAL": "3600", "TZ": "Asia/Tokyo"}, clear=False):
+                report = build_status_report(
+                    watchlist_path=str(watchlist_path),
+                    state_path=str(state_path),
+                    now=10_000,
+                )
+
+        self.assertEqual(
+            "第2話（次回更新予定 3/15）",
+            report["works"][0]["latest_label"],
+        )
+        self.assertIn(
+            "latest=第2話（次回更新予定 3/15）",
+            format_status_report_text(report),
+        )
 
     def test_check_module_status_json_output(self):
         repo_root = Path(__file__).resolve().parents[1]

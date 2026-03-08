@@ -29,5 +29,6 @@
     "episodeCode": "456",
     "episodeTitle": "第1話 改訂版",
     "pageTitle": "第1話 改訂版 - 作品C - カクヨム"
-  }
+  },
+  "missingLatestKeys": ["nextUpdateLabel"]
 }

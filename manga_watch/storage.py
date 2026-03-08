@@ -24,6 +24,7 @@ SUPPORTED_NOTIFICATION_POLICY_UPDATE_TYPES = tuple(SUPPORTED_UPDATE_TYPES)
 _LATEST_RUNTIME_TO_STORAGE = {
     "workId": "work_id",
     "latestKey": "latest_key",
+    "nextUpdateLabel": "next_update_label",
     "seriesTitle": "series_title",
     "episodeCode": "episode_code",
     "episodeTitle": "episode_title",

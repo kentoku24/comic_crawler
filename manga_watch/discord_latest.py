@@ -6,8 +6,8 @@ from typing import Callable, Dict, List, Mapping, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from manga_watch.discord_text import (
-    episode_label_for_snapshot,
     format_discord_link,
+    latest_display_label_for_snapshot,
     series_label_for_snapshot,
 )
 from manga_watch.storage import load_state, load_watchlist
@@ -40,14 +40,14 @@ def series_label(work_id: str, latest: Mapping[str, object]) -> str:
 
 
 def latest_label(latest: Mapping[str, object]) -> str:
-    return episode_label_for_snapshot(latest)
+    return latest_display_label_for_snapshot(latest, truncate_episode=True)
 
 
 def render_work_line(work_id: str, latest: Mapping[str, object]) -> str:
     series = series_label(work_id, latest)
     if not latest:
         return f"（未取得）　{series}"
-    return f"{format_discord_link(latest_label(latest), latest.get('url'))}　{series}"
+    return f"{format_discord_link(latest_label(latest), latest.get('url'), truncate_label=False)}　{series}"
 
 
 def build_latest_query_lines(
