@@ -75,7 +75,7 @@ def extract_comic_action_episode_url_from_feed(feed_text: str) -> Optional[str]:
     if not feed_text:
         return None
     decoded = html.unescape(feed_text)
-    match = re.search(r"https?://comic-action\.com/episode/(\d+)", decoded)
+    match = re.search(r"https?://(?:www\.)?comic-action\.com/episode/(\d+)", decoded)
     if not match:
         return None
     return canonical_comic_action_episode_url(match.group(1))

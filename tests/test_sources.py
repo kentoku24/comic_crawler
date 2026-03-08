@@ -252,6 +252,46 @@ class SourceAdapterTests(unittest.TestCase):
             client.calls,
         )
 
+    def test_comic_action_fetch_latest_accepts_www_episode_links_from_feed(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/rss/series/13933686331606207128")
+        client = StaticHttpClient(
+            {
+                "https://comic-action.com/rss/series/13933686331606207128": """
+                <rss>
+                  <channel>
+                    <item>
+                      <link>https://www.comic-action.com/episode/11341664176570134078</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-action.com/episode/11341664176570134078": """
+                <html>
+                  <head>
+                    <title>第1話 母さんの形見 / つぐもも - 浜田よしかづ | webアクション</title>
+                  </head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("comic-action:13933686331606207128", latest["workId"])
+        self.assertEqual(
+            "https://comic-action.com/episode/11341664176570134078",
+            latest["latestKey"],
+        )
+        self.assertEqual(
+            [
+                "https://comic-action.com/rss/series/13933686331606207128",
+                "https://comic-action.com/episode/11341664176570134078",
+            ],
+            client.calls,
+        )
+
     def _assert_fixture_matrix(self, source: str):
         source_dir = FIXTURES_ROOT / source
         actual_cases = sorted(path.name for path in source_dir.iterdir() if path.is_dir())
