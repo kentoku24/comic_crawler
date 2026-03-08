@@ -2,6 +2,11 @@
 
 Docker コンテナ 1 つで定期クロールし、`stdout` と generic webhook に新着通知 event を送れる漫画更新監視アプリです。run report は毎回標準出力に出します。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
 
+## Python 3.12 baseline
+
+Docker / ローカル開発 / 将来の CI はすべて Python `3.12` を単一の runtime baseline とします。Docker image policy は `python:3.12-slim` に合わせ、ローカルツール向けには `.python-version` でも `3.12` を宣言します。Python `3.10` / `3.11` compatibility は要求しません。
+`python3.12` が PATH に無い場合は、pyenv / asdf / OS package manager などで 3.12 を先に導入または選択してから `.venv` を作ってください。
+
 ## What it does
 
 1. `manga_watch/watchlist.json` の watchlist v2 を読む
@@ -92,7 +97,9 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 
 各作品は `latest`, `history`, `unread`, `health` を持ちます。
 
-- `history`: `event_id` と `seen_at` を持つ更新イベント列
+- `history`: `event_id`, `seen_at`, `latest` を持つ更新イベント列。`latest_key` が進んだ event には任意で `gap` を持てる
+- `history[].gap.from_latest`: 直前 run で見えていた latest snapshot。複数話進行を exact に取れない source でも最低限この差分は残す
+- `history[].gap.estimated_new_episode_count`: `episodeTitle` / `pageTitle` から話数を比較できたときだけ入る推定件数
 - `unread.event_ids`: 未読イベントの source of truth
 - `health`: `last_checked_at`, `last_success_at`, `consecutive_failures`
 
@@ -109,7 +116,10 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 ```
 
 - `--json`: unread 数と履歴イベントを JSON で出力
+- `--json` 出力の event には任意で `gap` が入り、`from_latest` と推定話数から multi-update gap を downstream に渡せる
 - `--mark-read <work_id>`: その作品の現在未読を既読化し、保持ルールに従って履歴を trim
+
+複数話進行の推定は source 固有 id ではなく title から行います。`第N話` / `Episode N` / `Ep.N` / `#N` のような番号が両端で取れるときだけ `estimated_new_episode_count` を出し、取れない source や title では `from_latest` だけを残す fallback にします。
 
 ### legacy v1 input
 
@@ -126,6 +136,8 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 
 watchlist の `notification_policy` は classification default の上に適用されます。
 
+- `allowed_update_types` に明示できる値は `main_story`, `bonus`, `announcement`, `unknown` のみ
+- typo や未対応値を入れた watchlist は validation error として reject する
 - `allowed_update_types` が `null` でないときは mode より優先する
 - `mode=all`: `default_notify` を無視して全 `update_type` を通知する
 - `mode=important_only`: `main_story` と `unknown` だけを通知する
@@ -276,25 +288,26 @@ compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は 
 
 ## Local run
 
+ローカル実行は `python3.12` で作った `.venv` を前提にします。Python `3.10` / `3.11` での互換確認は不要です。
+
 ```bash
-python3 -m venv .venv
-source .venv/bin/activate
-pip install -U pip
-pip install -r requirements.txt
-python3 -m manga_watch.check manga_watch/watchlist.json
-python3 -m manga_watch.backlog --unread-only
+python3.12 -m venv .venv
+.venv/bin/python -m pip install -U pip
+.venv/bin/python -m pip install -r requirements.txt
+.venv/bin/python -m manga_watch.check manga_watch/watchlist.json
+.venv/bin/python -m manga_watch.backlog --unread-only
 .venv/bin/python -m manga_watch.check --status
 .venv/bin/python -m manga_watch.check --status --format json
 .venv/bin/python -m manga_watch.source_drift
 .venv/bin/python -m manga_watch.source_drift --format json
-python3 -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
+.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
 ```
 
 runner をローカル起動する場合は notifier 環境変数を入れてから実行します。
 
 ```bash
 export MANGA_WATCH_NOTIFIER_BACKENDS=stdout
-python3 -m manga_watch.runner
+.venv/bin/python -m manga_watch.runner
 ```
 
 ## Status CLI
@@ -352,8 +365,10 @@ drift を検知したら、次の順で進めます。
 
 ## One-time migration from v1
 
+migration も `python3.12` で作った `.venv` から実行します。
+
 ```bash
-python3 -m manga_watch.migrate_v2 \
+.venv/bin/python -m manga_watch.migrate_v2 \
   --watchlist-v1 manga_watch/urls.txt \
   --state-v1 /data/state.json \
   --watchlist-v2 manga_watch/watchlist.json \
@@ -388,10 +403,11 @@ python3 -m manga_watch.migrate_v2 \
 
 ## Maintenance tips
 
-- サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
+- ローカル venv は常に `python3.12 -m venv .venv` で作る。Python `3.10` / `3.11` compatibility は追わない
+- サイトの HTML が変わって検知が止まったら `.venv/bin/python -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
 - upstream drift が silent に見えるときは `.venv/bin/python -m manga_watch.source_drift` を先に回して、source ごとの canary signal がまだ生きているか確認する
 - silent failure が疑わしいときは `.venv/bin/python -m manga_watch.check --status` で stale / degraded / broken な作品を先に確認する
-- migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
-- 未読の確認や既読化を手動で行いたいときは `python3 -m manga_watch.backlog --unread-only` または `python3 -m manga_watch.backlog --mark-read <work_id>` を使う
-- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` で runner まで確認する
+- migration や state contract を更新したら `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
+- 未読の確認や既読化を手動で行いたいときは `.venv/bin/python -m manga_watch.backlog --unread-only` または `.venv/bin/python -m manga_watch.backlog --mark-read <work_id>` を使う
+- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` で runner まで確認する
 - 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` と `manga_watch/source_drift.py` の canary contract を更新して fixture / source tests を更新する

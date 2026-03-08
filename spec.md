@@ -1,5 +1,11 @@
 # comic_crawler / spec
 
+## Runtime baseline
+
+- ローカル実行 / Docker / 将来の CI は Python `3.12` を単一の runtime baseline とする
+- Docker image policy は `python:3.12-slim` に合わせ、ローカル virtualenv は `python3.12` で作る
+- Python `3.10` / `3.11` compatibility は required ではない
+
 ## Glossary
 
 - **watchlist v2**: `manga_watch/watchlist.json`
@@ -199,10 +205,14 @@ Phase 1 はこの matrix を source of truth とし、未記載の URL 種別は
 ### State field rules
 
 - `latest`: 現在の最新話 snapshot。未成功作品では `{}` を許容する
-- `history`: 更新イベント列。各 event は `event_id`, `seen_at`, `latest` を持つ
+- `history`: 更新イベント列。各 event は `event_id`, `seen_at`, `latest` を持ち、必要に応じて `gap` を持てる
 - `history[].event_id`: `latest_key` をそのまま使う。作品ごとに一意で、履歴追加の idempotency key でもある
 - `history[].seen_at`: その更新 event を checker が検知した UNIX timestamp
 - `history[].latest`: event 時点の latest snapshot
+- `history[].gap.from_latest`: 直前 run で見えていた latest snapshot。multi-update gap を exact に取れない場合でも最低限ここは埋める
+- `history[].gap.estimated_new_episode_count`: `episodeTitle` / `pageTitle` の両端から話数を抽出できたときだけ入る推定件数
+- `history[].gap.multiple_updates`: 推定件数が 2 以上なら `true`、1 件なら `false`、話数推定不能なら `null` 相当で保持する
+- `history[].gap.estimation_basis`: `episode_title_number` または `previous_latest_only`
 - `unread.event_ids`: 未読 event id の source of truth。`unread_count` は永続化しない
 - `health.last_checked_at`: 直近でその作品を巡回した UNIX timestamp
 - `health.last_success_at`: 直近で成功した UNIX timestamp
@@ -249,6 +259,9 @@ python3 -m manga_watch.check manga_watch/watchlist.json
 - source fetch は `MANGA_WATCH_HTTP_WORKERS` 本で並列実行できるが、state 更新順・`updates`・`errors.sources` は watchlist 入力順で deterministic に固定する
 - `latest_key` が変わったときだけ `updates` に積む
 - `latest_key` が変わったとき、未登録の `event_id=latest_key` を `history` に 1 回だけ追加する
+- 新規 `history` event には `gap.from_latest=直前 latest` を保存する。これが backlog / unread で「latest 1 件以上」の入力になる
+- `episodeTitle` / `pageTitle` の両端から `第N話` / `Episode N` / `Ep.N` / `#N` を比較できる場合だけ `gap.estimated_new_episode_count` を埋める
+- 話数推定不能な source や title では `gap.estimation_basis=previous_latest_only` の fallback にし、exact count は出さない
 - 同じ `event_id` を再検知しても履歴は重複させない。必要なら event snapshot だけ補完更新する
 - 新規 event が履歴に追加されたときだけ `unread.event_ids` にその id を追加する
 - `latest_key` が同じで `seriesTitle` / `episodeTitle` / `pageTitle` / 補足 metadata だけ改善された場合は silent merge する
@@ -283,8 +296,14 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 
 - `--unread-only`: 未読がある作品だけ表示する
 - `--work-id`: 対象作品を 1 つに絞る
-- `--json`: 機械可読な履歴 / unread summary を出す
+- `--json`: 機械可読な履歴 / unread summary を出す。event に `gap` があればそのまま含める
 - `--mark-read <work_id>`: その作品の `unread.event_ids` を空にして保存し、保持ルールに従って既読履歴を trim する
+
+### Multi-update gap capability
+
+- ComicWalker / Kakuyomu: `episodeTitle` / `pageTitle` に比較可能な番号が含まれるときは推定話数を出せる
+- comic-action: `latest_key` は episode URL で、adapter contract だけでは series 内の差分件数を導けない。title から番号が取れない場合は `previous_latest_only` fallback になる
+- どの source でも exact な全話遡及取得はしない。`gap.from_latest` と optional な推定件数を downstream 入力として使う
 
 ### Checker error schema
 
@@ -404,6 +423,8 @@ python3 -m manga_watch.runner
 - `main_story` と suppress 対象が衝突した場合は `unknown` に倒す
 - `bonus` と `announcement` だけが衝突した場合は suppress 側に残す
 - `allowed_update_types` が明示設定されていれば、それをその作品の最終通知判定として使う。空 list も有効で、その場合は全 suppress
+- `allowed_update_types` に許可される値は `main_story`, `bonus`, `announcement`, `unknown` のみ
+- typo や未対応値を含む watchlist は validation error にする
 - `allowed_update_types=null` のときだけ `mode` を使う
 - `mode=all`: 全 `update_type` を通知し、classification default を bypass する
 - `mode=important_only`: `main_story` と `unknown` だけを通知する

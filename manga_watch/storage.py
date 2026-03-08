@@ -3,7 +3,7 @@ import os
 import re
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
-from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES
+from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES, SUPPORTED_UPDATE_TYPES
 
 DEFAULT_WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "watchlist.json")
 DEFAULT_STATE_PATH = os.path.join(os.path.dirname(__file__), "state.json")
@@ -19,6 +19,7 @@ SUPPORTED_NOTIFICATION_POLICY_MODES = {
     NOTIFICATION_POLICY_MODE_IMPORTANT_ONLY,
     NOTIFICATION_POLICY_MODE_MUTE,
 }
+SUPPORTED_NOTIFICATION_POLICY_UPDATE_TYPES = tuple(SUPPORTED_UPDATE_TYPES)
 
 _LATEST_RUNTIME_TO_STORAGE = {
     "workId": "work_id",
@@ -161,25 +162,40 @@ def normalize_notification_policy(policy: object, work_id: str) -> Dict[str, obj
         raise ValueError(
             f"watchlist entry {work_id} notification_policy.mode must be one of: {supported_modes}"
         )
-    allowed_update_types = policy.get("allowed_update_types")
-    if allowed_update_types is not None:
-        if not isinstance(allowed_update_types, list):
-            raise ValueError(
-                f"watchlist entry {work_id} notification_policy.allowed_update_types must be a list or null"
-            )
-        normalized_allowed_update_types: List[str] = []
-        seen_update_types = set()
-        for item in allowed_update_types:
-            normalized_update_type = str(item).strip()
-            if not normalized_update_type or normalized_update_type in seen_update_types:
-                continue
-            seen_update_types.add(normalized_update_type)
-            normalized_allowed_update_types.append(normalized_update_type)
-        allowed_update_types = normalized_allowed_update_types
+    allowed_update_types = normalize_allowed_update_types(
+        policy.get("allowed_update_types"),
+        field_name=f"watchlist entry {work_id} notification_policy.allowed_update_types",
+    )
     return {
         "mode": mode,
         "allowed_update_types": allowed_update_types,
     }
+
+
+def normalize_allowed_update_types(
+    allowed_update_types: object,
+    *,
+    field_name: str,
+) -> Optional[List[str]]:
+    if allowed_update_types is None:
+        return None
+    if not isinstance(allowed_update_types, list):
+        raise ValueError(f"{field_name} must be a list or null")
+
+    normalized_allowed_update_types: List[str] = []
+    seen_update_types = set()
+    for item in allowed_update_types:
+        normalized_update_type = str(item).strip()
+        if not normalized_update_type or normalized_update_type in seen_update_types:
+            continue
+        if normalized_update_type not in SUPPORTED_NOTIFICATION_POLICY_UPDATE_TYPES:
+            supported_update_types = ", ".join(SUPPORTED_NOTIFICATION_POLICY_UPDATE_TYPES)
+            raise ValueError(
+                f"{field_name} must contain only supported update types: {supported_update_types}"
+            )
+        seen_update_types.add(normalized_update_type)
+        normalized_allowed_update_types.append(normalized_update_type)
+    return normalized_allowed_update_types
 
 
 def evaluate_notification_policy(
@@ -191,21 +207,10 @@ def evaluate_notification_policy(
     if mode not in SUPPORTED_NOTIFICATION_POLICY_MODES:
         raise ValueError(f"unsupported notification_policy.mode: {mode or '<empty>'}")
 
-    allowed_update_types = policy.get("allowed_update_types")
-    normalized_allowed_update_types: Optional[List[str]]
-    if allowed_update_types is None:
-        normalized_allowed_update_types = None
-    else:
-        if not isinstance(allowed_update_types, list):
-            raise ValueError("notification_policy.allowed_update_types must be a list or null")
-        normalized_allowed_update_types = []
-        seen_update_types = set()
-        for item in allowed_update_types:
-            normalized_update_type = str(item).strip()
-            if not normalized_update_type or normalized_update_type in seen_update_types:
-                continue
-            seen_update_types.add(normalized_update_type)
-            normalized_allowed_update_types.append(normalized_update_type)
+    normalized_allowed_update_types = normalize_allowed_update_types(
+        policy.get("allowed_update_types"),
+        field_name="notification_policy.allowed_update_types",
+    )
 
     normalized_update_type = str(update_type or "").strip() or "unknown"
     if normalized_allowed_update_types is not None:
