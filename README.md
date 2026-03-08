@@ -187,10 +187,10 @@ runner が backend に送る update event は次の schema です。
 - `event_id` は `work_id + latest_key` を SHA-256 で固定長化した stable id です。consumer はこれで dedupe します。
 - delivery contract は consumer 視点では at-least-once 前提です。duplicate を受け取っても `event_id` で idempotent に処理してください。
 - `notification` は watchlist policy を適用した時点の effective decision です。`default_notify=false` な `bonus` update でも `mode=all` なら `should_notify=true` になります。
-- current runner は persisted outbox を持たず、backend 送信は同期 1 回です。backend failure が state 更新後に起きると manual replay が必要です。
+- runner は delivery 前に state v2 の `notification_outbox` へ event を保存し、pending entry を次回 run で automatic replay します。manual replay は `python3 -m manga_watch.replay_outbox` で実行できます。
 - `stdout` backend は 1 event = 1 JSON line を標準出力へ flush します。
 - `webhook` backend は 1 event ごとに JSON POST します。HTTP `2xx` だけを success とし、それ以外の status / timeout / transport error は failure として run を失敗扱いにします。
-- `MANGA_WATCH_NOTIFIER_BACKENDS=stdout,webhook` のように comma-separated で複数 backend を指定すると、同じ event を同一 run 内で全 backend に送ります。
+- `MANGA_WATCH_NOTIFIER_BACKENDS=stdout,webhook` のように comma-separated で複数 backend を指定すると、同じ event を backend ごとに fan-out し、失敗した backend だけ outbox に残します。
 
 ## Supported sources
 
@@ -306,6 +306,7 @@ runner をローカル起動する場合は notifier 環境変数を入れてか
 ```bash
 export MANGA_WATCH_NOTIFIER_BACKENDS=stdout
 .venv/bin/python -m manga_watch.runner
+.venv/bin/python -m manga_watch.replay_outbox
 ```
 
 ## Status CLI

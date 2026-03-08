@@ -367,7 +367,10 @@ python3 -m manga_watch.runner
 - webhook success は HTTP `2xx` のみ。`3xx`/`4xx`/`5xx`、timeout、transport error は failure
 - どれか 1 backend でも failure した run は失敗扱いにし、failure report を stderr に出す
 - fan-out 中に一部 backend が成功してから別 backend が失敗し得るため、consumer は duplicate を `event_id` で dedupe する
-- current implementation は persisted outbox や automatic replay を持たない。checker が state を進めた後の delivery failure は manual replay が必要
+- runner は delivery 前に state v2 root の `notification_outbox` へ event を保存する
+- `notification_outbox` entry は少なくとも `event`, `pending_backends`, `attempt_count`, `last_attempted_at`, `last_error` を持つ
+- delivery failure 時は failed backend だけ `pending_backends` に残し、次の `runner` run または `python3 -m manga_watch.replay_outbox` で replay する
+- `notification_outbox` が空になるまで delivery は at-least-once で続く。consumer は `event_id` で idempotent に処理する
 
 ### Update event schema
 
