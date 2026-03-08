@@ -90,8 +90,10 @@ class MigrationTests(unittest.TestCase):
             "https://example.com/work/1",
             migrated_state["works"]["work-1"]["latest"]["latest_key"],
         )
+        self.assertEqual([], migrated_state["works"]["work-1"]["unread"]["event_ids"])
         self.assertEqual(1700000000, migrated_state["works"]["work-1"]["health"]["last_success_at"])
         self.assertEqual({}, migrated_state["works"]["work-2"]["latest"])
+        self.assertEqual([], migrated_state["works"]["work-2"]["unread"]["event_ids"])
         self.assertEqual(["orphaned-work"], orphaned)
 
     def test_migrate_state_v1_to_v2_falls_back_to_legacy_seed_url_key(self):
@@ -131,6 +133,10 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(
             "https://comic-action.com/episode/222",
             migrated_state["works"]["comic-action:13933686331663374228"]["latest"]["latest_key"],
+        )
+        self.assertEqual(
+            [],
+            migrated_state["works"]["comic-action:13933686331663374228"]["unread"]["event_ids"],
         )
 
     def test_migration_cli_writes_backups_and_v2_outputs(self):
@@ -202,6 +208,7 @@ class MigrationTests(unittest.TestCase):
             self.assertTrue((backup_dir / "state.json").exists())
             self.assertEqual("kakuyomu:123", migrated_watchlist["works"][0]["id"])
             self.assertEqual("789", migrated_state["works"]["kakuyomu:123"]["latest"]["latest_key"])
+            self.assertEqual([], migrated_state["works"]["kakuyomu:123"]["unread"]["event_ids"])
 
 
 if __name__ == "__main__":

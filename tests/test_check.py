@@ -15,7 +15,7 @@ import requests
 from manga_watch import check
 from manga_watch.sources import LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
 from manga_watch.sources.base import SourceParseError
-from manga_watch.storage import latest_runtime_to_storage, latest_storage_to_runtime
+from manga_watch.storage import latest_runtime_to_storage, latest_storage_to_runtime, validate_state
 
 
 class FakeAdapter(SourceAdapter):
@@ -318,6 +318,7 @@ class CheckTests(unittest.TestCase):
         self.assertIn("work-1", state["works"])
         self.assertEqual("ep-1", state["works"]["work-1"]["latest"]["latest_key"])
         self.assertEqual([], state["works"]["work-1"]["history"])
+        self.assertEqual([], state["works"]["work-1"]["unread"]["event_ids"])
         self.assertEqual(0, state["works"]["work-1"]["health"]["consecutive_failures"])
         self.assertIsInstance(state["works"]["work-1"]["health"]["last_checked_at"], int)
 
@@ -345,6 +346,7 @@ class CheckTests(unittest.TestCase):
                 "url": "https://example.com/work/1",
             },
             "history": [],
+            "unread": {"event_ids": []},
             "health": {
                 "last_checked_at": 10,
                 "last_success_at": 10,
@@ -368,9 +370,12 @@ class CheckTests(unittest.TestCase):
             previous,
             latest,
             seen_at=20,
+            history_retention=5,
         )
 
         self.assertEqual("ep-2", next_entry["latest"]["latest_key"])
+        self.assertEqual(["ep-2"], next_entry["unread"]["event_ids"])
+        self.assertEqual(["ep-2"], [event["event_id"] for event in next_entry["history"]])
         self.assertEqual(20, next_entry["health"]["last_checked_at"])
         self.assertEqual(
             {
@@ -400,6 +405,7 @@ class CheckTests(unittest.TestCase):
                 "default_notify": True,
             },
             "history": [],
+            "unread": {"event_ids": []},
             "health": {
                 "last_checked_at": 10,
                 "last_success_at": 10,
@@ -425,6 +431,7 @@ class CheckTests(unittest.TestCase):
             previous,
             latest,
             seen_at=20,
+            history_retention=5,
         )
 
         self.assertIsNone(update)
@@ -434,6 +441,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("作品A 第1話", runtime_latest["pageTitle"])
         self.assertEqual("補足", runtime_latest["summary"])
         self.assertEqual("https://example.com/work/1", runtime_latest["url"])
+        self.assertEqual([], next_entry["unread"]["event_ids"])
         self.assertEqual("main_story", runtime_latest["update_type"])
         self.assertEqual(
             "episode_title matched main-story numbering",
@@ -441,6 +449,172 @@ class CheckTests(unittest.TestCase):
         )
         self.assertTrue(runtime_latest["default_notify"])
         self.assertEqual(20, next_entry["health"]["last_checked_at"])
+
+    def test_validate_state_backfills_unread_and_normalizes_history_events(self):
+        state = validate_state(
+            {
+                "version": 2,
+                "works": {
+                    "work-1": {
+                        "latest": {
+                            "workId": "work-1",
+                            "latestKey": "ep-2",
+                            "episodeTitle": "第2話",
+                        },
+                        "history": [
+                            {
+                                "eventId": "ep-1",
+                                "seenAt": 10,
+                                "latest": {
+                                    "workId": "work-1",
+                                    "latestKey": "ep-1",
+                                    "episodeTitle": "第1話",
+                                },
+                            },
+                            {
+                                "event_id": "ep-2",
+                                "seen_at": 20,
+                                "latest": {
+                                    "work_id": "work-1",
+                                    "latest_key": "ep-2",
+                                    "episode_title": "第2話",
+                                },
+                            },
+                        ],
+                        "health": {
+                            "last_checked_at": 20,
+                            "last_success_at": 20,
+                            "consecutive_failures": 0,
+                        },
+                    }
+                },
+                "last_run_at": 20,
+            }
+        )
+
+        work_state = state["works"]["work-1"]
+        self.assertEqual("ep-2", work_state["latest"]["latest_key"])
+        self.assertEqual(["ep-1", "ep-2"], [event["event_id"] for event in work_state["history"]])
+        self.assertEqual("第1話", work_state["history"][0]["latest"]["episode_title"])
+        self.assertEqual([], work_state["unread"]["event_ids"])
+
+    def test_apply_item_transition_retains_unread_events_and_latest_read_tail(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-2",
+                "episode_title": "第2話",
+                "url": "https://example.com/work/2",
+            },
+            "history": [
+                {
+                    "event_id": "ep-0",
+                    "seen_at": 1,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-0",
+                        "episode_title": "第0話",
+                    },
+                },
+                {
+                    "event_id": "ep-1",
+                    "seen_at": 2,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-1",
+                        "episode_title": "第1話",
+                    },
+                },
+                {
+                    "event_id": "ep-2",
+                    "seen_at": 3,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-2",
+                        "episode_title": "第2話",
+                    },
+                },
+            ],
+            "unread": {"event_ids": ["ep-2"]},
+            "health": {
+                "last_checked_at": 3,
+                "last_success_at": 3,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-3",
+            "episodeTitle": "第3話",
+            "url": "https://example.com/work/3",
+        }
+
+        next_entry, _ = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=1,
+        )
+
+        self.assertEqual(["ep-1", "ep-2", "ep-3"], [event["event_id"] for event in next_entry["history"]])
+        self.assertEqual(["ep-2", "ep-3"], next_entry["unread"]["event_ids"])
+
+    def test_apply_item_transition_updates_existing_unread_event_without_duplication(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-2",
+                "episode_title": "第2話",
+                "url": "https://example.com/work/2",
+            },
+            "history": [
+                {
+                    "event_id": "ep-2",
+                    "seen_at": 10,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-2",
+                        "episode_title": "",
+                        "page_title": "",
+                    },
+                }
+            ],
+            "unread": {"event_ids": ["ep-2", "ep-2"]},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-2",
+            "episodeTitle": "第2話",
+            "pageTitle": "作品A 第2話",
+            "url": "https://example.com/work/2",
+        }
+
+        next_entry, update = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertIsNone(update)
+        self.assertEqual(1, len(next_entry["history"]))
+        self.assertEqual(["ep-2"], next_entry["unread"]["event_ids"])
+        self.assertEqual("作品A 第2話", next_entry["history"][0]["latest"]["page_title"])
 
     def test_error_records_distinguish_source_parse_and_run_failures(self):
         parse_error = check.source_error_record(
@@ -589,6 +763,9 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("ep-2", state["works"]["work-a"]["latest"]["latest_key"])
         self.assertEqual("ep-1", state["works"]["work-b"]["latest"]["latest_key"])
         self.assertEqual("ep-1", state["works"]["work-c"]["latest"]["latest_key"])
+        self.assertEqual(["ep-2"], state["works"]["work-a"]["unread"]["event_ids"])
+        self.assertEqual([], state["works"]["work-b"]["unread"]["event_ids"])
+        self.assertEqual([], state["works"]["work-c"]["unread"]["event_ids"])
         self.assertEqual(1, state["works"]["work-b"]["health"]["consecutive_failures"])
         self.assertEqual(1, state["works"]["work-c"]["health"]["consecutive_failures"])
 
@@ -727,6 +904,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("ep-2", result["updates"][0]["to"]["latestKey"])
         self.assertEqual({"sources": [], "run": []}, result["errors"])
         self.assertEqual("ep-2", state["works"]["work-1"]["latest"]["latest_key"])
+        self.assertEqual(["ep-2"], state["works"]["work-1"]["unread"]["event_ids"])
 
     def test_run_check_tracks_health_for_initial_failures(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -753,6 +931,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual([], result["updates"])
         self.assertEqual(1, len(result["errors"]["sources"]))
         self.assertEqual({}, state["works"]["work-1"]["latest"])
+        self.assertEqual([], state["works"]["work-1"]["unread"]["event_ids"])
         self.assertEqual(1, state["works"]["work-1"]["health"]["consecutive_failures"])
         self.assertIsNone(state["works"]["work-1"]["health"]["last_success_at"])
 

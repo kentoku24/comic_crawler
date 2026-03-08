@@ -1,13 +1,14 @@
 import json
 import os
 import re
-from typing import Dict, Mapping, Optional
+from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 DEFAULT_WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "watchlist.json")
 DEFAULT_STATE_PATH = os.path.join(os.path.dirname(__file__), "state.json")
 
 WATCHLIST_VERSION = 2
 STATE_VERSION = 2
+DEFAULT_HISTORY_RETENTION = 20
 
 _LATEST_RUNTIME_TO_STORAGE = {
     "workId": "work_id",
@@ -119,6 +120,10 @@ def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
     if not isinstance(enabled, bool):
         raise ValueError(f"watchlist entry {work_id} enabled must be boolean")
     policy = normalize_notification_policy(entry.get("notification_policy"), work_id)
+    history_retention = normalize_optional_history_retention(
+        entry.get("history_retention"),
+        field_name=f"watchlist entry {work_id} history_retention",
+    )
     normalized = {
         "id": work_id,
         "source": source,
@@ -126,6 +131,8 @@ def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
         "enabled": enabled,
         "notification_policy": policy,
     }
+    if history_retention is not None:
+        normalized["history_retention"] = history_retention
     for key, value in entry.items():
         if key in normalized or value is None:
             continue
@@ -191,11 +198,19 @@ def normalize_state_entry(work_id: str, entry: object) -> Dict[str, object]:
         history = []
     if not isinstance(history, list):
         raise ValueError(f"state entry {work_id}.history must be a list")
+    normalized_history = normalize_history(history, work_id)
+
+    unread = normalize_unread(
+        entry.get("unread"),
+        work_id,
+        normalized_history,
+    )
 
     health = normalize_health(entry.get("health"), work_id)
     normalized: Dict[str, object] = {
-        "latest": dict(latest),
-        "history": list(history),
+        "latest": latest_runtime_to_storage(latest),
+        "history": normalized_history,
+        "unread": unread,
         "health": health,
     }
     for key, value in entry.items():
@@ -228,10 +243,132 @@ def normalize_health(health: object, work_id: str) -> Dict[str, object]:
     return normalized
 
 
+def normalize_history(history: Sequence[object], work_id: str) -> List[Dict[str, object]]:
+    normalized: Dict[str, Dict[str, object]] = {}
+    ordered_ids: List[str] = []
+    for event in history:
+        normalized_event = normalize_history_event(event, work_id)
+        event_id = str(normalized_event["event_id"])
+        if event_id in normalized:
+            ordered_ids.remove(event_id)
+        normalized[event_id] = normalized_event
+        ordered_ids.append(event_id)
+    return [normalized[event_id] for event_id in ordered_ids]
+
+
+def normalize_history_event(event: object, work_id: str) -> Dict[str, object]:
+    if not isinstance(event, Mapping):
+        raise ValueError(f"state entry {work_id}.history items must be objects")
+    latest = event.get("latest")
+    if latest is None:
+        latest = {
+            key: value
+            for key, value in event.items()
+            if key not in {"event_id", "eventId", "seen_at", "seenAt"}
+        }
+    if not isinstance(latest, Mapping):
+        raise ValueError(f"state entry {work_id}.history.latest must be an object")
+    normalized_latest = latest_runtime_to_storage(latest)
+    event_id = str(
+        event.get("event_id")
+        or event.get("eventId")
+        or normalized_latest.get("latest_key")
+        or normalized_latest.get("url")
+        or ""
+    ).strip()
+    if not event_id:
+        raise ValueError(f"state entry {work_id}.history items require event_id")
+    normalized = {
+        "event_id": event_id,
+        "seen_at": normalize_optional_int(event.get("seen_at", event.get("seenAt"))),
+        "latest": normalized_latest,
+    }
+    for key, value in event.items():
+        if key in {"event_id", "eventId", "seen_at", "seenAt", "latest"} or value is None:
+            continue
+        normalized[camel_to_snake(str(key))] = value
+    return normalized
+
+
+def normalize_unread(
+    unread: object,
+    work_id: str,
+    history: Sequence[Mapping[str, object]],
+) -> Dict[str, object]:
+    if unread is None:
+        unread = {}
+    if not isinstance(unread, Mapping):
+        raise ValueError(f"state entry {work_id}.unread must be an object")
+    event_ids = unread.get("event_ids", unread.get("eventIds", []))
+    if event_ids is None:
+        event_ids = []
+    if not isinstance(event_ids, list):
+        raise ValueError(f"state entry {work_id}.unread.event_ids must be a list")
+    normalized_ids: List[str] = []
+    seen_ids = set()
+    for event_id in event_ids:
+        normalized_id = str(event_id).strip()
+        if not normalized_id or normalized_id in seen_ids:
+            continue
+        seen_ids.add(normalized_id)
+        normalized_ids.append(normalized_id)
+
+    unread_set = set(normalized_ids)
+    ordered_ids = [str(event["event_id"]) for event in history if str(event["event_id"]) in unread_set]
+    normalized = {"event_ids": ordered_ids}
+    for key, value in unread.items():
+        if key in {"event_ids", "eventIds"} or value is None:
+            continue
+        normalized[camel_to_snake(str(key))] = value
+    return normalized
+
+
+def history_retention_for_work(entry: Mapping[str, object]) -> int:
+    return int(entry.get("history_retention") or DEFAULT_HISTORY_RETENTION)
+
+
+def unread_event_ids_in_order(
+    history: Sequence[Mapping[str, object]],
+    unread_state: Mapping[str, object],
+) -> List[str]:
+    unread_ids = unread_state.get("event_ids", [])
+    if not isinstance(unread_ids, list):
+        return []
+    unread_set = {str(event_id) for event_id in unread_ids}
+    return [str(event["event_id"]) for event in history if str(event["event_id"]) in unread_set]
+
+
+def trim_history(
+    history: Sequence[Mapping[str, object]],
+    unread_event_ids: Sequence[str],
+    history_retention: int,
+) -> Tuple[List[Dict[str, object]], List[str]]:
+    limit = max(1, int(history_retention))
+    unread_set = {str(event_id) for event_id in unread_event_ids}
+    read_events = [event for event in history if str(event["event_id"]) not in unread_set]
+    retained_read_ids = {str(event["event_id"]) for event in read_events[-limit:]}
+    trimmed_history = [
+        dict(event)
+        for event in history
+        if str(event["event_id"]) in unread_set or str(event["event_id"]) in retained_read_ids
+    ]
+    ordered_unread_ids = [str(event["event_id"]) for event in trimmed_history if str(event["event_id"]) in unread_set]
+    return trimmed_history, ordered_unread_ids
+
+
 def normalize_optional_int(value: object) -> Optional[int]:
     if value is None:
         return None
     return int(value)
+
+
+def normalize_optional_history_retention(value: object, *, field_name: str) -> Optional[int]:
+    if value is None:
+        return None
+    retention = int(value)
+    if retention < 1:
+        raise ValueError(f"{field_name} must be >= 1")
+    return retention
 
 
 def latest_runtime_to_storage(latest: Mapping[str, object]) -> Dict[str, object]:

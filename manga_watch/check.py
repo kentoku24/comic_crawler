@@ -19,11 +19,14 @@ from manga_watch.sources import (
 from manga_watch.sources.base import SourceParseError
 from manga_watch.sources.comic_action import extract_comic_action_series_id
 from manga_watch.storage import (
+    history_retention_for_work,
     latest_runtime_to_storage,
     latest_storage_to_runtime,
     load_state,
     load_watchlist,
     save_state,
+    trim_history,
+    unread_event_ids_in_order,
 )
 from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES, SUPPRESSED_UPDATE_TYPES
 
@@ -179,19 +182,72 @@ def success_health(previous_entry: Optional[Mapping[str, object]], *, seen_at: i
     return health
 
 
+def unread_state_for_entry(previous_entry: Optional[Mapping[str, object]]) -> Dict[str, object]:
+    unread = dict((previous_entry or {}).get("unread", {}) or {})
+    event_ids = unread.get("event_ids")
+    if not isinstance(event_ids, list):
+        event_ids = []
+    unread["event_ids"] = [str(event_id) for event_id in event_ids]
+    return unread
+
+
+def sync_history_event(
+    history,
+    latest: Mapping[str, object],
+    *,
+    seen_at: int,
+    insert_if_missing: bool,
+):
+    event_id = latest_id_for_state(latest)
+    if not event_id:
+        return list(history), False
+
+    updated_history = []
+    found = False
+    for event in history:
+        if str(event.get("event_id")) != event_id:
+            updated_history.append(dict(event))
+            continue
+        found = True
+        merged_event = dict(event)
+        previous_latest = latest_storage_to_runtime(event.get("latest", {}) or {})
+        merged_event["latest"] = latest_runtime_to_storage(merge_latest_metadata(previous_latest, latest))
+        if merged_event.get("seen_at") is None:
+            merged_event["seen_at"] = seen_at
+        updated_history.append(merged_event)
+
+    if found or not insert_if_missing:
+        return updated_history, False
+
+    updated_history.append(
+        {
+            "event_id": event_id,
+            "seen_at": seen_at,
+            "latest": latest_runtime_to_storage(latest),
+        }
+    )
+    return updated_history, True
+
+
 def apply_item_transition(
     item_id: str,
     previous_entry: Optional[Mapping[str, object]],
     latest: Mapping[str, object],
     *,
     seen_at: int,
+    history_retention: int,
 ) -> Tuple[Dict[str, object], Optional[Dict[str, object]]]:
     latest_copy = dict(latest)
+    latest_copy.setdefault("workId", item_id)
     history = list((previous_entry or {}).get("history", []) or [])
+    unread = unread_state_for_entry(previous_entry)
+    unread_event_ids = unread_event_ids_in_order(history, unread)
     if not previous_entry or not previous_entry.get("latest"):
+        history, unread_event_ids = trim_history(history, unread_event_ids, history_retention)
         return {
             "latest": latest_runtime_to_storage(latest_copy),
             "history": history,
+            "unread": {"event_ids": unread_event_ids},
             "health": success_health(previous_entry, seen_at=seen_at),
         }, None
 
@@ -199,36 +255,64 @@ def apply_item_transition(
     previous_latest_id = latest_id_for_state(previous_latest)
     latest_id = latest_id_for_state(latest_copy)
     if previous_latest_id != latest_id:
+        history, inserted = sync_history_event(
+            history,
+            latest_copy,
+            seen_at=seen_at,
+            insert_if_missing=True,
+        )
+        if inserted and latest_id not in unread_event_ids:
+            unread_event_ids.append(latest_id)
+        history, unread_event_ids = trim_history(history, unread_event_ids, history_retention)
         update = {"id": item_id, "from": previous_latest, "to": latest_copy}
         update.update(update_event_metadata(latest_copy))
         return (
             {
                 "latest": latest_runtime_to_storage(latest_copy),
                 "history": history,
+                "unread": {"event_ids": unread_event_ids},
                 "health": success_health(previous_entry, seen_at=seen_at),
             },
             update,
         )
 
+    merged_latest = merge_latest_metadata(previous_latest, latest_copy)
+    history, _ = sync_history_event(
+        history,
+        merged_latest,
+        seen_at=seen_at,
+        insert_if_missing=False,
+    )
+    history, unread_event_ids = trim_history(history, unread_event_ids, history_retention)
     return (
         {
-            "latest": latest_runtime_to_storage(merge_latest_metadata(previous_latest, latest_copy)),
+            "latest": latest_runtime_to_storage(merged_latest),
             "history": history,
+            "unread": {"event_ids": unread_event_ids},
             "health": success_health(previous_entry, seen_at=seen_at),
         },
         None,
     )
 
 
-def failure_entry(previous_entry: Optional[Mapping[str, object]], *, seen_at: int) -> Dict[str, object]:
+def failure_entry(
+    previous_entry: Optional[Mapping[str, object]],
+    *,
+    seen_at: int,
+    history_retention: int,
+) -> Dict[str, object]:
     previous_entry = previous_entry or {}
     health = dict(previous_entry.get("health", {}) or {})
     health["last_checked_at"] = seen_at
     health["last_success_at"] = health.get("last_success_at")
     health["consecutive_failures"] = int(health.get("consecutive_failures") or 0) + 1
+    history = list(previous_entry.get("history", []) or [])
+    unread_event_ids = unread_event_ids_in_order(history, unread_state_for_entry(previous_entry))
+    history, unread_event_ids = trim_history(history, unread_event_ids, history_retention)
     return {
         "latest": dict(previous_entry.get("latest", {}) or {}),
-        "history": list(previous_entry.get("history", []) or []),
+        "history": history,
+        "unread": {"event_ids": unread_event_ids},
         "health": health,
     }
 
@@ -429,12 +513,14 @@ def run_check(
         max_workers=http_config.max_workers,
     )
 
-    for source_result in source_results:
+    for entry, source_result in zip(enabled_entries, source_results):
+        history_retention = history_retention_for_work(entry)
         if source_result.error is not None:
             errors["sources"].append(source_result.error)
             works_state[source_result.item_id] = failure_entry(
                 works_state.get(source_result.item_id),
                 seen_at=now,
+                history_retention=history_retention,
             )
             continue
 
@@ -443,6 +529,7 @@ def run_check(
             works_state.get(source_result.item_id),
             source_result.latest or {},
             seen_at=now,
+            history_retention=history_retention,
         )
         works_state[source_result.item_id] = next_entry
         if update is not None:
