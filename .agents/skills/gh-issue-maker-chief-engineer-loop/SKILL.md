@@ -1,15 +1,17 @@
 ---
 name: gh-issue-maker-chief-engineer-loop
 description: >
-  GitHub Issue を起点に、既に Chief Engineer レビュー済みの実装タスクを
+  GitHub Issue を起点に、既に Chief Issue Reviewer または legacy Chief Engineer
+  レビュー済みの実装タスクを
   Codex で回す専用ループ。指定 Issue から accepted scope と制約を抽出し、
   独立した作業単位ごとに `maker` エージェントを必要に応じて並列起動して実装し、
   親セッションで統合して PR を作成または更新し、その PR を
   `$spacex-chief-reviewer` でレビューし、最後に `$merger` で merge まで進める。
   reviewer または merger が NG を返したら指摘を次の maker work packet に落として
   再実装し、マージされるまで繰り返す。Use when:
-  GitHub Issue URL/番号だけを渡して作業を開始したいとき、Issue に既存の Chief
-  Engineer レビューがあるとき、実装から PR 更新、`$spacex-chief-reviewer`
+  GitHub Issue URL/番号だけを渡して作業を開始したいとき、Issue に既存の
+  `$chief-issue-reviewer` または legacy Chief Engineer レビューがあるとき、
+  実装から PR 更新、`$spacex-chief-reviewer`
   による再レビュー、`$merger` による merge までを標準ループで自動的に進めたいとき。
 ---
 
@@ -19,7 +21,7 @@ description: >
 
 `codex-mission-control` の派生版として、Issue 起点の実装ループだけに責務を絞る。親セッションが Mission Planner と Mission Control を兼務し、実装は原則 `maker` が担い、PR gate は `$spacex-chief-reviewer` と `$merger` が担う。
 
-Issue に既存の Chief Engineer レビューがある前提で始め、`maker` が実装し、親セッションが結果を統合して PR を作成または更新し、その PR を `$spacex-chief-reviewer` が review gate として判定し、`$merger` が merge gate と実マージを担当する。reviewer または merger が `NG` を返した場合は、その指摘を次 cycle の maker packet に変換して再実装または PR 状態の修正を行う。
+Issue に既存の `$chief-issue-reviewer` または legacy Chief Engineer レビューがある前提で始め、`maker` が実装し、親セッションが結果を統合して PR を作成または更新し、その PR を `$spacex-chief-reviewer` が review gate として判定し、`$merger` が merge gate と実マージを担当する。reviewer または merger が `NG` を返した場合は、その指摘を次 cycle の maker packet に変換して再実装または PR 状態の修正を行う。
 
 `orchestrated-child` では、PR 作成や reviewer `APPROVE` は途中 checkpoint にすぎない。
 親 orchestrator が lane を追跡できるよう、child は `worktree_ready`, `pr_opened`, `review_state_changed`, `merged`, `issue_closed` を structured に報告し、requested terminal state を満たすまで走り切るか、未達なら pending state を返す。
@@ -38,14 +40,14 @@ Issue に既存の Chief Engineer レビューがある前提で始め、`maker`
 この skill を使う前に次を満たしていることを確認する。
 
 - GitHub Issue が URL または `owner/repo#number` で指定されている。
-- Issue body または comment から、既存の Chief Engineer レビュー内容を確認できる。
+- Issue body または comment から、既存の `$chief-issue-reviewer` または legacy Chief Engineer レビュー内容を確認できる。
 - Issue に、少なくとも最低限の scope と acceptance criteria がある。
 - 実装を 1 つ以上の bounded packet に分けられる。
 
 次に当てはまる場合は、この skill を使わずに止める。
 
 - Issue が未指定。
-- Chief Engineer レビュー済みである根拠を確認できない。
+- `$chief-issue-reviewer` または legacy Chief Engineer レビュー済みである根拠を確認できない。
 - 変更が極小で、single-pass 実装のほうが安全で速い。
 - Issue 自体が探索段階で、accepted scope が未確定。
 
@@ -120,10 +122,10 @@ heartbeat には少なくとも次を含める。
 
 - Issue を URL または `owner/repo#number` で正規化する。
 - `gh issue view` と必要なら comment API で body / comments / labels / metadata を読む。
-- 既存の Chief Engineer レビューから、accepted scope, constraints, non-goals, blocking concerns を抽出する。
+- 既存の `$chief-issue-reviewer` または legacy Chief Engineer レビューから、accepted scope, constraints, non-goals, blocking concerns を抽出する。
 - 抽出結果を `Issue Brief` にまとめる。
 
-Chief Engineer レビュー済みの証拠が見つからなければ、maker loop を開始しない。その場合は「先に chief-engineer review が必要」として停止する。
+`$chief-issue-reviewer` または legacy Chief Engineer レビュー済みの証拠が見つからなければ、maker loop を開始しない。その場合は「先に issue readiness review が必要」として停止する。
 
 ### 2. Maker work packet に分割する
 
@@ -149,7 +151,7 @@ maker への指示では、少なくとも次を明示する。
 
 - Issue の何を満たす packet か
 - 触ってよいファイル境界
-- 守るべき Chief Engineer 制約
+- 守るべき issue review 制約
 - 終了条件
 - 実行してほしい確認コマンド
 
@@ -184,7 +186,7 @@ reviewer への packet には次を含める。
 
 - 元 Issue の accepted scope
 - PR URL
-- 既存 Chief Engineer guidance
+- 既存 issue review guidance
 - 今 cycle で変更した内容
 - 検証結果
 - 既知の未解決事項
