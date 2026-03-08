@@ -352,6 +352,9 @@ class CheckTests(unittest.TestCase):
             "seriesTitle": "作品A",
             "episodeTitle": "第2話",
             "url": "https://example.com/work/2",
+            "update_type": "main_story",
+            "classification_reason": "episode_title matched main-story numbering",
+            "default_notify": True,
         }
 
         next_entry, update = check.apply_item_transition(
@@ -368,6 +371,9 @@ class CheckTests(unittest.TestCase):
                 "id": "work-1",
                 "from": latest_storage_to_runtime(previous["latest"]),
                 "to": latest,
+                "update_type": "main_story",
+                "classification_reason": "episode_title matched main-story numbering",
+                "default_notify": True,
             },
             update,
         )
@@ -383,6 +389,9 @@ class CheckTests(unittest.TestCase):
                 "page_title": "",
                 "url": "https://example.com/work/1",
                 "summary": "",
+                "update_type": "unknown",
+                "classification_reason": "missing episode title",
+                "default_notify": True,
             },
             "history": [],
             "health": {
@@ -400,6 +409,9 @@ class CheckTests(unittest.TestCase):
             "pageTitle": "作品A 第1話",
             "url": "https://example.com/work/1?ref=canonical",
             "summary": "補足",
+            "update_type": "main_story",
+            "classification_reason": "episode_title matched main-story numbering",
+            "default_notify": True,
         }
 
         next_entry, update = check.apply_item_transition(
@@ -416,6 +428,12 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("作品A 第1話", runtime_latest["pageTitle"])
         self.assertEqual("補足", runtime_latest["summary"])
         self.assertEqual("https://example.com/work/1", runtime_latest["url"])
+        self.assertEqual("main_story", runtime_latest["update_type"])
+        self.assertEqual(
+            "episode_title matched main-story numbering",
+            runtime_latest["classification_reason"],
+        )
+        self.assertTrue(runtime_latest["default_notify"])
         self.assertEqual(20, next_entry["health"]["last_checked_at"])
 
     def test_error_records_distinguish_source_parse_and_run_failures(self):

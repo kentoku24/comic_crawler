@@ -25,6 +25,7 @@ from manga_watch.storage import (
     load_watchlist,
     save_state,
 )
+from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES, SUPPRESSED_UPDATE_TYPES
 
 DEFAULT_REQUEST_TIMEOUT = 25
 DEFAULT_RETRY_COUNT = 2
@@ -120,6 +121,35 @@ def latest_id_for_state(latest: Mapping[str, object]) -> str:
     return str(latest.get("latestKey") or latest.get("episodeCode") or latest.get("url") or "")
 
 
+def default_notify_for_latest(latest: Mapping[str, object]) -> Optional[bool]:
+    if "default_notify" in latest and latest.get("default_notify") is not None:
+        return bool(latest.get("default_notify"))
+
+    update_type = latest.get("update_type")
+    if update_type in DEFAULT_NOTIFY_UPDATE_TYPES:
+        return True
+    if update_type in SUPPRESSED_UPDATE_TYPES:
+        return False
+    return None
+
+
+def update_event_metadata(latest: Mapping[str, object]) -> Dict[str, object]:
+    metadata: Dict[str, object] = {}
+    update_type = latest.get("update_type")
+    if update_type:
+        metadata["update_type"] = str(update_type)
+
+    classification_reason = latest.get("classification_reason")
+    if classification_reason:
+        metadata["classification_reason"] = str(classification_reason)
+
+    default_notify = default_notify_for_latest(latest)
+    if default_notify is not None:
+        metadata["default_notify"] = default_notify
+
+    return metadata
+
+
 def merge_latest_metadata(
     previous_latest: Mapping[str, object],
     latest: Mapping[str, object],
@@ -128,9 +158,13 @@ def merge_latest_metadata(
     for key, value in latest.items():
         if value is None:
             continue
-        if key in ("seriesTitle", "episodeTitle", "pageTitle"):
+        if key in ("seriesTitle", "episodeTitle", "pageTitle", "update_type", "classification_reason"):
             if value and value != merged.get(key):
                 merged[key] = value
+            continue
+        if key == "default_notify":
+            if value != merged.get(key):
+                merged[key] = bool(value)
             continue
         if not merged.get(key):
             merged[key] = value
@@ -165,13 +199,15 @@ def apply_item_transition(
     previous_latest_id = latest_id_for_state(previous_latest)
     latest_id = latest_id_for_state(latest_copy)
     if previous_latest_id != latest_id:
+        update = {"id": item_id, "from": previous_latest, "to": latest_copy}
+        update.update(update_event_metadata(latest_copy))
         return (
             {
                 "latest": latest_runtime_to_storage(latest_copy),
                 "history": history,
                 "health": success_health(previous_entry, seen_at=seen_at),
             },
-            {"id": item_id, "from": previous_latest, "to": latest_copy},
+            update,
         )
 
     return (
