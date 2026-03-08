@@ -18,6 +18,20 @@ def parse_comic_action_title(page_title: str) -> Tuple[Optional[str], Optional[s
     return None, None
 
 
+def extract_comic_action_series_id(html: str) -> Optional[str]:
+    if not html:
+        return None
+    patterns = (
+        r'"series_id"\s*:\s*"(\d+)"',
+        r'&quot;series_id&quot;\s*:\s*&quot;(\d+)&quot;',
+    )
+    for pattern in patterns:
+        match = re.search(pattern, html)
+        if match:
+            return match.group(1)
+    return None
+
+
 class ComicActionAdapter(SourceAdapter):
     source = "comic-action"
 
