@@ -6,7 +6,7 @@ from manga_watch.runner import RunnerConfig, replay_outbox_once
 
 def main() -> int:
     try:
-        config = RunnerConfig.from_env()
+        config = RunnerConfig.from_env(require_discord=False)
     except Exception as exc:
         print(f"[replay_outbox] configuration error: {exc}", file=sys.stderr)
         return 2

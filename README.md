@@ -1,6 +1,6 @@
 # comic_crawler
 
-Docker コンテナ 1 つで定期クロールし、`stdout` と generic webhook に新着通知 event を送れる漫画更新監視アプリです。run report は毎回標準出力に出します。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
+Docker コンテナ 1 つで定期クロールし、generic notifier backend (`stdout` / webhook) に update event を送れる漫画更新監視アプリです。Discord surface は別契約で、daily notification を main channel、run report を run-report channel へ送ります。stdout/stderr はローカル運用ログとして引き続き使います。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
 
 ## Python 3.12 baseline
 
@@ -14,7 +14,8 @@ Docker / ローカル開発 / 将来の CI はすべて Python `3.12` を単一�
 3. source adapter が最新エピソードを取得する
 4. `manga_watch/state.json` の state v2 と比較する
 5. 更新があれば configured notifier backend(s) に update event を fan-out する
-6. 毎回 run report を標準出力に出す
+6. Discord main channel に daily notification を送り、Discord run-report channel に run report を送る
+7. 同じ内容を必要に応じて標準出力 / 標準エラーにも残す
 
 checker の出力契約は JSON のままです。
 
@@ -102,6 +103,7 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 - `history[].gap.estimated_new_episode_count`: `episodeTitle` / `pageTitle` から話数を比較できたときだけ入る推定件数
 - `unread.event_ids`: 未読イベントの source of truth
 - `health`: `last_checked_at`, `last_success_at`, `consecutive_failures`
+- root `discord_delivery.daily_notification`: Discord main channel 向け daily notification の durable dedupe / pending state
 
 履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と migration contract は [spec.md](spec.md) を source of truth とします。
 
@@ -274,6 +276,9 @@ compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は 
 - `MANGA_WATCH_NOTIFIER_BACKENDS`: required。comma-separated backend list。現在値は `stdout`, `webhook`
 - `MANGA_WATCH_WEBHOOK_URL`: `webhook` backend を使うときの POST 先 URL
 - `MANGA_WATCH_WEBHOOK_TIMEOUT`: webhook timeout 秒。既定値は `10`
+- `DISCORD_BOT_TOKEN`: Discord main/run-report channel に送る bot token
+- `DISCORD_MAIN_CHANNEL_ID`: daily notification の送信先 channel id
+- `DISCORD_RUN_REPORT_CHANNEL_ID`: run report の送信先 channel id
 - `TZ`: スケジュール計算の timezone。既定値は `Asia/Tokyo`
 - `CRAWL_SCHEDULE`: cron 形式。既定値は `0 19 * * *`
 - `CRAWL_INTERVAL`: 秒単位の固定間隔。`CRAWL_SCHEDULE` と同時指定は不可
@@ -303,10 +308,13 @@ python3.12 -m venv .venv
 .venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
 ```
 
-runner をローカル起動する場合は notifier 環境変数を入れてから実行します。
+runner をローカル起動する場合は notifier 環境変数と Discord outbound 環境変数を入れてから実行します。
 
 ```bash
 export MANGA_WATCH_NOTIFIER_BACKENDS=stdout
+export DISCORD_BOT_TOKEN=...
+export DISCORD_MAIN_CHANNEL_ID=...
+export DISCORD_RUN_REPORT_CHANNEL_ID=...
 .venv/bin/python -m manga_watch.runner
 .venv/bin/python -m manga_watch.replay_outbox
 ```
@@ -410,9 +418,11 @@ Post-rollback smoke checks:
 - `manga_watch/source_drift.py`: live source drift canary と fixture refresh 導線
 - `manga_watch/status.py`: status CLI 向けの health 集約と text / JSON 表示
 - `manga_watch/storage.py`: watchlist/state v2 validation と atomic write
+- `manga_watch/discord_text.py`: Discord 表示向け label fallback / truncate helper
+- `manga_watch/discord_outbound.py`: Discord daily notification / run report formatter と sender
 - `manga_watch/notifier.py`: update event schema + stdout/webhook backend
 - `manga_watch/watchlist.py`: `watchlist add <url>` CLI
-- `manga_watch/runner.py`: スケジューラ + notifier fan-out + run report logging
+- `manga_watch/runner.py`: スケジューラ + notifier fan-out + Discord outbound orchestration
 - `manga_watch/update_classification.py`: 更新種別と既定通知対象の分類ロジック
 - `manga_watch/watchlist.json`: watchlist v2 sample
 - `manga_watch/state.json`: state v2 sample
