@@ -11,6 +11,10 @@ def write_state(path: Path, payload):
     path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
 
 
+def write_watchlist(path: Path, payload):
+    path.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+
+
 class BacklogTests(unittest.TestCase):
     maxDiff = None
 
@@ -214,6 +218,109 @@ class BacklogTests(unittest.TestCase):
         self.assertEqual(1, payload["cleared_event_count"])
         self.assertEqual([], saved_state["works"]["work-1"]["unread"]["event_ids"])
         self.assertEqual(["ep-5"], saved_state["works"]["work-2"]["unread"]["event_ids"])
+
+    def test_backlog_module_mark_read_trims_history_after_clearing_unread(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            history = [
+                {
+                    "event_id": f"ep-{idx}",
+                    "seen_at": 1700000000 + idx,
+                    "latest": {"episode_title": f"第{idx}話", "latest_key": f"ep-{idx}"},
+                }
+                for idx in range(25)
+            ]
+            write_state(
+                state_path,
+                {
+                    "version": 2,
+                    "works": {
+                        "work-1": {
+                            "latest": {"episode_title": "第24話", "latest_key": "ep-24"},
+                            "history": history,
+                            "unread": {"event_ids": [event["event_id"] for event in history]},
+                            "health": {
+                                "last_checked_at": 1700000024,
+                                "last_success_at": 1700000024,
+                                "consecutive_failures": 0,
+                            },
+                        }
+                    },
+                    "last_run_at": 1700000024,
+                },
+            )
+
+            result = self.run_backlog_module("--state", str(state_path), "--mark-read", "work-1", "--json")
+            saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, result.returncode, msg=result.stderr)
+        self.assertEqual([], saved_state["works"]["work-1"]["unread"]["event_ids"])
+        self.assertEqual(20, len(saved_state["works"]["work-1"]["history"]))
+        self.assertEqual("ep-5", saved_state["works"]["work-1"]["history"][0]["event_id"])
+        self.assertEqual("ep-24", saved_state["works"]["work-1"]["history"][-1]["event_id"])
+
+    def test_backlog_module_mark_read_uses_watchlist_history_retention(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            history = [
+                {
+                    "event_id": f"ep-{idx}",
+                    "seen_at": 1700000000 + idx,
+                    "latest": {"episode_title": f"第{idx}話", "latest_key": f"ep-{idx}"},
+                }
+                for idx in range(6)
+            ]
+            write_state(
+                state_path,
+                {
+                    "version": 2,
+                    "works": {
+                        "work-1": {
+                            "latest": {"episode_title": "第5話", "latest_key": "ep-5"},
+                            "history": history,
+                            "unread": {"event_ids": [event["event_id"] for event in history]},
+                            "health": {
+                                "last_checked_at": 1700000005,
+                                "last_success_at": 1700000005,
+                                "consecutive_failures": 0,
+                            },
+                        }
+                    },
+                    "last_run_at": 1700000005,
+                },
+            )
+            write_watchlist(
+                watchlist_path,
+                {
+                    "version": 2,
+                    "works": [
+                        {
+                            "id": "work-1",
+                            "source": "fake",
+                            "seed_url": "https://example.com/work-1",
+                            "enabled": True,
+                            "history_retention": 3,
+                            "notification_policy": {"mode": "all", "allowed_update_types": None},
+                        }
+                    ],
+                },
+            )
+
+            result = self.run_backlog_module(
+                "--state",
+                str(state_path),
+                "--watchlist",
+                str(watchlist_path),
+                "--mark-read",
+                "work-1",
+                "--json",
+            )
+            saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(0, result.returncode, msg=result.stderr)
+        self.assertEqual([], saved_state["works"]["work-1"]["unread"]["event_ids"])
+        self.assertEqual(["ep-3", "ep-4", "ep-5"], [event["event_id"] for event in saved_state["works"]["work-1"]["history"]])
 
 
 if __name__ == "__main__":

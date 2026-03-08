@@ -7,12 +7,20 @@ from datetime import datetime
 from typing import Dict, List, Mapping, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from manga_watch.storage import DEFAULT_HISTORY_RETENTION, load_state, save_state
+from manga_watch.storage import (
+    DEFAULT_HISTORY_RETENTION,
+    history_retention_for_work,
+    load_state,
+    load_watchlist,
+    save_state,
+    trim_history,
+)
 
 
 def parse_args(argv=None):
     parser = argparse.ArgumentParser(description="Inspect unread updates and history from state v2.")
     parser.add_argument("--state", default=None)
+    parser.add_argument("--watchlist", default=None)
     parser.add_argument("--work-id")
     parser.add_argument("--limit", type=int, default=10)
     parser.add_argument("--json", action="store_true")
@@ -174,6 +182,65 @@ def mark_read(state: Dict[str, object], *, work_id: Optional[str] = None) -> Dic
     }
 
 
+def history_retention_map(path: Optional[str] = None) -> Dict[str, int]:
+    try:
+        watchlist = load_watchlist(path)
+    except Exception:
+        return {}
+
+    works = watchlist.get("works", [])
+    if not isinstance(works, list):
+        return {}
+
+    retention_by_work: Dict[str, int] = {}
+    for entry in works:
+        if not isinstance(entry, Mapping):
+            continue
+        work_id = str(entry.get("id") or "").strip()
+        if not work_id:
+            continue
+        retention_by_work[work_id] = history_retention_for_work(entry)
+    return retention_by_work
+
+
+def apply_history_trim(
+    state: Dict[str, object],
+    *,
+    retention_by_work: Mapping[str, int],
+    work_id: Optional[str] = None,
+) -> None:
+    works = state.get("works", {})
+    if not isinstance(works, dict):
+        return
+
+    for current_work_id, raw_entry in works.items():
+        current_work_id = str(current_work_id)
+        if work_id and current_work_id != work_id:
+            continue
+
+        entry = raw_entry if isinstance(raw_entry, dict) else {}
+        history = entry.get("history", [])
+        unread = entry.get("unread", {})
+        if not isinstance(history, list):
+            history = []
+        if not isinstance(unread, dict):
+            unread = {}
+        unread_ids = unread.get("event_ids", [])
+        if not isinstance(unread_ids, list):
+            unread_ids = []
+        trimmed_history, ordered_unread_ids = trim_history(
+            history,
+            unread_ids,
+            retention_by_work.get(current_work_id, DEFAULT_HISTORY_RETENTION),
+        )
+        unread["event_ids"] = ordered_unread_ids
+        entry["history"] = trimmed_history
+        entry["unread"] = unread
+        works[current_work_id] = entry
+
+    state["works"] = works
+
+
 def format_backlog_text(payload: Mapping[str, object]) -> str:
     lines = [
         "Backlog Summary",
@@ -244,6 +311,11 @@ def main(argv=None) -> int:
 
     if args.mark_read_all or args.mark_read_work:
         payload = mark_read(state, work_id=args.mark_read_work)
+        apply_history_trim(
+            state,
+            retention_by_work=history_retention_map(args.watchlist),
+            work_id=args.mark_read_work,
+        )
         save_state(state, args.state)
         if args.json:
             print(json.dumps(payload, ensure_ascii=False))
