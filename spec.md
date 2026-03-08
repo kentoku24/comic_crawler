@@ -83,7 +83,10 @@
         "series": "KC_003913_S",
         "series_title": "蜘蛛ですが、なにか？",
         "episode_code": "KC_0039130008900011_E",
-        "episode_title": "第77話その2"
+        "episode_title": "第77話その2",
+        "update_type": "main_story",
+        "classification_reason": "episode_title matched main-story numbering",
+        "default_notify": true
       },
       "history": [
         {
@@ -151,12 +154,17 @@ python3 -m manga_watch.check manga_watch/watchlist.json
 
 - checker は常に JSON を出力する
 - watchlist は入力順で処理し、`updates` の順序も watchlist 順で deterministic にする
+- source fetch は `MANGA_WATCH_HTTP_WORKERS` 本で並列実行できるが、state 更新順・`updates`・`errors.sources` は watchlist 入力順で deterministic に固定する
 - `latest_key` が変わったときだけ `updates` に積む
 - `latest_key` が変わったとき、未登録の `event_id=latest_key` を `history` に 1 回だけ追加する
 - 同じ `event_id` を再検知しても履歴は重複させない。必要なら event snapshot だけ補完更新する
 - 新規 event が履歴に追加されたときだけ `unread.event_ids` にその id を追加する
 - `latest_key` が同じで `seriesTitle` / `episodeTitle` / `pageTitle` / 補足 metadata だけ改善された場合は silent merge する
+- update event と state.latest には `update_type`, `classification_reason`, `default_notify` を含める
 - source ごとの parser/runtime failure は `errors.sources` に積み、成功した作品の state 更新は継続する
+- retry 対象は transport error / timeout / HTTP `429` / `5xx` に限定する
+- HTTP `404`、unsupported URL、parse error は即失敗として `errors.sources` に積む
+- 同一 host への同時 request 数は `MANGA_WATCH_HTTP_WORKERS_PER_HOST` で抑制する
 - 失敗した作品も `health.last_checked_at` と `health.consecutive_failures` は更新する
 - watchlist/state の読み込みや state 保存のような run-level failure は `errors.run` に記録し、`CheckRunError` として返す
 
@@ -220,6 +228,22 @@ python3 -m manga_watch.runner
 - `RUN_ON_STARTUP`
 - `MANGA_WATCH_WATCHLIST` または `MANGA_WATCH_URLS`
 - `MANGA_WATCH_STATE`
+- `MANGA_WATCH_HTTP_TIMEOUT`
+- `MANGA_WATCH_HTTP_RETRIES`
+- `MANGA_WATCH_HTTP_RETRY_BACKOFF`
+- `MANGA_WATCH_HTTP_WORKERS`
+- `MANGA_WATCH_HTTP_WORKERS_PER_HOST`
+
+### Default notification behavior
+
+- `main_story`: 既定通知対象
+- `unknown`: fail-open で既定通知対象
+- `bonus`: 既定抑制対象
+- `announcement`: 既定抑制対象
+- `main_story` と suppress 対象が衝突した場合は `unknown` に倒す
+- `bonus` と `announcement` だけが衝突した場合は suppress 側に残す
+- runner の main channel 通知は既定通知対象だけを送る
+- suppressed update も state と run report には残し、run report には `既定通知対象件数` と `既定抑制件数` を含める
 
 ## Reader / Writer compatibility matrix
 
@@ -295,7 +319,7 @@ python3 -m manga_watch.migrate_v2 \
 migrated sample data に対して最低限これを通す:
 
 ```bash
-python3 -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2 tests.test_backlog
+python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2 tests.test_backlog
 ```
 
 この suite で次を確認できることを cutover 条件にする。

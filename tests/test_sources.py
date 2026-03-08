@@ -1,8 +1,13 @@
+import importlib
+import inspect
 import json
+import pkgutil
 import re
 import unittest
 from pathlib import Path
 
+import manga_watch.sources as source_package
+from manga_watch.sources import REGISTERED_ADAPTERS, REGISTERED_SOURCES, SourceAdapter
 from manga_watch.sources.base import SourceParseError
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
@@ -30,14 +35,29 @@ SOURCE_CASES = {
         "broken_loop",
     ),
 }
-ADAPTERS = {
-    "comic-walker": ComicWalkerAdapter,
-    "kakuyomu": KakuyomuAdapter,
-    "comic-action": ComicActionAdapter,
-}
+ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
 ERROR_TYPES = {
     "SourceParseError": SourceParseError,
     "RuntimeError": RuntimeError,
+}
+EXPECTED_LATEST_CLASSIFICATIONS = {
+    "comic-walker": {
+        "normal": "main_story",
+        "title_variation_or_bonus": "bonus",
+        "same_episode_refresh": "main_story",
+    },
+    "kakuyomu": {
+        "normal": "main_story",
+        "title_variation_or_bonus": "bonus",
+        "same_episode_refresh": "main_story",
+    },
+    "comic-action": {
+        "normal": "main_story",
+        "title_variation": "bonus",
+        "escaped_next_uri": "main_story",
+        "broken_missing_next": "main_story",
+        "broken_loop": "main_story",
+    },
 }
 
 
@@ -80,8 +100,50 @@ def load_fixture_case(source: str, case_name: str):
     return case_dir, manifest, FixtureHttpClient(case_dir, steps)
 
 
+def discover_concrete_adapter_sources():
+    concrete_sources = {}
+
+    for module_info in pkgutil.iter_modules(source_package.__path__):
+        if module_info.ispkg:
+            continue
+
+        module = importlib.import_module(f"{source_package.__name__}.{module_info.name}")
+        for _, cls in inspect.getmembers(module, inspect.isclass):
+            if cls is SourceAdapter or cls.__module__ != module.__name__:
+                continue
+            if not issubclass(cls, SourceAdapter) or inspect.isabstract(cls):
+                continue
+
+            source = getattr(cls, "source", None)
+            if not source:
+                raise AssertionError(f"{cls.__module__}.{cls.__name__} must define source")
+            if source in concrete_sources:
+                raise AssertionError(f"duplicate source adapter discovered for {source}")
+            concrete_sources[source] = cls
+
+    return concrete_sources
+
+
 class SourceAdapterTests(unittest.TestCase):
     maxDiff = None
+
+    def test_registry_pins_supported_sources(self):
+        self.assertEqual(
+            ("comic-walker", "comic-action", "kakuyomu"),
+            REGISTERED_SOURCES,
+        )
+
+    def test_registry_covers_every_concrete_adapter_module(self):
+        discovered_sources = set(discover_concrete_adapter_sources())
+
+        self.assertEqual(
+            discovered_sources,
+            set(REGISTERED_SOURCES),
+            msg=(
+                "Concrete SourceAdapter modules under manga_watch/sources must be added to "
+                "manga_watch/sources/registry.py"
+            ),
+        )
 
     def test_comic_walker_fixtures(self):
         self._assert_fixture_matrix("comic-walker")
@@ -112,7 +174,21 @@ class SourceAdapterTests(unittest.TestCase):
                         adapter.fetch_latest(work, client)
                 else:
                     latest = adapter.fetch_latest(work, client)
-                    self.assertEqual(manifest["expectedLatest"], latest.to_dict())
+                    latest_dict = latest.to_dict()
+                    expected_latest = manifest["expectedLatest"]
+                    self.assertEqual(
+                        expected_latest,
+                        {key: latest_dict[key] for key in expected_latest},
+                    )
+                    self.assertEqual(
+                        EXPECTED_LATEST_CLASSIFICATIONS[source][case_name],
+                        latest_dict["update_type"],
+                    )
+                    self.assertTrue(latest_dict["classification_reason"])
+                    self.assertEqual(
+                        latest_dict["update_type"] in {"main_story", "unknown"},
+                        latest_dict["default_notify"],
+                    )
 
                 client.assert_consumed()
 

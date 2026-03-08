@@ -18,8 +18,18 @@ checker の出力契約は JSON のままです。
   "updates": [
     {
       "id": "KC_003913_S",
+      "update_type": "main_story",
+      "classification_reason": "episode_title matched main-story numbering",
+      "default_notify": true,
       "from": {"seriesTitle": "...", "episodeTitle": "..."},
-      "to": {"seriesTitle": "...", "episodeTitle": "...", "url": "..."}
+      "to": {
+        "seriesTitle": "...",
+        "episodeTitle": "...",
+        "url": "...",
+        "update_type": "main_story",
+        "classification_reason": "episode_title matched main-story numbering",
+        "default_notify": true
+      }
     }
   ],
   "errors": {
@@ -36,6 +46,8 @@ checker の出力契約は JSON のままです。
   }
 }
 ```
+
+checker は watchlist を並列に処理しますが、`updates` / `errors.sources` / state 更新順は常に watchlist 入力順で deterministic に保たれます。同一 host への HTTP burst は per-host cap で抑え、retry は transport error / timeout / HTTP `429` / `5xx` に限定します。`404` や parse error は即座に `errors.sources` に落ちます。
 
 ## Data files
 
@@ -93,6 +105,15 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 
 `manga_watch/urls.txt` は migration 入力と rollback 用の参考データです。runtime はこのファイルを読みません。
 
+更新分類の既定値は次の通りです。
+
+- `main_story`: 既定で通知する
+- `unknown`: fail-open で既定通知する
+- `bonus`: 既定では main channel に通知しない
+- `announcement`: 既定では main channel に通知しない
+
+`main_story` と suppress 対象が衝突した場合は `unknown` に倒し、`bonus` と `announcement` だけが衝突した場合は suppress 側に残します。checker / state / run report には suppressed update も残ります。
+
 ## Supported sources
 
 ### ComicWalker
@@ -137,6 +158,11 @@ compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は 
 - `RUN_ON_STARTUP`: `true` のとき起動直後に 1 回実行
 - `MANGA_WATCH_WATCHLIST`: watchlist v2 パス。compose では `/app/manga_watch/watchlist.json`
 - `MANGA_WATCH_STATE`: state v2 パス。compose では `/data/state.json`
+- `MANGA_WATCH_HTTP_TIMEOUT`: source fetch の request timeout 秒。既定値は `25`
+- `MANGA_WATCH_HTTP_RETRIES`: timeout / transport error / `429` / `5xx` に対する retry 回数。既定値は `2`
+- `MANGA_WATCH_HTTP_RETRY_BACKOFF`: retry ごとの指数 backoff の基準秒。既定値は `0.5`
+- `MANGA_WATCH_HTTP_WORKERS`: watchlist を並列処理する worker 数。既定値は `4`
+- `MANGA_WATCH_HTTP_WORKERS_PER_HOST`: 同一 host に同時接続する上限。既定値は `2`
 
 ## Local run
 
@@ -147,7 +173,7 @@ pip install -U pip
 pip install -r requirements.txt
 python3 -m manga_watch.check manga_watch/watchlist.json
 python3 -m manga_watch.backlog --unread-only
-python3 -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2 tests.test_backlog
+python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2 tests.test_backlog
 ```
 
 runner をローカル起動する場合は Discord 環境変数を入れてから実行します。
@@ -155,6 +181,17 @@ runner をローカル起動する場合は Discord 環境変数を入れてか�
 ```bash
 python3 -m manga_watch.runner
 ```
+
+## Adding a source adapter
+
+`manga_watch/sources/registry.py` の `REGISTERED_ADAPTERS` が adapter registration の single source of truth です。
+
+1. `manga_watch/sources/` に concrete `SourceAdapter` module を追加する
+2. `manga_watch/sources/registry.py` の `REGISTERED_ADAPTERS` に adapter instance を追加する
+3. fixture / state contract に影響がある場合は `tests/fixtures/` や関連 test を更新する
+4. `.venv/bin/python -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2` を実行する
+
+2 を忘れると `tests.test_sources.SourceAdapterTests.test_registry_covers_every_concrete_adapter_module` が失敗します。
 
 ## One-time migration from v1
 
@@ -180,14 +217,18 @@ python3 -m manga_watch.migrate_v2 \
 - `manga_watch/migrate_v2.py`: v1 から v2 への one-time migration CLI
 - `manga_watch/storage.py`: watchlist/state v2 validation と atomic write
 - `manga_watch/runner.py`: スケジューラ + Discord 通知
+- `manga_watch/update_classification.py`: 更新種別と既定通知対象の分類ロジック
 - `manga_watch/watchlist.json`: watchlist v2 sample
 - `manga_watch/state.json`: state v2 sample
 - `manga_watch/urls.txt`: legacy v1 migration input sample
 - `tests/fixtures/<source>/<case>/`: raw response bundle + `manifest.json`
 
+分類テストでは source ごとの代表例に加えて、main/bonus の曖昧ケースと bonus/announcement の suppress 維持ケースを確認します。
+
 ## Maintenance tips
 
 - サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
-- migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
+- migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
 - 未読の確認や既読化を手動で行いたいときは `python3 -m manga_watch.backlog --unread-only` または `python3 -m manga_watch.backlog --mark-read <work_id>` を使う
-- 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` に登録する
+- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2` で runner まで確認する
+- 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` に登録して fixture / source tests を更新する
