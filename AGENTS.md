@@ -8,8 +8,9 @@ This repository has Codex project-local skills under `./.agents/skills`. Treat t
 
 ### Available skills
 
-- gh-issue-maker-chief-engineer-loop: GitHub Issue を起点に、accepted scope と制約を抽出し、`maker` 実装、PR 更新、`$spacex-chief-reviewer` による gate までを標準ループで進める。Use when: Issue URL/番号だけで作業を開始したいとき、Issue に既存の Chief Engineer レビューがあるとき。 (file: ./.agents/skills/gh-issue-maker-chief-engineer-loop/SKILL.md)
+- gh-issue-maker-chief-engineer-loop: GitHub Issue を起点に、accepted scope と制約を抽出し、`maker` 実装、PR 更新、`$spacex-chief-reviewer` による gate、`$merger` による merge gate までを標準ループで進める。Use when: Issue URL/番号だけで作業を開始したいとき、Issue に既存の Chief Engineer レビューがあるとき。 (file: ./.agents/skills/gh-issue-maker-chief-engineer-loop/SKILL.md)
 - gh-pr-spacex-chief-engineer-review: GitHub の指定 PR を Chief Engineer 観点でレビューし、Description と実装の整合、過去指摘の解消状況まで確認する。Use when: PR URL/番号を渡してマージ前レビューをしたいとき。 (file: ./.agents/skills/gh-pr-spacex-chief-engineer-review/SKILL.md)
+- merger: comic_crawler 用の最終 merge gate。`$spacex-chief-reviewer` の `APPROVE` コメントと全 review thread resolved を確認し、満たすときだけ merge する。Use when: comic_crawler の PR を条件付きで自動マージしたいとき。 (file: ./.agents/skills/merger/SKILL.md)
 - spacex-chief-reviewer: comic_crawler 専用の reviewer gate。repo の規模と既存構造に対して変更が merge-ready かを `APPROVE` / `NG` で判定する。Use when: comic_crawler の PR を repo 固有の観点でレビューしたいとき。 (file: ./.agents/skills/spacex-chief-reviewer/SKILL.md)
 
 ### How to use skills
