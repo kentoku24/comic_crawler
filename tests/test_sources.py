@@ -39,6 +39,10 @@ SOURCE_CASES = {
         "normal",
         "episode_seed_missing_next_update",
     ),
+    "champion-cross": (
+        "normal",
+        "episode_seed_missing_next_update",
+    ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
 ERROR_TYPES = {
@@ -65,6 +69,7 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
     },
     "champion-cross": {
         "normal": "main_story",
+        "episode_seed_missing_next_update": "main_story",
         "episode_seed_missing_next_update": "main_story",
     },
 }
@@ -455,6 +460,66 @@ class SourceAdapterTests(unittest.TestCase):
             [
                 "https://comic-action.com/rss/series/13933686331606207128",
                 "https://comic-action.com/episode/11341664176570134078",
+            ],
+            client.calls,
+        )
+
+    def test_champion_cross_normalize_accepts_series_rss_url(self):
+        work = ChampionCrossAdapter().normalize("https://championcross.jp/series/4756324e1c1b1/rss?from=share")
+
+        self.assertEqual(
+            {
+                "source": "champion-cross",
+                "kind": "champion-cross",
+                "workId": "champion-cross:4756324e1c1b1",
+                "seedUrl": "https://championcross.jp/series/4756324e1c1b1/rss",
+                "series": "champion-cross:4756324e1c1b1",
+                "seriesHash": "4756324e1c1b1",
+                "feedKind": "rss",
+            },
+            work.to_dict(),
+        )
+
+    def test_champion_cross_fetch_latest_accepts_series_url(self):
+        adapter = ChampionCrossAdapter()
+        work = adapter.normalize("https://championcross.jp/series/4756324e1c1b1/")
+        client = StaticHttpClient(
+            {
+                "https://championcross.jp/series/4756324e1c1b1/rss": """
+                <rss>
+                  <channel>
+                    <title>織津江大志の異世界クリ娘サバイバル日誌</title>
+                    <item>
+                      <title><![CDATA[第71話 ウェンディゴ2]]></title>
+                      <link>https://championcross.jp/episodes/f35108c56e75d/?utm_source=rss&amp;utm_medium=referral</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://championcross.jp/episodes/f35108c56e75d": """
+                <html>
+                  <body>
+                    <a href="/category/manga?type=連載中&amp;day=火" class="series-h-day-of-week-link">
+                      <span class="series-h-tag-label">火曜更新</span>
+                    </a>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("champion-cross:4756324e1c1b1", latest["workId"])
+        self.assertEqual("champion-cross:4756324e1c1b1", latest["series"])
+        self.assertEqual("https://championcross.jp/episodes/f35108c56e75d", latest["latestKey"])
+        self.assertEqual("織津江大志の異世界クリ娘サバイバル日誌", latest["seriesTitle"])
+        self.assertEqual("第71話 ウェンディゴ2", latest["episodeTitle"])
+        self.assertEqual("火曜更新", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://championcross.jp/series/4756324e1c1b1/rss",
+                "https://championcross.jp/episodes/f35108c56e75d",
             ],
             client.calls,
         )

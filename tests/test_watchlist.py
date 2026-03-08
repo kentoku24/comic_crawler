@@ -5,12 +5,24 @@ import tempfile
 import unittest
 from pathlib import Path
 
+from manga_watch.watchlist import add_watchlist_url
+
 
 def write_watchlist(path: Path, works):
     path.write_text(
         json.dumps({"version": 2, "works": works}, ensure_ascii=False),
         encoding="utf-8",
     )
+
+
+class StaticHttpClient:
+    def __init__(self, responses):
+        self.responses = dict(responses)
+
+    def get_text(self, url: str) -> str:
+        if url not in self.responses:
+            raise AssertionError(f"unexpected request: {url!r}")
+        return self.responses[url]
 
 
 class WatchlistCliTests(unittest.TestCase):
@@ -124,6 +136,37 @@ class WatchlistCliTests(unittest.TestCase):
         self.assertEqual(existing_entry, payload["existing"])
         self.assertEqual(1, payload["work_count"])
         self.assertEqual([existing_entry], saved["works"])
+
+    def test_watchlist_add_accepts_champion_cross_episode_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://championcross.jp/episodes/f35108c56e75d/?utm_source=rss&utm_medium=referral",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://championcross.jp/episodes/f35108c56e75d": """
+                        <html>
+                          <body>
+                            <a href="https://championcross.jp/series/4756324e1c1b1/rss">RSS</a>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("champion-cross:4756324e1c1b1", payload["entry"]["id"])
+        self.assertEqual(
+            "https://championcross.jp/episodes/f35108c56e75d",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
 
     def test_watchlist_add_reports_unsupported_source(self):
         with tempfile.TemporaryDirectory() as tmpdir:

@@ -256,6 +256,35 @@ def _kakuyomu_canary(contract: SourceCanaryContract, http_client: HttpClient) ->
     )
 
 
+def _champion_cross_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = ChampionCrossAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    episode_html = http_client.get_text(work.seed_url)
+    series_hash = extract_champion_cross_series_hash(episode_html)
+    if not series_hash:
+        raise SourceParseError("champion-cross: series hash not found")
+
+    rss_url = canonical_champion_cross_series_rss_url(series_hash)
+    feed_text = http_client.get_text(rss_url)
+    latest_url, latest_title, series_title = parse_champion_cross_rss_latest(feed_text)
+    if not latest_title:
+        raise SourceParseError("champion-cross: latest episode title not found")
+
+    return (
+        (work.seed_url, rss_url),
+        (
+            CanaryObservation("series_hash", series_hash),
+            CanaryObservation("series_title", series_title or ""),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", latest_title),
+        ),
+    )
+
+
 CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,

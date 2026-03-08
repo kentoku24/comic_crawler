@@ -19,6 +19,10 @@ from manga_watch.sources import (
     normalize_seed_url,
 )
 from manga_watch.sources.base import SourceParseError
+from manga_watch.sources.champion_cross import (
+    extract_champion_cross_series_hash,
+    extract_champion_cross_series_hash_from_seed_url,
+)
 from manga_watch.sources.comic_action import (
     extract_comic_action_series_id,
     extract_comic_action_series_id_from_seed_url,
@@ -480,6 +484,26 @@ def stable_work_id_for_item(
     http_client: Optional[HttpClient] = None,
 ) -> str:
     source = str(item.get("source") or "")
+    if source == "champion-cross":
+        stable_series = str(item.get("series") or "")
+        if stable_series.startswith("champion-cross:"):
+            return stable_series
+
+        seed_url = str(item.get("seedUrl") or "")
+        if not seed_url:
+            raise RuntimeError("champion-cross: seedUrl is required to derive work_id")
+
+        series_hash = str(item.get("seriesHash") or "") or extract_champion_cross_series_hash_from_seed_url(seed_url)
+        if series_hash:
+            return f"champion-cross:{series_hash}"
+
+        client = http_client or RequestsHttpClient()
+        html = client.get_text(seed_url)
+        series_hash = extract_champion_cross_series_hash(html)
+        if not series_hash:
+            raise RuntimeError("champion-cross: series hash not found")
+        return f"champion-cross:{series_hash}"
+
     if source != "comic-action":
         return item_id_for_state(item)
 
