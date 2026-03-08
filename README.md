@@ -1,6 +1,6 @@
 # comic_crawler
 
-Docker コンテナ 1 つで定期クロールし、Discord に新着通知と run report を送る漫画更新監視アプリです。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きします。Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
+Docker コンテナ 1 つで定期クロールし、`stdout` と generic webhook に新着通知 event を送れる漫画更新監視アプリです。run report は毎回標準出力に出します。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
 
 ## What it does
 
@@ -8,8 +8,8 @@ Docker コンテナ 1 つで定期クロールし、Discord に新着通知と r
 2. source adapter が `seed_url` を work descriptor に正規化する
 3. source adapter が最新エピソードを取得する
 4. `manga_watch/state.json` の state v2 と比較する
-5. 更新があれば Discord main channel に通知する
-6. 毎回 Discord run-report channel に実行結果を送る
+5. 更新があれば configured notifier backend(s) に update event を fan-out する
+6. 毎回 run report を標準出力に出す
 
 checker の出力契約は JSON のままです。
 
@@ -109,10 +109,49 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 
 - `main_story`: 既定で通知する
 - `unknown`: fail-open で既定通知する
-- `bonus`: 既定では main channel に通知しない
-- `announcement`: 既定では main channel に通知しない
+- `bonus`: 既定では notifier backend に通知しない
+- `announcement`: 既定では notifier backend に通知しない
 
 `main_story` と suppress 対象が衝突した場合は `unknown` に倒し、`bonus` と `announcement` だけが衝突した場合は suppress 側に残します。checker / state / run report には suppressed update も残ります。
+
+## Notification events
+
+runner が backend に送る update event は次の schema です。
+
+```json
+{
+  "schema_version": 1,
+  "event_id": "KC_003913_S:6ec0f89d...",
+  "work_id": "KC_003913_S",
+  "latest_key": "KC_0039130008900011_E",
+  "series_title": "蜘蛛ですが、なにか？",
+  "update_type": "main_story",
+  "detected_at": "2026-03-08T08:00:00Z",
+  "from": {
+    "latest_key": "KC_0039130008800011_E",
+    "series_title": "蜘蛛ですが、なにか？",
+    "episode_title": "第77話その1",
+    "episode_code": "KC_0039130008800011_E",
+    "url": "https://example.com/old"
+  },
+  "to": {
+    "latest_key": "KC_0039130008900011_E",
+    "series_title": "蜘蛛ですが、なにか？",
+    "episode_title": "第77話その2",
+    "episode_code": "KC_0039130008900011_E",
+    "url": "https://example.com/new",
+    "update_type": "main_story",
+    "default_notify": true
+  }
+}
+```
+
+- `event_id` は `work_id + latest_key` を SHA-256 で固定長化した stable id です。consumer はこれで dedupe します。
+- delivery contract は consumer 視点では at-least-once 前提です。duplicate を受け取っても `event_id` で idempotent に処理してください。
+- current runner は persisted outbox を持たず、backend 送信は同期 1 回です。backend failure が state 更新後に起きると manual replay が必要です。
+- `stdout` backend は 1 event = 1 JSON line を標準出力へ flush します。
+- `webhook` backend は 1 event ごとに JSON POST します。HTTP `2xx` だけを success とし、それ以外の status / timeout / transport error は failure として run を失敗扱いにします。
+- `MANGA_WATCH_NOTIFIER_BACKENDS=stdout,webhook` のように comma-separated で複数 backend を指定すると、同じ event を同一 run 内で全 backend に送ります。
 
 ## Supported sources
 
@@ -180,7 +219,7 @@ python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
 
 ## Docker run
 
-1. `.env.example` を `.env` にコピーして Discord 設定を入れる
+1. `.env.example` を `.env` にコピーして notifier 設定を入れる
 2. 必要なら `manga_watch/watchlist.json` を編集する
 3. 起動する
 
@@ -193,9 +232,9 @@ compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は 
 
 ### Environment variables
 
-- `DISCORD_BOT_TOKEN`: Discord Bot token
-- `DISCORD_MAIN_CHANNEL_ID`: 更新通知先 channel id
-- `DISCORD_RUN_REPORT_CHANNEL_ID`: 毎回の run report 送信先 channel id
+- `MANGA_WATCH_NOTIFIER_BACKENDS`: required。comma-separated backend list。現在値は `stdout`, `webhook`
+- `MANGA_WATCH_WEBHOOK_URL`: `webhook` backend を使うときの POST 先 URL
+- `MANGA_WATCH_WEBHOOK_TIMEOUT`: webhook timeout 秒。既定値は `10`
 - `TZ`: スケジュール計算の timezone。既定値は `Asia/Tokyo`
 - `CRAWL_SCHEDULE`: cron 形式。既定値は `0 19 * * *`
 - `CRAWL_INTERVAL`: 秒単位の固定間隔。`CRAWL_SCHEDULE` と同時指定は不可
@@ -220,9 +259,10 @@ python3 -m manga_watch.backlog --unread-only
 python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
 ```
 
-runner をローカル起動する場合は Discord 環境変数を入れてから実行します。
+runner をローカル起動する場合は notifier 環境変数を入れてから実行します。
 
 ```bash
+export MANGA_WATCH_NOTIFIER_BACKENDS=stdout
 python3 -m manga_watch.runner
 ```
 
@@ -260,8 +300,9 @@ python3 -m manga_watch.migrate_v2 \
 - `manga_watch/backlog.py`: 更新履歴 / 未読確認と既読化の最小 CLI
 - `manga_watch/migrate_v2.py`: v1 から v2 への one-time migration CLI
 - `manga_watch/storage.py`: watchlist/state v2 validation と atomic write
+- `manga_watch/notifier.py`: update event schema + stdout/webhook backend
 - `manga_watch/watchlist.py`: `watchlist add <url>` CLI
-- `manga_watch/runner.py`: スケジューラ + Discord 通知
+- `manga_watch/runner.py`: スケジューラ + notifier fan-out + run report logging
 - `manga_watch/update_classification.py`: 更新種別と既定通知対象の分類ロジック
 - `manga_watch/watchlist.json`: watchlist v2 sample
 - `manga_watch/state.json`: state v2 sample

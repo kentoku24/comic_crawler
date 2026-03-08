@@ -293,9 +293,9 @@ python3 -m manga_watch.runner
 
 必要な設定:
 
-- `DISCORD_BOT_TOKEN`
-- `DISCORD_MAIN_CHANNEL_ID`
-- `DISCORD_RUN_REPORT_CHANNEL_ID`
+- `MANGA_WATCH_NOTIFIER_BACKENDS`
+- `MANGA_WATCH_WEBHOOK_URL` (`webhook` backend を使うとき)
+- `MANGA_WATCH_WEBHOOK_TIMEOUT`
 - `TZ`。既定値は `Asia/Tokyo`
 - `CRAWL_SCHEDULE` または `CRAWL_INTERVAL`
 - `RUN_ON_STARTUP`
@@ -307,6 +307,54 @@ python3 -m manga_watch.runner
 - `MANGA_WATCH_HTTP_WORKERS`
 - `MANGA_WATCH_HTTP_WORKERS_PER_HOST`
 
+### Notification backends
+
+- `MANGA_WATCH_NOTIFIER_BACKENDS` は required。comma-separated で `stdout`, `webhook` を並べる
+- runner は同じ update event を指定順に全 backend へ fan-out する
+- `stdout` backend は 1 event = 1 JSON line を標準出力へ書き込んで flush する
+- `webhook` backend は 1 event ごとに JSON POST する
+- webhook success は HTTP `2xx` のみ。`3xx`/`4xx`/`5xx`、timeout、transport error は failure
+- どれか 1 backend でも failure した run は失敗扱いにし、failure report を stderr に出す
+- fan-out 中に一部 backend が成功してから別 backend が失敗し得るため、consumer は duplicate を `event_id` で dedupe する
+- current implementation は persisted outbox や automatic replay を持たない。checker が state を進めた後の delivery failure は manual replay が必要
+
+### Update event schema
+
+```json
+{
+  "schema_version": 1,
+  "event_id": "KC_003913_S:6ec0f89d...",
+  "work_id": "KC_003913_S",
+  "latest_key": "KC_0039130008900011_E",
+  "series_title": "蜘蛛ですが、なにか？",
+  "update_type": "main_story",
+  "detected_at": "2026-03-08T08:00:00Z",
+  "from": {
+    "latest_key": "KC_0039130008800011_E",
+    "series_title": "蜘蛛ですが、なにか？",
+    "episode_title": "第77話その1",
+    "episode_code": "KC_0039130008800011_E",
+    "url": "https://example.com/old"
+  },
+  "to": {
+    "latest_key": "KC_0039130008900011_E",
+    "series_title": "蜘蛛ですが、なにか？",
+    "episode_title": "第77話その2",
+    "episode_code": "KC_0039130008900011_E",
+    "url": "https://example.com/new",
+    "update_type": "main_story",
+    "classification_reason": "episode_title matched main-story numbering",
+    "default_notify": true
+  }
+}
+```
+
+- `event_id` は `sha256(work_id + "\n" + latest_key)` を `"<work_id>:<digest>"` にした stable id
+- `detected_at` は UTC の RFC 3339 timestamp
+- `from` / `to` は snake_case に正規化した snapshot
+- runner は既定通知対象 (`default_notify=true` or update-type default) の update だけを backend に送る
+- suppressed update は state と run report には残るが backend には送らない
+
 ### Default notification behavior
 
 - `main_story`: 既定通知対象
@@ -315,7 +363,7 @@ python3 -m manga_watch.runner
 - `announcement`: 既定抑制対象
 - `main_story` と suppress 対象が衝突した場合は `unknown` に倒す
 - `bonus` と `announcement` だけが衝突した場合は suppress 側に残す
-- runner の main channel 通知は既定通知対象だけを送る
+- runner は既定通知対象だけを notifier backend に送る
 - suppressed update も state と run report には残し、run report には `既定通知対象件数` と `既定抑制件数` を含める
 
 ## Reader / Writer compatibility matrix
