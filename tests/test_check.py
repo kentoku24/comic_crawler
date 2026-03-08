@@ -850,6 +850,7 @@ class CheckTests(unittest.TestCase):
                 "source": "fake",
                 "work_id": "work-1",
                 "latest_key": "ep-1",
+                "next_update_label": "次回更新前",
                 "series_title": "旧タイトル",
                 "episode_title": "旧サブタイトル",
                 "page_title": "",
@@ -871,6 +872,7 @@ class CheckTests(unittest.TestCase):
             "source": "fake",
             "workId": "work-1",
             "latestKey": "ep-1",
+            "nextUpdateLabel": "次回更新後",
             "seriesTitle": "新タイトル",
             "episodeTitle": "新サブタイトル",
             "pageTitle": "作品A 第1話",
@@ -894,6 +896,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("新タイトル", runtime_latest["seriesTitle"])
         self.assertEqual("新サブタイトル", runtime_latest["episodeTitle"])
         self.assertEqual("作品A 第1話", runtime_latest["pageTitle"])
+        self.assertEqual("次回更新後", runtime_latest["nextUpdateLabel"])
         self.assertEqual("補足", runtime_latest["summary"])
         self.assertEqual("https://example.com/work/1", runtime_latest["url"])
         self.assertEqual([], next_entry["unread"]["event_ids"])
@@ -904,6 +907,79 @@ class CheckTests(unittest.TestCase):
         )
         self.assertTrue(runtime_latest["default_notify"])
         self.assertEqual(20, next_entry["health"]["last_checked_at"])
+        self.assertEqual([], next_entry["history"])
+
+    def test_validate_state_normalizes_next_update_label_in_latest_snapshot(self):
+        state = validate_state(
+            {
+                "version": 2,
+                "works": {
+                    "work-1": {
+                        "latest": {
+                            "workId": "work-1",
+                            "latestKey": "ep-2",
+                            "episodeTitle": "第2話",
+                            "nextUpdateLabel": "次回更新予定 3/15",
+                        },
+                        "history": [],
+                        "health": {
+                            "last_checked_at": 20,
+                            "last_success_at": 20,
+                            "consecutive_failures": 0,
+                        },
+                    }
+                },
+                "last_run_at": 20,
+            }
+        )
+
+        self.assertEqual(
+            "次回更新予定 3/15",
+            state["works"]["work-1"]["latest"]["next_update_label"],
+        )
+        self.assertEqual(
+            "次回更新予定 3/15",
+            latest_storage_to_runtime(state["works"]["work-1"]["latest"])["nextUpdateLabel"],
+        )
+
+    def test_apply_item_transition_silently_clears_next_update_label_when_latest_key_is_stable(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-1",
+                "next_update_label": "次回更新前",
+                "episode_title": "第1話",
+                "url": "https://example.com/work/1",
+            },
+            "history": [],
+            "unread": {"event_ids": []},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-1",
+            "episodeTitle": "第1話",
+            "url": "https://example.com/work/1",
+        }
+
+        next_entry, update = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertIsNone(update)
+        runtime_latest = latest_storage_to_runtime(next_entry["latest"])
+        self.assertNotIn("nextUpdateLabel", runtime_latest)
+        self.assertNotIn("next_update_label", next_entry["latest"])
 
     def test_validate_state_backfills_unread_and_normalizes_history_events(self):
         state = validate_state(

@@ -7,16 +7,16 @@ from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, Wo
 
 
 _EPISODE_URL = re.compile(
-    r"^https?://(?:www\.)?championcross\.jp/episodes/([0-9a-z]{8,})/?(?:\?.*)?$"
+    r"^https?://(?:www\.)?championcross\.jp/episodes/([0-9A-Za-z]+)(?:/)?(?:\?.*)?$"
 )
 _SERIES_URL = re.compile(
-    r"^https?://(?:www\.)?championcross\.jp/series/([0-9a-z]{8,})/?(?:\?.*)?$"
+    r"^https?://(?:www\.)?championcross\.jp/series/([0-9A-Za-z]+)(?:/)?(?:\?.*)?$"
 )
 _SERIES_RSS_URL = re.compile(
-    r"^https?://(?:www\.)?championcross\.jp/series/([0-9a-z]{8,})/rss/?(?:\?.*)?$"
+    r"^https?://(?:www\.)?championcross\.jp/series/([0-9A-Za-z]+)/rss(?:/)?(?:\?.*)?$"
 )
 _SERIES_HASH_IN_HTML = re.compile(
-    r"https?://(?:www\.)?championcross\.jp/series/([0-9a-z]{8,})(?:/rss)?(?:[/?\"'])"
+    r"https?://(?:www\.)?championcross\.jp/series/([0-9A-Za-z]+)(?:/rss)?(?:[/?\"'])"
 )
 
 
@@ -69,6 +69,21 @@ def extract_champion_cross_series_hash(html_text: str) -> Optional[str]:
     if not match:
         return None
     return match.group(1)
+
+
+def extract_champion_cross_next_update_label(html_text: str) -> Optional[str]:
+    if not html_text:
+        return None
+    normalized = html.unescape(html_text).replace("\\/", "/")
+    match = re.search(
+        r'<span[^>]*series-h-tag-label[^>]*>\s*([^<]+?)\s*</span>',
+        normalized,
+        re.S,
+    )
+    if not match:
+        return None
+    label = re.sub(r"\s+", " ", match.group(1)).strip()
+    return label or None
 
 
 def parse_champion_cross_rss_latest(feed_text: str) -> Tuple[str, Optional[str], Optional[str]]:
@@ -147,9 +162,18 @@ class ChampionCrossAdapter(SourceAdapter):
         raise RuntimeError(f"champion-cross: unsupported seed URL: {seed_url}")
 
     def fetch_latest(self, work: WorkDescriptor, http_client: HttpClient) -> LatestEpisode:
-        series_hash, rss_url = self._resolve_series_hash_and_rss_url(work, http_client)
+        series_hash, rss_url, seed_episode_html = self._resolve_series_hash_and_rss_url(work, http_client)
         feed_text = http_client.get_text(rss_url)
         latest_url, episode_title, series_title = parse_champion_cross_rss_latest(feed_text)
+
+        latest_episode_html = seed_episode_html
+        if latest_episode_html is None or latest_url != parse_champion_cross_episode_url(work.seed_url):
+            latest_episode_html = http_client.get_text(latest_url)
+        next_update_label = extract_champion_cross_next_update_label(latest_episode_html)
+
+        extra = {}
+        if next_update_label:
+            extra["nextUpdateLabel"] = next_update_label
         return LatestEpisode(
             source=self.source,
             work_id=work.work_id,
@@ -158,19 +182,20 @@ class ChampionCrossAdapter(SourceAdapter):
             series=f"{self.source}:{series_hash}",
             series_title=series_title,
             episode_title=episode_title,
+            extra=extra,
         )
 
     def _resolve_series_hash_and_rss_url(
         self,
         work: WorkDescriptor,
         http_client: HttpClient,
-    ) -> Tuple[str, str]:
+    ) -> Tuple[str, str, Optional[str]]:
         series_hash = (
             work.metadata.get("seriesHash")
             or extract_champion_cross_series_hash_from_seed_url(work.seed_url)
         )
         if series_hash:
-            return series_hash, canonical_champion_cross_series_rss_url(series_hash)
+            return series_hash, canonical_champion_cross_series_rss_url(series_hash), None
 
         normalized_episode_url = parse_champion_cross_episode_url(work.seed_url)
         if not normalized_episode_url:
@@ -181,4 +206,4 @@ class ChampionCrossAdapter(SourceAdapter):
         if not series_hash:
             raise SourceParseError("champion-cross: series hash not found")
 
-        return series_hash, canonical_champion_cross_series_rss_url(series_hash)
+        return series_hash, canonical_champion_cross_series_rss_url(series_hash), episode_html

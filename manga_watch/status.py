@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
 
+from manga_watch.discord_text import latest_display_label_for_snapshot, series_label_for_snapshot
 from manga_watch.storage import load_state, load_watchlist, normalize_health_policy
 
 DEFAULT_CRAWL_SCHEDULE = "0 19 * * *"
@@ -99,18 +100,11 @@ def health_policy_for_entry(entry: Mapping[str, object], work_id: str) -> Dict[s
 
 
 def latest_label(latest: Mapping[str, object]) -> str:
-    return str(
-        latest.get("episode_title")
-        or latest.get("episodeTitle")
-        or latest.get("episode_code")
-        or latest.get("episodeCode")
-        or latest.get("url")
-        or "未取得"
-    )
+    return latest_display_label_for_snapshot(latest)
 
 
 def series_label(work_id: str, latest: Mapping[str, object]) -> str:
-    return str(latest.get("series_title") or latest.get("seriesTitle") or latest.get("series") or work_id)
+    return series_label_for_snapshot(work_id, latest)
 
 
 def derive_health_status(

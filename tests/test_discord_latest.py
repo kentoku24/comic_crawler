@@ -11,7 +11,11 @@ from manga_watch.discord_latest import (
     build_latest_query_response,
     handle_latest_query,
 )
-from manga_watch.discord_text import format_discord_link, truncate_episode_label
+from manga_watch.discord_text import (
+    format_discord_link,
+    latest_display_label_for_snapshot,
+    truncate_episode_label,
+)
 
 
 class DiscordLatestTests(unittest.TestCase):
@@ -215,6 +219,41 @@ class DiscordLatestTests(unittest.TestCase):
         self.assertIn("（未取得）　work-2", response)
         self.assertTrue(response.endswith(PARTIAL_FAILURE_WARNING))
 
+    def test_build_latest_query_response_appends_saved_next_update_label(self):
+        watchlist = self.make_watchlist(
+            [
+                {
+                    "id": "work-1",
+                    "source": "comic-walker",
+                    "seed_url": "https://example.com/work-1",
+                    "enabled": True,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                }
+            ]
+        )
+        state = self.make_state(
+            {
+                "work-1": {
+                    "latest": {
+                        "series_title": "作品A",
+                        "episode_title": "第2話",
+                        "next_update_label": "次回更新予定 3/15",
+                        "url": "https://example.com/2",
+                    },
+                    "history": [],
+                    "health": {"consecutive_failures": 0},
+                }
+            },
+            last_run_at=1_700_000_000,
+        )
+
+        response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
+
+        self.assertIn(
+            "[第2話（次回更新予定 3/15）](<https://example.com/2>)　作品A",
+            response,
+        )
+
     def test_episode_label_truncation_matches_spec_examples(self):
         self.assertEqual("第71話 abcdefg…", truncate_episode_label("第71話 abcdefghijk"))
         self.assertEqual("第71話 あいうえおかき…", truncate_episode_label("第71話 あいうえおかきくけ"))
@@ -222,6 +261,16 @@ class DiscordLatestTests(unittest.TestCase):
         self.assertEqual("abcdefghijklmnopqrs…", truncate_episode_label("abcdefghijklmnopqrstu"))
         self.assertEqual("第55話後編", truncate_episode_label("第55話後編"))
         self.assertEqual("[第71話 abcdefg…](<https://example.com/71>)", format_discord_link("第71話 abcdefghijk", "https://example.com/71"))
+        self.assertEqual(
+            "第71話 abcdefg…（次回更新予定 3/15）",
+            latest_display_label_for_snapshot(
+                {
+                    "episode_title": "第71話 abcdefghijk",
+                    "next_update_label": "次回更新予定 3/15",
+                },
+                truncate_episode=True,
+            ),
+        )
 
     def test_handle_latest_query_is_read_only_and_uses_only_injected_loaders(self):
         watchlist = self.make_watchlist(

@@ -81,6 +81,16 @@ def extract_comic_action_episode_url_from_feed(feed_text: str) -> Optional[str]:
     return canonical_comic_action_episode_url(match.group(1))
 
 
+def extract_comic_action_next_update_label(html_text: str) -> Optional[str]:
+    if not html_text:
+        return None
+    match = re.search(r"次回更新[:：]\s*([^<]+)", html_text)
+    if not match:
+        return None
+    label = re.sub(r"\s+", " ", html.unescape(match.group(1))).strip()
+    return label or None
+
+
 class ComicActionAdapter(SourceAdapter):
     source = "comic-action"
 
@@ -118,7 +128,7 @@ class ComicActionAdapter(SourceAdapter):
 
     def fetch_latest(self, work: WorkDescriptor, http_client: HttpClient) -> LatestEpisode:
         entry_episode_url = self._resolve_entry_episode_url(work, http_client)
-        latest_url, page_title, series_title, episode_title = self._walk_to_latest(
+        latest_url, page_title, series_title, episode_title, next_update_label = self._walk_to_latest(
             WorkDescriptor(
                 source=work.source,
                 work_id=work.work_id,
@@ -135,6 +145,7 @@ class ComicActionAdapter(SourceAdapter):
             series_title=series_title,
             episode_title=episode_title,
             page_title=page_title,
+            extra={"nextUpdateLabel": next_update_label} if next_update_label else {},
         )
 
     def _resolve_entry_episode_url(self, work: WorkDescriptor, http_client: HttpClient) -> str:
@@ -155,7 +166,7 @@ class ComicActionAdapter(SourceAdapter):
         self,
         work: WorkDescriptor,
         http_client: HttpClient,
-    ) -> Tuple[str, Optional[str], Optional[str], Optional[str]]:
+    ) -> Tuple[str, Optional[str], Optional[str], Optional[str], Optional[str]]:
         current_url = work.seed_url
         seen = set()
         last_html = None
@@ -170,12 +181,14 @@ class ComicActionAdapter(SourceAdapter):
             if not next_url or next_url == current_url:
                 page_title = html_title(html)
                 episode_title, series_title = parse_comic_action_title(page_title or "")
-                return current_url, page_title, series_title, episode_title
+                next_update_label = extract_comic_action_next_update_label(html)
+                return current_url, page_title, series_title, episode_title, next_update_label
             current_url = next_url
 
         page_title = html_title(last_html or "")
         episode_title, series_title = parse_comic_action_title(page_title or "")
-        return current_url, page_title, series_title, episode_title
+        next_update_label = extract_comic_action_next_update_label(last_html or "")
+        return current_url, page_title, series_title, episode_title, next_update_label
 
     def _fetch_episode_page(self, episode_url: str, http_client: HttpClient) -> str:
         return http_client.get_text(episode_url)

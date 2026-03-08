@@ -27,5 +27,6 @@
     "seriesTitle": "作品A",
     "episodeCode": "KC_123456001_E",
     "episodeTitle": "第1話"
-  }
+  },
+  "missingLatestKeys": ["nextUpdateLabel"]
 }
