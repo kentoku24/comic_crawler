@@ -5,7 +5,11 @@ from datetime import datetime
 from typing import Callable, Dict, List, Mapping, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from manga_watch.discord_text import format_discord_link
+from manga_watch.discord_text import (
+    episode_label_for_snapshot,
+    format_discord_link,
+    series_label_for_snapshot,
+)
 from manga_watch.storage import load_state, load_watchlist
 
 DEFAULT_TIMEZONE = "Asia/Tokyo"
@@ -32,11 +36,11 @@ def format_last_run(last_run_at: object, timezone_name: str) -> str:
 
 
 def series_label(work_id: str, latest: Mapping[str, object]) -> str:
-    return str(latest.get("series_title") or latest.get("series") or work_id)
+    return series_label_for_snapshot(work_id, latest)
 
 
 def latest_label(latest: Mapping[str, object]) -> str:
-    return str(latest.get("episode_title") or latest.get("episode_code") or latest.get("url") or "未取得")
+    return episode_label_for_snapshot(latest)
 
 
 def render_work_line(work_id: str, latest: Mapping[str, object]) -> str:

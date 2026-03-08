@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import re
 import unicodedata
+from typing import Mapping
 
 ELLIPSIS = "…"
 SUBTITLE_LIMIT = 8
@@ -76,6 +77,30 @@ def truncate_episode_label(label: object) -> str:
         subtitle = match.group("subtitle")
         return f"{header}{separator}{truncate_graphemes(subtitle, SUBTITLE_LIMIT)}"
     return truncate_graphemes(normalized, FALLBACK_LABEL_LIMIT)
+
+
+def series_label_for_snapshot(work_id: object, snapshot: Mapping[str, object]) -> str:
+    return str(
+        snapshot.get("series_title")
+        or snapshot.get("seriesTitle")
+        or snapshot.get("series")
+        or work_id
+    )
+
+
+def episode_label_for_snapshot(
+    snapshot: Mapping[str, object],
+    *,
+    fallback: str = "未取得",
+) -> str:
+    return str(
+        snapshot.get("episode_title")
+        or snapshot.get("episodeTitle")
+        or snapshot.get("episode_code")
+        or snapshot.get("episodeCode")
+        or snapshot.get("url")
+        or fallback
+    )
 
 
 def format_discord_link(label: object, url: object) -> str:
