@@ -7,3 +7,4 @@ __pycache__/
 # Local state (optional)
 # If you want to commit state.json, remove the next line.
 # manga_watch/state.json
+.codex/orchestrator-runs/
