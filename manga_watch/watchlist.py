@@ -1,7 +1,6 @@
 #!/usr/bin/env python3
 import argparse
 import json
-import sys
 from dataclasses import dataclass
 from typing import Dict, Optional, Sequence
 from urllib.parse import urlparse
@@ -60,6 +59,15 @@ class WatchlistAddError(RuntimeError):
             "message": self.message,
             "next_action": self.next_action,
         }
+
+
+class WatchlistArgumentParser(argparse.ArgumentParser):
+    def error(self, message: str) -> None:
+        raise WatchlistAddError(
+            "usage",
+            message,
+            "Run `python3 -m manga_watch.watchlist add <url> [--watchlist <path>]`.",
+        )
 
 
 def add_watchlist_url(
@@ -188,7 +196,7 @@ def find_duplicate_entry(works, work_id: str) -> Optional[Dict[str, object]]:
 
 
 def parse_args(argv=None):
-    parser = argparse.ArgumentParser(description="Manage comic_crawler watchlist v2.")
+    parser = WatchlistArgumentParser(description="Manage comic_crawler watchlist v2.")
     subparsers = parser.add_subparsers(dest="command")
 
     add_parser = subparsers.add_parser("add", help="Normalize a URL and add it to watchlist v2.")
@@ -198,20 +206,23 @@ def parse_args(argv=None):
 
 
 def main(argv=None) -> int:
-    args = parse_args(argv)
-    if args.command != "add":
-        print("usage: watchlist.py add <url> [--watchlist <path>]", file=sys.stderr)
-        return 2
-
+    args = None
     try:
+        args = parse_args(argv)
+        if args.command != "add":
+            raise WatchlistAddError(
+                "usage",
+                "missing command",
+                "Run `python3 -m manga_watch.watchlist add <url> [--watchlist <path>]`.",
+            )
         payload = add_watchlist_url(args.url, watchlist_path=args.watchlist_path)
         print(json.dumps(payload, ensure_ascii=False))
         return 0
     except WatchlistAddError as exc:
         payload = {
             "action": "error",
-            "input_url": str(args.url or "").strip(),
-            "watchlist_path": args.watchlist_path or get_watchlist_path(),
+            "input_url": str(getattr(args, "url", "") or "").strip(),
+            "watchlist_path": getattr(args, "watchlist_path", None) or get_watchlist_path(),
             "error": exc.to_dict(),
         }
         print(json.dumps(payload, ensure_ascii=False))

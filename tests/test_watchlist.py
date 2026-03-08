@@ -125,6 +125,22 @@ class WatchlistCliTests(unittest.TestCase):
         self.assertEqual("error", payload["action"])
         self.assertEqual("invalid_url", payload["error"]["kind"])
 
+    def test_watchlist_add_reports_usage_errors_as_json(self):
+        result = self.run_watchlist_module()
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("error", payload["action"])
+        self.assertEqual("usage", payload["error"]["kind"])
+
+    def test_watchlist_add_missing_url_reports_usage_as_json(self):
+        result = self.run_watchlist_module("add")
+
+        self.assertEqual(1, result.returncode)
+        payload = json.loads(result.stdout)
+        self.assertEqual("error", payload["action"])
+        self.assertEqual("usage", payload["error"]["kind"])
+
 
 if __name__ == "__main__":
     unittest.main()
