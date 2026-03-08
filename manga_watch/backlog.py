@@ -52,6 +52,45 @@ def series_label(work_id: str, latest: Mapping[str, object]) -> str:
     return str(latest.get("series_title") or latest.get("series") or work_id)
 
 
+def serialize_gap(gap: object) -> Optional[Dict[str, object]]:
+    if not isinstance(gap, Mapping):
+        return None
+    from_latest = gap.get("from_latest", {})
+    if not isinstance(from_latest, Mapping):
+        from_latest = {}
+
+    serialized: Dict[str, object] = {
+        "from_episode_label": latest_label(from_latest, "不明"),
+        "from_url": from_latest.get("url"),
+        "multiple_updates": gap.get("multiple_updates")
+        if isinstance(gap.get("multiple_updates"), bool)
+        else None,
+        "estimation_basis": str(gap.get("estimation_basis") or "").strip() or None,
+    }
+
+    estimated_count = gap.get("estimated_new_episode_count")
+    if isinstance(estimated_count, int):
+        serialized["estimated_new_episode_count"] = estimated_count
+    if from_latest:
+        serialized["from_latest"] = dict(from_latest)
+
+    return {key: value for key, value in serialized.items() if value is not None}
+
+
+def format_gap_suffix(event: Mapping[str, object]) -> str:
+    gap = event.get("gap")
+    if not isinstance(gap, Mapping):
+        return ""
+
+    from_label = str(gap.get("from_episode_label") or "不明")
+    estimated_count = gap.get("estimated_new_episode_count")
+    if gap.get("multiple_updates") is True and isinstance(estimated_count, int):
+        return f" gap from {from_label} (+{estimated_count} estimated)"
+    if gap.get("multiple_updates") is None:
+        return f" gap from {from_label} (count unavailable)"
+    return ""
+
+
 def collect_backlog(
     state: Mapping[str, object],
     *,
@@ -109,6 +148,7 @@ def collect_backlog(
                 "episode_label": latest_label(event_latest, "不明"),
                 "url": event_latest.get("url"),
                 "unread": event_id in unread_set,
+                "gap": serialize_gap(event.get("gap")),
             }
             all_events.append(serialized)
             if serialized["unread"]:
@@ -267,6 +307,7 @@ def format_backlog_text(payload: Mapping[str, object]) -> str:
             lines.append("Unread events:")
             for event in unread_events:
                 suffix = f" {event['url']}" if event.get("url") else ""
+                suffix += format_gap_suffix(event)
                 lines.append(
                     f"- {event['seen_at_label']} {event['episode_label']} ({event['event_id']}){suffix}"
                 )
@@ -277,6 +318,7 @@ def format_backlog_text(payload: Mapping[str, object]) -> str:
             lines.append("Recent history:")
             for event in recent_history:
                 suffix = f" {event['url']}" if event.get("url") else ""
+                suffix += format_gap_suffix(event)
                 lines.append(
                     f"- {event['seen_at_label']} {event['episode_label']} ({event['event_id']}){suffix}"
                 )
