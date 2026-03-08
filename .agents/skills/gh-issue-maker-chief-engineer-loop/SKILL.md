@@ -50,6 +50,7 @@ Issue に既存の Chief Engineer レビューがある前提で始め、`maker`
 - `maker` の並列実行可否を判断する。
 - maker の成果を統合し、必要な verification を走らせる。
 - 統合した変更から PR を作成または既存 PR を更新する。
+- merge 後も残る Residual Risk は、follow-up Issue を起票して現在の parent issue に sub-issue として紐付ける。
 - `$spacex-chief-reviewer` を**別 agent**として起動し、PR review packet を渡し、`APPROVE` か `NG` を受け取る。
 - reviewer に、chat 上の判定だけでなく PR 上へ `$spacex-chief-reviewer` 署名付きの gate comment を残させる。
 - reviewer `APPROVE` 後に `$merger` を**別 agent**として起動し、merge gate と実マージを委譲する。
@@ -107,6 +108,7 @@ maker への指示では、少なくとも次を明示する。
 - 守るべき Chief Engineer 制約
 - 終了条件
 - 実行してほしい確認コマンド
+- merge 後に残る Residual Risk は Issue 化して parent issue に紐付けること
 
 ### 4. 親セッションで統合して PR を作成または更新する
 
@@ -114,6 +116,8 @@ maker への指示では、少なくとも次を明示する。
 - verification evidence を整理して、PR body に反映できる状態にする。
 - 既存 PR があればその PR を更新し、なければ新規 PR を作成する。
 - PR には少なくとも `Issue`, `変更概要`, `検証結果`, `残留リスク` を含める。
+- `残留リスク` section は必須とし、残る risk がある場合は各 bullet に follow-up Issue reference を含める。risk が無ければ `None` を明示する。
+- follow-up Issue は current issue を parent とする sub-issue として作成し、PR body の `残留リスク` section から辿れるようにする。
 
 PR の扱いは次を原則とする。
 
@@ -156,6 +160,7 @@ reviewer への packet には次を含める。
 - merger は次を確認する。
   - PR 上に `$spacex-chief-reviewer` の `APPROVE` comment がある
   - PR の review thread がすべて resolved である
+  - PR の `Residual Risks` がすべて follow-up Issue 化され、parent issue に紐付いている
 - merger は条件を満たさない、または確認不能な場合、PR に `Merge NG` コメントを残して `NG` を返す。
 - merger は条件を満たした場合だけ `gh pr merge --merge --delete-branch` で merge する。
 - 親セッションや reviewer が merger の手順を自己適用しても、それは merge gate ではない。
@@ -163,9 +168,11 @@ reviewer への packet には次を含める。
 merger への packet には次を含める。
 
 - PR URL
+- parent issue URL または番号
 - chief reviewer comment の期待形式
 - merge に使う strategy (`--merge`)
 - unresolved review thread は blocker であること
+- `Residual Risks` section と issue/sub-issue 関係も blocker であること
 - 今回求める merge gate 判定
 
 別 agent merger を起動できない場合:
@@ -179,6 +186,7 @@ merger への packet には次を含める。
 - reviewer / merger の `NG` を論点ごとに分解する。
 - コード修正が必要な論点は、次 cycle の maker packet に落とし込む。
 - review thread resolve や reviewer comment 追記のような PR hygiene だけが不足している場合は、親セッションがその不足を解消して 5 または 6 に戻ってよい。
+- Residual Risk の issue 起票、parent 紐付け、PR body 反映の不足も PR hygiene として解消して 4 または 6 に戻ってよい。
 - scope creep を防ぐため、Issue の外に広がった rework は切り離す。
 - PR は閉じず、同じ PR を更新し続けることを基本とする。
 - 同じ理由で 2 cycle 連続 `NG` になったら、packet の切り方か設計前提が悪い可能性が高い。親セッションが loop を止め、Issue Brief を再構成する。
