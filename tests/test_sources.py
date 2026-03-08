@@ -40,6 +40,25 @@ ERROR_TYPES = {
     "SourceParseError": SourceParseError,
     "RuntimeError": RuntimeError,
 }
+EXPECTED_LATEST_CLASSIFICATIONS = {
+    "comic-walker": {
+        "normal": "main_story",
+        "title_variation_or_bonus": "bonus",
+        "same_episode_refresh": "main_story",
+    },
+    "kakuyomu": {
+        "normal": "main_story",
+        "title_variation_or_bonus": "bonus",
+        "same_episode_refresh": "main_story",
+    },
+    "comic-action": {
+        "normal": "main_story",
+        "title_variation": "bonus",
+        "escaped_next_uri": "main_story",
+        "broken_missing_next": "main_story",
+        "broken_loop": "main_story",
+    },
+}
 
 
 class FixtureHttpClient:
@@ -155,7 +174,21 @@ class SourceAdapterTests(unittest.TestCase):
                         adapter.fetch_latest(work, client)
                 else:
                     latest = adapter.fetch_latest(work, client)
-                    self.assertEqual(manifest["expectedLatest"], latest.to_dict())
+                    latest_dict = latest.to_dict()
+                    expected_latest = manifest["expectedLatest"]
+                    self.assertEqual(
+                        expected_latest,
+                        {key: latest_dict[key] for key in expected_latest},
+                    )
+                    self.assertEqual(
+                        EXPECTED_LATEST_CLASSIFICATIONS[source][case_name],
+                        latest_dict["update_type"],
+                    )
+                    self.assertTrue(latest_dict["classification_reason"])
+                    self.assertEqual(
+                        latest_dict["update_type"] in {"main_story", "unknown"},
+                        latest_dict["default_notify"],
+                    )
 
                 client.assert_consumed()
 

@@ -10,6 +10,8 @@ from urllib.parse import urlparse
 
 import requests
 
+from manga_watch.update_classification import classify_update
+
 UA = os.environ.get(
     "MANGA_WATCH_UA",
     "Mozilla/5.0 (X11; Linux) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120 Safari/537.36",
@@ -197,9 +199,24 @@ class LatestEpisode:
     episode_code: Optional[str] = None
     episode_title: Optional[str] = None
     page_title: Optional[str] = None
+    update_type: Optional[str] = None
+    classification_reason: Optional[str] = None
+    default_notify: Optional[bool] = None
     extra: Mapping[str, str] = field(default_factory=dict)
 
-    def to_dict(self) -> Dict[str, str]:
+    def __post_init__(self) -> None:
+        decision = classify_update(
+            episode_title=self.episode_title,
+            page_title=self.page_title,
+        )
+        if not self.update_type:
+            object.__setattr__(self, "update_type", decision.update_type)
+        if not self.classification_reason:
+            object.__setattr__(self, "classification_reason", decision.classification_reason)
+        if self.default_notify is None:
+            object.__setattr__(self, "default_notify", decision.default_notify)
+
+    def to_dict(self) -> Dict[str, object]:
         data = {
             "source": self.source,
             "workId": self.work_id,
@@ -216,6 +233,12 @@ class LatestEpisode:
             data["episodeTitle"] = self.episode_title
         if self.page_title:
             data["pageTitle"] = self.page_title
+        if self.update_type:
+            data["update_type"] = self.update_type
+        if self.classification_reason:
+            data["classification_reason"] = self.classification_reason
+        if self.default_notify is not None:
+            data["default_notify"] = self.default_notify
         for key, value in self.extra.items():
             if value is None:
                 continue

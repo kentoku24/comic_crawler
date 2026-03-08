@@ -16,6 +16,9 @@ _LATEST_RUNTIME_TO_STORAGE = {
     "episodeCode": "episode_code",
     "episodeTitle": "episode_title",
     "pageTitle": "page_title",
+    "update_type": "update_type",
+    "classification_reason": "classification_reason",
+    "default_notify": "default_notify",
 }
 _LATEST_STORAGE_TO_RUNTIME = {value: key for key, value in _LATEST_RUNTIME_TO_STORAGE.items()}
 
