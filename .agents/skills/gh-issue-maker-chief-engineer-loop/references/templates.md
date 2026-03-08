@@ -35,10 +35,17 @@ Maker Packet
 - Execution mode: `spawn_agent` | `codex exec` | `/fork` | `degraded` | `orchestrated-child`
 - Parent issue (if orchestrated-child):
 - Run id (if orchestrated-child):
+- Existing session / lease (if orchestrated-child):
 - Branch (if parallel maker):
 - Worktree (if parallel maker):
 - Existing PR (if orchestrated-child):
 - Requested terminal state (if orchestrated-child):
+- Reporting checkpoints (if orchestrated-child):
+  - `worktree_ready`
+  - `pr_opened`
+  - `review_state_changed`
+  - `merged`
+  - `issue_closed`
 - Relevant files:
   - ...
 - Constraints:
@@ -84,6 +91,25 @@ Chief Reviewer Gate
   - ...
 ```
 
+## Orchestrated Child Heartbeat
+
+```text
+Orchestrated Child Heartbeat
+- Issue:
+- Parent issue:
+- Run id:
+- Checkpoint: `worktree_ready` | `pr_opened` | `review_state_changed` | `merged` | `issue_closed`
+- Terminal result: `in_progress` | `merge_pending` | `issue_close_pending` | `done` | `blocked` | `failed`
+- Branch:
+- Worktree:
+- PR:
+- Blockers:
+  - ...
+- Evidence gained:
+  - ...
+- Next move:
+```
+
 ## Cycle Update
 
 ```text
@@ -91,8 +117,11 @@ Cycle Update
 - Cycle:
 - Goal:
 - Execution mode:
-- Terminal result: `done` | `reviewer_gate_pending` | `merge_pending` | `issue_close_pending` | `blocked` | `failed`
+- Progress checkpoint: `planning` | `worktree_ready` | `pr_opened` | `review_state_changed` | `merged` | `issue_closed`
+- Terminal result: `in_progress` | `done` | `reviewer_gate_pending` | `merge_pending` | `issue_close_pending` | `blocked` | `failed`
 - Worktrees (if used):
+  - ...
+- Branches (if used):
   - ...
 - Maker packets:
   - ...
@@ -100,5 +129,7 @@ Cycle Update
 - Evidence gained:
   - ...
 - Chief Reviewer decision:
+- Blockers:
+  - ...
 - Next move:
 ```

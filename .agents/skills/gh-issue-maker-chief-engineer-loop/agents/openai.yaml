@@ -1,4 +1,4 @@
 interface:
   display_name: "Issue Maker Reviewer Loop"
   short_description: "Issue-driven maker loop with reviewer approval and optional merge-to-close follow-up."
-  default_prompt: "Use $gh-issue-maker-chief-engineer-loop on this reviewed GitHub issue and drive it through implementation plus PR update until $spacex-chief-reviewer approval. If an orchestrator packet requests merged-and-closed completion, do not stop at review approval alone."
+  default_prompt: "Use $gh-issue-maker-chief-engineer-loop on this reviewed GitHub issue and drive it through implementation, PR update, reviewer follow-up, and, when requested by an orchestrator packet, merge-and-close completion. In orchestrated-child mode, report structured checkpoints for worktree, PR, review, merge, and issue close, and do not stop at PR creation or reviewer approval alone."

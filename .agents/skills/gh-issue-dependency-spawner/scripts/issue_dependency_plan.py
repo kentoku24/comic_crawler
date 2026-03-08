@@ -389,7 +389,10 @@ def load_ledger(path: Path | None) -> dict[str, Any]:
         return {}
 
     try:
-        return json.loads(path.read_text())
+        text = path.read_text().strip()
+        if not text:
+            return {}
+        return json.loads(text)
     except json.JSONDecodeError as exc:
         fail(f"invalid run ledger at {path}: {exc}")
 
@@ -454,9 +457,72 @@ def build_spawn_prompt(
             lines.append(f"- Run id: {run_id}")
 
     lines.append(
+        "- Report structured checkpoints: worktree_ready, pr_opened, review_state_changed, merged, issue_closed."
+    )
+    lines.append(
+        "- Heartbeats must include branch, worktree, PR, blockers, terminal result, and next move."
+    )
+    lines.append("- PR open is progress, not completion. Stay on the lane through merge and issue close when possible.")
+    lines.append(
         "- Do not return success at reviewer approval alone. If merge or issue close is still pending, return merge_pending or issue_close_pending."
     )
     return "\n".join(lines)
+
+
+def recommend_parent_action(
+    orchestration_state: str,
+    ledger_entry: dict[str, Any] | None,
+    primary_open_pr: dict[str, Any] | None,
+) -> tuple[str, str]:
+    ledger_entry = ledger_entry or {}
+    has_branch = bool(ledger_entry.get("branch"))
+    has_worktree = bool(ledger_entry.get("worktree"))
+
+    if orchestration_state == "done":
+        return "none", "child issue is already closed with delivery evidence"
+    if orchestration_state in {"blocked_by_dependencies", "blocked_by_external_dependency"}:
+        return "wait", "dependencies are not done yet"
+    if orchestration_state == "ready":
+        return "spawn", "issue is unblocked and has no active lease or open PR"
+    if orchestration_state == "agent_active":
+        if not has_branch or not has_worktree:
+            return "check_spawn_heartbeat", "active lease exists but branch/worktree identity is not confirmed yet"
+        if primary_open_pr is None:
+            return "monitor_pr_creation", "lane is active and worktree is known, but no open PR is linked yet"
+        return "monitor_pr", "lane is active and an open PR already exists"
+    if orchestration_state in {"pr_draft", "pr_review_pending"}:
+        return "monitor_pr", "open PR exists and is still moving through draft or review"
+    if orchestration_state == "pr_changes_requested":
+        return "resume_rework", "review requested changes and the child lane needs another implementation cycle"
+    if orchestration_state == "pr_approved_pending_merge":
+        return "merge_pr", "PR is approved and mergeable but not merged yet"
+    if orchestration_state == "pr_merge_blocked":
+        return "resolve_merge_block", "PR is approved or open but cannot merge cleanly yet"
+    if orchestration_state == "merged_pending_issue_close":
+        return "close_issue", "closing PR is merged but the issue is still open"
+    if orchestration_state in {"closed_without_delivery_evidence", "merged_off_default_branch"}:
+        return "manual_audit", "issue state and delivery evidence do not line up"
+    if orchestration_state == "failed":
+        return "manual_audit", "lane is marked failed and needs human intervention"
+    return "manual_audit", f"unrecognized orchestration state: {orchestration_state}"
+
+
+def build_completion_blockers(
+    ready_to_spawn: list[int],
+    active_or_waiting: list[int],
+    follow_up_needed: list[int],
+    warnings: list[str],
+) -> list[str]:
+    blockers: list[str] = []
+    if ready_to_spawn:
+        blockers.append(f"ready_to_spawn remaining: {sorted(ready_to_spawn)}")
+    if active_or_waiting:
+        blockers.append(f"active_or_waiting issues remain: {sorted(active_or_waiting)}")
+    if follow_up_needed:
+        blockers.append(f"follow_up_needed issues remain: {sorted(follow_up_needed)}")
+    if warnings:
+        blockers.append("warnings present; review whether any are fatal before finishing")
+    return blockers
 
 
 def classify_child(
@@ -748,6 +814,7 @@ def main() -> None:
 
     child_records = []
     state_groups: dict[str, list[int]] = {}
+    action_groups: dict[str, list[int]] = {}
     ready_to_spawn: list[int] = []
     active_or_waiting: list[int] = []
     follow_up_needed: list[int] = []
@@ -797,6 +864,12 @@ def main() -> None:
             follow_up_needed.append(number)
 
         state_groups.setdefault(orchestration_state, []).append(number)
+        recommended_action, recommended_action_reason = recommend_parent_action(
+            orchestration_state,
+            ledger_entry,
+            primary_open_pr,
+        )
+        action_groups.setdefault(recommended_action, []).append(number)
 
         child_record = {
             "number": number,
@@ -818,6 +891,8 @@ def main() -> None:
             "ledger": ledger_entry or {},
             "has_active_lease": has_active_lease(ledger_entry),
             "orchestration_state": orchestration_state,
+            "recommended_parent_action": recommended_action,
+            "recommended_parent_action_reason": recommended_action_reason,
             "delivery_evidence_urls": delivery_evidence_urls,
             "ready_to_spawn": ready_now,
         }
@@ -870,7 +945,16 @@ def main() -> None:
         "state_groups": {
             state: sorted(numbers) for state, numbers in sorted(state_groups.items())
         },
+        "action_groups": {
+            action: sorted(numbers) for action, numbers in sorted(action_groups.items())
+        },
         "all_tracked_children_done": len(done_set) == len(tracked_child_numbers),
+        "completion_blockers": build_completion_blockers(
+            ready_to_spawn,
+            active_or_waiting,
+            follow_up_needed,
+            warnings,
+        ),
         "children": child_records,
         "warnings": warnings,
     }

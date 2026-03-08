@@ -17,6 +17,9 @@ description: >
 この skill は `dependency wave spawner` ではなく、**1 つの parent issue にぶら下がる child issue 群の実行オーケストレーター**である。
 開始時点の child issue 一覧を tracked set として固定し、その集合に含まれる issue がすべて terminal state `done` に到達するまで進める。
 
+この skill において `spawn` は開始イベントであり、完了ではない。
+親セッションは lane を作って終わりではなく、各 child issue を `spawn -> heartbeat -> PR open -> review -> merge -> issue close` の checkpoint で追跡し、GitHub state で completion を確定する。
+
 この skill の終了条件は明確に次である。
 
 - 呼び出し開始時に tracked set として確定した child issue がすべて `done`
@@ -36,6 +39,8 @@ description: >
 - GitHub dependency と linked PR state を読み、child issue の state machine を継続的に reconcile する
 - run ledger を維持し、child ごとの branch / worktree / PR / session / lease を管理する
 - ready な child issue だけを spawn または resume する
+- spawn 後の heartbeat を確認し、worktree / branch / PR の lane identity を ledger に確定する
+- stale lane や malformed lane を検知し、resume / replace / manual follow-up を判断する
 - reviewer approve 後の merge / issue close follow-up が必要なら、それを child へ戻すか parent が安全に補助する
 - 全 child issue が `done` になるまで続ける
 
@@ -127,22 +132,34 @@ ledger には少なくとも次を持つ。
 - `children.<issue>.pr`
 - `children.<issue>.agent_session`
 - `children.<issue>.lease_state`
+- `children.<issue>.last_heartbeat`
+- `children.<issue>.last_github_reconcile_at`
+- `children.<issue>.next_expected_transition`
 - `children.<issue>.updated_at`
 
 同じ child issue に active lease が残っている間は、同じ issue を再 spawn してはならない。
 再開時は `spawn` ではなく `resume` を優先する。
 
+ledger は「spawn したことの記録」ではなく「今その lane がどこまで進んだか」の記録である。
+agent id だけでなく、最後に確認できた worktree / branch / PR / checkpoint を残し、GitHub 実状態とのずれを検知できるようにする。
+
 ## Core Workflow
 
 ### 1. Parent issue を orchestration snapshot に変換する
 
-まず補助スクリプトを実行する。
+まず supervisor を実行する。
+
+```bash
+python3 .agents/skills/gh-issue-dependency-spawner/scripts/issue_dependency_supervisor.py reconcile <issue>
+```
+
+diagnostic だけ欲しいときは planner を直接実行してよい。
 
 ```bash
 python3 .agents/skills/gh-issue-dependency-spawner/scripts/issue_dependency_plan.py <issue>
 ```
 
-このスクリプトは次を返す。
+supervisor / planner は次を返す。
 
 - tracked child issues
 - GitHub dependency edges
@@ -151,6 +168,8 @@ python3 .agents/skills/gh-issue-dependency-spawner/scripts/issue_dependency_plan
 - `active_or_waiting`
 - `done`
 - merge / close follow-up が必要な child issues
+- parent が次に取る action groups
+- completion blockers
 - warnings / errors
 
 `warnings` のうち dependency graph や snapshot integrity に関わるものは fatal とみなし、止まる。
@@ -168,6 +187,10 @@ child issue ごとに次を決める。
 
 parallel child は必ず child issue ごとの専用 branch / worktree に分離する。
 
+spawn した瞬間に lane を「進行中」とはみなさない。
+親セッションは spawn 直後に ledger へ仮 lease を記録し、最初の heartbeat で branch / worktree / session を確定させる。
+spawn / resume の直後に `issue_dependency_supervisor.py record-lane ...` を呼び、agent session と lane identity を ledger に残す。
+
 ### 3. Child packet を渡す
 
 child への packet は issue URL だけで終わらせてはならない。
@@ -180,14 +203,16 @@ child への packet は issue URL だけで終わらせてはならない。
 - existing PR
 - existing branch / worktree
 - run id
+- reporting checkpoints
 - stop conditions
 
 `$gh-issue-maker-chief-engineer-loop` が reviewer approve で止まるままなら、parent はその child を `done` と扱ってはならない。
+child packet では、少なくとも `worktree_ready`, `pr_opened`, `review_state_changed`, `merged`, `issue_closed` の checkpoint を heartbeat で返すよう要求する。
 
-### 4. Reconcile する
+### 4. Reconcile loop を回す
 
 child agent が一度応答したら終わりではない。
-親セッションは GitHub state を再取得して次を判断する。
+親セッションは lane ごとに、checkpoint 遷移のたびに GitHub state を再取得して次を判断する。
 
 - PR はできたか
 - PR は draft か
@@ -198,7 +223,35 @@ child agent が一度応答したら終わりではない。
 
 この reconcile を経ずに downstream を開けてはならない。
 
-### 5. Merge / close follow-up を処理する
+checkpoint は少なくとも次を持つ。
+
+- `spawned`: agent は起動したが lane identity 未確定
+- `worktree_ready`: branch / worktree / session が確定した
+- `pr_opened`: open PR ができた
+- `review_state_changed`: review state が変わった
+- `merged`: closing PR が default branch に merge された
+- `issue_closed`: issue close を確認した
+
+どの checkpoint にも進まない lane は放置せず、parent が `resume`, `replace`, `manual_follow_up` のどれかに落とし込む。
+
+### 5. Lane health を管理する
+
+親セッションは active lease を「生きているから安全」とはみなさない。
+少なくとも次を見て stale / malformed lane を検知する。
+
+- active lease があるのに branch / worktree heartbeat が来ない
+- worktree はあるのに PR がいつまでも現れない
+- PR はあるのに review / merge 状態の更新が追えない
+- child agent が `success` と言うが GitHub では open PR / open issue のまま
+- branch / worktree / PR の組み合わせが ledger と GitHub で矛盾する
+
+stale / malformed lane を見つけたら、親セッションは次の優先順で介入する。
+
+1. 同じ session の `resume`
+2. 同じ branch / worktree を引き継いだ `replace`
+3. GitHub metadata だけで安全に解消できる follow-up
+
+### 6. Merge / close follow-up を処理する
 
 child issue が reviewer approve に到達しても、merge されていなければ `done` ではない。
 次のどちらかを行う。
@@ -208,7 +261,39 @@ child issue が reviewer approve に到達しても、merge されていなけ�
 
 親セッションは merge 済みで issue が open のままなら `merged_pending_issue_close` として扱い、close まで追う。
 
-### 6. Completion を判定する
+PR open や reviewer approve は「進捗」であり、終了条件ではない。
+親セッションは最後に GitHub で merge と issue close を確認するまで run を閉じてはならない。
+
+### 7. Autonomous parent run loop を回す
+
+この skill を使う親セッションは、`spawn` や進捗共有のたびに `final` を返してはならない。
+run は次の loop を、completion か fatal stop condition まで繰り返す。
+
+1. supervisor を実行して snapshot と action groups を再取得する
+2. `spawn`, `resume_rework`, `merge_pr`, `close_issue`, `manual_audit` の必要がある child を処理する
+3. active lane がある間は `wait` を使って child agent の heartbeat / 完了を待つ
+4. `wait` から戻ったら GitHub state を再取得して reconcile する
+5. `all_tracked_children_done=true` になるまで 1 に戻る
+
+親セッションは commentary で進捗を返してよいが、それは中間報告である。
+user に「進捗どお？」と聞かれるまで止まるのではなく、skill 自身が loop を持つ。
+
+通常運転では planner を直接 orchestration source of truth にしてはならない。
+親セッションは `issue_dependency_supervisor.py` を control plane として使い、planner は診断や diff 確認に限定する。
+
+親の標準実行手順は次で固定する。
+
+1. `issue_dependency_supervisor.py reconcile <issue>` を実行して `action_groups` と `completion_blockers` を得る
+2. `spawn` 対象ごとに child の `spawn_prompt` を使って `spawn_agent` または `resume` を行う
+3. spawn / resume の直後に `issue_dependency_supervisor.py record-lane ...` で `agent_session`, `branch`, `worktree`, `checkpoint` を ledger に記録する
+4. active lane がある間は `wait` で child heartbeat / completion を待つ
+5. heartbeat や lane identity が増えたら `record-lane` で ledger を更新する
+6. `issue_dependency_supervisor.py reconcile <issue> --apply-followups --close-parent-when-done` を再実行する
+7. `completion_blockers=[]` かつ parent issue close 判定まで済むまで 1 に戻る
+
+この 1-7 を踏まずに、spawn 後の主観や child agent の自己申告だけで進めてはならない。
+
+### 8. Completion を判定する
 
 この skill が終了してよいのは、tracked set の全 child issue が `done` になったときだけである。
 
@@ -219,6 +304,15 @@ child issue が reviewer approve に到達しても、merge されていなけ�
 - closed だが delivery evidence のない issue がある
 - snapshot drift が unresolved
 - ledger に active lease が残っている
+- spawn 後に checkpoint が確定していない lane がある
+
+親セッションは少なくとも次のどれかが真の間は `final` を返してはならない。
+
+- `ready_to_spawn` が空でない
+- `active_or_waiting_issue_numbers` が空でない
+- `follow_up_needed_issue_numbers` が空でない
+- `completion_blockers` が空でない
+- parent issue close がまだ未実施で、close 可否の最終確認が終わっていない
 
 ## Commands
 
@@ -226,6 +320,26 @@ child issue が reviewer approve に到達しても、merge されていなけ�
 
 ```bash
 python3 .agents/skills/gh-issue-dependency-spawner/scripts/issue_dependency_plan.py https://github.com/kentoku24/comic_crawler/issues/6
+```
+
+### Supervisor を 1 pass 回す
+
+```bash
+python3 .agents/skills/gh-issue-dependency-spawner/scripts/issue_dependency_supervisor.py reconcile https://github.com/kentoku24/comic_crawler/issues/6 --apply-followups
+```
+
+ledger を汚さない診断だけ欲しいときは `--dry-run --no-write-ledger` を付ける。
+
+### Supervisor を polling 付きで回す
+
+```bash
+python3 .agents/skills/gh-issue-dependency-spawner/scripts/issue_dependency_supervisor.py run https://github.com/kentoku24/comic_crawler/issues/6 --apply-followups --poll-seconds 30 --max-iterations 20
+```
+
+### Spawn / resume した lane を ledger に記録する
+
+```bash
+python3 .agents/skills/gh-issue-dependency-spawner/scripts/issue_dependency_supervisor.py record-lane https://github.com/kentoku24/comic_crawler/issues/6 41 --agent-session 019ccbc1-0763-7c62-8bf5-55157c397970 --lease-state active --branch codex/issue-41-outbox-replay --worktree /tmp/comic_crawler-issue-41-outbox-replay --checkpoint worktree_ready
 ```
 
 ### Parent issue を読む
@@ -245,6 +359,11 @@ gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){reposi
 - `CLOSED` だけで child issue を `done` 扱いしない
 - reviewer approve だけで downstream を開けない
 - child agent の `success` を GitHub state より優先しない
+- spawn acknowledgement や初回 heartbeat を completion と誤認しない
+- PR が open になっただけで lane を成功扱いしない
+- merge / issue close は GitHub で再取得してから報告する
+- 「中間進捗を返したので仕事は継続中」という暗黙運用に依存しない
+- active lane が残っているのに親 turn を閉じない
 - active lease のある child issue を二重 spawn しない
 - tracked set の途中変更を黙って飲み込まない
 - dependency source of truth が unsafe なときに推測で進めない
@@ -266,8 +385,12 @@ gh api graphql -f query='query($owner:String!,$repo:String!,$number:Int!){reposi
 各 reconcile 後は次を共有する。
 
 - state change した child issue
+- checkpoint が進んだ child issue
 - 新しく ready になった child issue
 - merge / close が必要な child issue
+- stale / malformed lane と、その介入方針
+- 親が次に取る action groups (`spawn`, `monitor_pr`, `merge_pr`, `close_issue`, `manual_audit`)
+- `completion_blockers`
 - fatal drift / dependency mismatch の有無
 
 最後は次をまとめる。

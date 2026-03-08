@@ -1,4 +1,4 @@
 interface:
   display_name: "Parent Issue Orchestrator"
   short_description: "Drive a parent issue until every tracked child issue reaches done."
-  default_prompt: "Use $gh-issue-dependency-spawner on this parent issue. Track the start-time child issue snapshot, reconcile GitHub dependency and PR state, spawn or resume ready child issues via $gh-issue-maker-chief-engineer-loop in separate worktrees, and do not finish until every tracked child issue is merged, closed, and done."
+  default_prompt: "Use $gh-issue-dependency-spawner on this parent issue. Use issue_dependency_supervisor.py as the control plane, not ad-hoc reasoning: reconcile the parent state, spawn or resume ready child issues via $gh-issue-maker-chief-engineer-loop in separate worktrees, record each lane in the ledger immediately, wait on active child agents, then reconcile again with follow-ups through review, merge, and issue close. Do not stop at spawn, PR open, or review approval. Finish only after every tracked child issue is merged, closed, done, and the parent issue is ready to close."
