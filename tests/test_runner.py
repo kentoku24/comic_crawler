@@ -4,6 +4,8 @@ import os
 import subprocess
 import sys
 import tempfile
+import threading
+import time
 import unittest
 from pathlib import Path
 
@@ -16,7 +18,19 @@ from manga_watch.notifier import (
     build_notifier,
     build_update_event,
 )
-from manga_watch.runner import RunnerConfig, replay_outbox_once, run_once
+from manga_watch.runner import (
+    FETCH_ACCEPTED_MESSAGE,
+    FETCH_REJECTED_MESSAGE,
+    RUN_IN_PROGRESS_REASON,
+    TRIGGER_SOURCE_DISCORD_FETCH,
+    TRIGGER_SOURCE_SCHEDULED,
+    TRIGGER_SOURCE_STARTUP,
+    RunCoordinator,
+    RunnerConfig,
+    replay_outbox_once,
+    run_once,
+    start_fetch_run,
+)
 from manga_watch.storage import load_state, save_state
 
 
@@ -60,6 +74,14 @@ class FakeSession:
 
 
 class RunnerTests(unittest.TestCase):
+    def wait_until(self, predicate, *, timeout=1.0):
+        deadline = time.time() + timeout
+        while time.time() < deadline:
+            if predicate():
+                return
+            time.sleep(0.01)
+        self.fail("condition was not met before timeout")
+
     def test_runner_module_runs_until_config_validation(self):
         repo_root = Path(__file__).resolve().parents[1]
         env = os.environ.copy()
@@ -596,6 +618,194 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual([], store["notification_outbox"])
         self.assertIn("通知: 送信した", reports[0])
         self.assertIn("通知outbox残件: 0件", reports[0])
+
+    def test_handle_fetch_trigger_accepts_when_idle_and_runs_in_background(self):
+        checker_started = threading.Event()
+        allow_finish = threading.Event()
+        notifier = FakeNotifier()
+        reports = []
+
+        def checker(_):
+            checker_started.set()
+            allow_finish.wait(1.0)
+            return {"updates": []}
+
+        coordinator = RunCoordinator(
+            self.make_config(),
+            notifier=notifier,
+            checker=checker,
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=reports.append,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        outcome = start_fetch_run(coordinator)
+
+        self.assertTrue(outcome["ok"])
+        self.assertTrue(outcome["accepted"])
+        self.assertTrue(outcome["background"])
+        self.assertEqual(TRIGGER_SOURCE_DISCORD_FETCH, outcome["triggerSource"])
+        self.assertEqual(FETCH_ACCEPTED_MESSAGE, outcome["message"])
+        self.assertTrue(checker_started.wait(0.5))
+        self.assertTrue(coordinator.is_running())
+
+        allow_finish.set()
+        self.wait_until(lambda: not coordinator.is_running())
+        self.assertEqual(1, len(reports))
+        self.assertEqual([], notifier.events)
+
+    def test_run_coordinator_rejects_startup_while_fetch_is_in_progress(self):
+        checker_started = threading.Event()
+        allow_finish = threading.Event()
+
+        def checker(_):
+            checker_started.set()
+            allow_finish.wait(1.0)
+            return {"updates": []}
+
+        coordinator = RunCoordinator(
+            self.make_config(),
+            notifier=FakeNotifier(),
+            checker=checker,
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: None,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        fetch_outcome = start_fetch_run(coordinator)
+        self.assertTrue(fetch_outcome["accepted"])
+        self.assertTrue(checker_started.wait(0.5))
+
+        startup_outcome = coordinator.run(TRIGGER_SOURCE_STARTUP)
+
+        self.assertFalse(startup_outcome["ok"])
+        self.assertTrue(startup_outcome["rejected"])
+        self.assertEqual(TRIGGER_SOURCE_STARTUP, startup_outcome["triggerSource"])
+        self.assertEqual(RUN_IN_PROGRESS_REASON, startup_outcome["error"])
+
+        allow_finish.set()
+        self.wait_until(lambda: not coordinator.is_running())
+
+    def test_run_coordinator_rejects_scheduled_while_fetch_is_in_progress(self):
+        checker_started = threading.Event()
+        allow_finish = threading.Event()
+
+        def checker(_):
+            checker_started.set()
+            allow_finish.wait(1.0)
+            return {"updates": []}
+
+        coordinator = RunCoordinator(
+            self.make_config(),
+            notifier=FakeNotifier(),
+            checker=checker,
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: None,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        fetch_outcome = start_fetch_run(coordinator)
+        self.assertTrue(fetch_outcome["accepted"])
+        self.assertTrue(checker_started.wait(0.5))
+
+        scheduled_outcome = coordinator.run(TRIGGER_SOURCE_SCHEDULED)
+
+        self.assertFalse(scheduled_outcome["ok"])
+        self.assertTrue(scheduled_outcome["rejected"])
+        self.assertEqual(TRIGGER_SOURCE_SCHEDULED, scheduled_outcome["triggerSource"])
+        self.assertEqual(RUN_IN_PROGRESS_REASON, scheduled_outcome["error"])
+
+        allow_finish.set()
+        self.wait_until(lambda: not coordinator.is_running())
+
+    def test_handle_fetch_trigger_accepts_again_after_failure(self):
+        call_count = {"value": 0}
+        reports = []
+        errors = []
+
+        def checker(_):
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                raise RuntimeError("boom")
+            return {"updates": []}
+
+        coordinator = RunCoordinator(
+            self.make_config(),
+            notifier=FakeNotifier(),
+            checker=checker,
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            now_fn=lambda: 1_700_000_000 + call_count["value"],
+            report_logger=reports.append,
+            error_logger=errors.append,
+        )
+
+        first_outcome = start_fetch_run(coordinator)
+        self.assertTrue(first_outcome["accepted"])
+        self.wait_until(lambda: not coordinator.is_running())
+
+        second_outcome = start_fetch_run(coordinator)
+        self.assertTrue(second_outcome["accepted"])
+        self.wait_until(lambda: not coordinator.is_running())
+
+        self.assertEqual(2, call_count["value"])
+        self.assertEqual(1, len(errors))
+        self.assertIn("トリガー: discord_fetch", errors[0])
+        self.assertIn("boom", errors[0])
+        self.assertEqual(1, len(reports))
+
+    def test_rejected_fetch_does_not_invoke_checker_state_or_notifier(self):
+        checker_started = threading.Event()
+        allow_finish = threading.Event()
+        calls = {"checker": 0, "state_loader": 0, "state_saver": 0}
+        notifier = FakeNotifier()
+
+        def checker(_):
+            calls["checker"] += 1
+            checker_started.set()
+            allow_finish.wait(1.0)
+            return {"updates": []}
+
+        def state_loader():
+            calls["state_loader"] += 1
+            return self.make_state()
+
+        def state_saver(_):
+            calls["state_saver"] += 1
+
+        coordinator = RunCoordinator(
+            self.make_config(),
+            notifier=notifier,
+            checker=checker,
+            state_loader=state_loader,
+            state_saver=state_saver,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: None,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        accepted_outcome = start_fetch_run(coordinator)
+        self.assertTrue(accepted_outcome["accepted"])
+        self.assertTrue(checker_started.wait(0.5))
+
+        rejected_outcome = start_fetch_run(coordinator)
+
+        self.assertFalse(rejected_outcome["ok"])
+        self.assertTrue(rejected_outcome["rejected"])
+        self.assertEqual(FETCH_REJECTED_MESSAGE, rejected_outcome["message"])
+        self.assertEqual(1, calls["checker"])
+        self.assertEqual(0, calls["state_loader"])
+        self.assertEqual(0, calls["state_saver"])
+        self.assertEqual([], notifier.events)
+
+        allow_finish.set()
+        self.wait_until(lambda: not coordinator.is_running())
 
     def test_replay_outbox_once_delivers_pending_events_and_clears_outbox(self):
         event = build_update_event(

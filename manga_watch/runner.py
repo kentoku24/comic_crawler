@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 import os
 import sys
+import threading
 import time
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from typing import Callable, Dict, List, Mapping, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -22,6 +23,12 @@ from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES
 DEFAULT_CRAWL_SCHEDULE = "0 19 * * *"
 NOTIFICATION_OUTBOX_KEY = "notification_outbox"
 INLINE_NOTIFIER_BACKEND = "__inline__"
+TRIGGER_SOURCE_STARTUP = "startup"
+TRIGGER_SOURCE_SCHEDULED = "scheduled"
+TRIGGER_SOURCE_DISCORD_FETCH = "discord_fetch"
+RUN_IN_PROGRESS_REASON = "run already in progress"
+FETCH_ACCEPTED_MESSAGE = "手動 fetch を受け付けました。結果は daily notification / run report を確認してください。"
+FETCH_REJECTED_MESSAGE = "現在巡回実行中であるため新しい fetch は開始しません。"
 
 
 def parse_bool(value: Optional[str], default: bool = False) -> bool:
@@ -290,6 +297,7 @@ def format_checker_error_lines(errors: Dict[str, List[Dict[str, object]]]) -> Li
 def format_run_report(
     *,
     timestamp: str,
+    trigger_source: str,
     updates: List[Dict[str, object]],
     errors: Dict[str, List[Dict[str, object]]],
     state: Dict[str, object],
@@ -301,6 +309,7 @@ def format_run_report(
     degraded = checker_error_count(errors) > 0
     lines = [
         f"{'巡回実行に一部失敗がありました' if degraded else '巡回実行しました'} ({timestamp})",
+        f"トリガー: {trigger_source}",
         f"更新検知: {len(updates)}件",
         f"通知対象: {notified_update_count}件",
         f"通知抑制: {suppressed_update_count}件",
@@ -317,10 +326,11 @@ def format_run_report(
     return "\n".join(lines)
 
 
-def format_failure_report(timestamp: str, exc: Exception) -> str:
+def format_failure_report(timestamp: str, trigger_source: str, exc: Exception) -> str:
     return "\n".join(
         [
             f"巡回実行に失敗しました ({timestamp})",
+            f"トリガー: {trigger_source}",
             f"エラー: {exc.__class__.__name__}: {exc}",
         ]
     )
@@ -401,6 +411,22 @@ def report_to_stderr(content: str) -> None:
     print(content, file=sys.stderr, flush=True)
 
 
+def rejected_run_outcome(trigger_source: str, *, timestamp: str) -> Dict[str, object]:
+    return {
+        "ok": False,
+        "accepted": False,
+        "rejected": True,
+        "updateCount": 0,
+        "notifiedUpdateCount": 0,
+        "suppressedUpdateCount": 0,
+        "errorCount": 0,
+        "outboxPendingCount": 0,
+        "timestamp": timestamp,
+        "triggerSource": trigger_source,
+        "error": RUN_IN_PROGRESS_REASON,
+    }
+
+
 def run_once(
     config: RunnerConfig,
     *,
@@ -412,6 +438,7 @@ def run_once(
     now_fn: Callable[[], float] = time.time,
     report_logger: Callable[[str], None] = report_to_stdout,
     error_logger: Callable[[str], None] = report_to_stderr,
+    trigger_source: str = TRIGGER_SOURCE_SCHEDULED,
 ) -> Dict[str, object]:
     named_notifiers = resolve_named_notifiers(
         config,
@@ -475,6 +502,7 @@ def run_once(
         report_logger(
             format_run_report(
                 timestamp=timestamp,
+                trigger_source=trigger_source,
                 updates=updates,
                 errors=errors,
                 state=state,
@@ -492,9 +520,10 @@ def run_once(
             "errorCount": error_count,
             "outboxPendingCount": outbox_pending_count,
             "timestamp": timestamp,
+            "triggerSource": trigger_source,
         }
     except Exception as exc:
-        error_logger(format_failure_report(timestamp, exc))
+        error_logger(format_failure_report(timestamp, trigger_source, exc))
         return {
             "ok": False,
             "updateCount": update_count,
@@ -503,8 +532,89 @@ def run_once(
             "errorCount": error_count,
             "outboxPendingCount": outbox_pending_count,
             "timestamp": timestamp,
+            "triggerSource": trigger_source,
             "error": f"{exc.__class__.__name__}: {exc}",
         }
+
+
+@dataclass
+class RunCoordinator:
+    config: RunnerConfig
+    notifier: Optional[Notifier] = None
+    named_notifiers: Optional[Mapping[str, Notifier]] = None
+    checker: Callable[[str], Dict[str, object]] = run_check
+    state_loader: Callable[[], Dict[str, object]] = load_state
+    state_saver: Callable[[Dict[str, object]], None] = save_state
+    now_fn: Callable[[], float] = time.time
+    report_logger: Callable[[str], None] = report_to_stdout
+    error_logger: Callable[[str], None] = report_to_stderr
+    thread_factory: Callable[..., threading.Thread] = threading.Thread
+    _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+
+    def is_running(self) -> bool:
+        return self._lock.locked()
+
+    def _timestamp(self) -> str:
+        return format_timestamp(self.now_fn(), self.config.timezone_name)
+
+    def _run_once(self, *, trigger_source: str) -> Dict[str, object]:
+        return run_once(
+            self.config,
+            notifier=self.notifier,
+            named_notifiers=self.named_notifiers,
+            checker=self.checker,
+            state_loader=self.state_loader,
+            state_saver=self.state_saver,
+            now_fn=self.now_fn,
+            report_logger=self.report_logger,
+            error_logger=self.error_logger,
+            trigger_source=trigger_source,
+        )
+
+    def _run_with_lock(self, *, trigger_source: str) -> Dict[str, object]:
+        try:
+            return self._run_once(trigger_source=trigger_source)
+        finally:
+            self._lock.release()
+
+    def run(self, trigger_source: str) -> Dict[str, object]:
+        if not self._lock.acquire(blocking=False):
+            return rejected_run_outcome(trigger_source, timestamp=self._timestamp())
+        return self._run_with_lock(trigger_source=trigger_source)
+
+    def start_background(self, trigger_source: str) -> Dict[str, object]:
+        if not self._lock.acquire(blocking=False):
+            return rejected_run_outcome(trigger_source, timestamp=self._timestamp())
+
+        thread = self.thread_factory(
+            target=self._run_with_lock,
+            kwargs={"trigger_source": trigger_source},
+            daemon=True,
+            name=f"manga-watch-{trigger_source}",
+        )
+        try:
+            thread.start()
+        except Exception:
+            self._lock.release()
+            raise
+
+        return {
+            "ok": True,
+            "accepted": True,
+            "background": True,
+            "timestamp": self._timestamp(),
+            "triggerSource": trigger_source,
+        }
+
+
+def start_fetch_run(coordinator: RunCoordinator) -> Dict[str, object]:
+    outcome = coordinator.start_background(TRIGGER_SOURCE_DISCORD_FETCH)
+    if outcome.get("rejected"):
+        outcome["message"] = FETCH_REJECTED_MESSAGE
+        return outcome
+
+    outcome["message"] = FETCH_ACCEPTED_MESSAGE
+    return outcome
 
 
 def replay_outbox_once(
@@ -591,9 +701,13 @@ def main() -> int:
         return 2
 
     named_notifiers = build_named_notifiers(config.notifier_config)
+    coordinator = RunCoordinator(
+        config,
+        named_notifiers=named_notifiers,
+    )
 
     if config.run_on_startup:
-        outcome = run_once(config, named_notifiers=named_notifiers)
+        outcome = coordinator.run(TRIGGER_SOURCE_STARTUP)
         print(f"[runner] startup run: {outcome}", flush=True)
 
     while True:
@@ -603,7 +717,7 @@ def main() -> int:
             flush=True,
         )
         sleep_until(next_run)
-        outcome = run_once(config, named_notifiers=named_notifiers)
+        outcome = coordinator.run(TRIGGER_SOURCE_SCHEDULED)
         print(f"[runner] scheduled run: {outcome}", flush=True)
 
 
