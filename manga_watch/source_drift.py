@@ -111,7 +111,7 @@ def refresh_hint(contract: SourceCanaryContract) -> str:
     signals = "; ".join(contract.monitored_signals)
     return (
         f"Refresh {contract.fixture_bundle}, compare {signals}, and rerun "
-        "python3 -m unittest tests.test_sources tests.test_source_drift."
+        ".venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check"
     )
 
 

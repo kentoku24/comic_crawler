@@ -86,6 +86,10 @@ class SourceDriftTests(unittest.TestCase):
         self.assertEqual("SourceParseError", result.error_type)
         self.assertIn("__NEXT_DATA__ not found", result.message)
         self.assertIn("tests/fixtures/comic-walker/normal", result.next_action)
+        self.assertIn(
+            ".venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check",
+            result.next_action,
+        )
 
     def test_main_returns_non_zero_when_a_canary_fails(self):
         failing_result = SourceCanaryResult(
