@@ -74,6 +74,7 @@ def migrate_state_v1_to_v2(
             works_state[work_id] = {
                 "latest": {},
                 "history": [],
+                "unread": {"event_ids": []},
                 "health": {
                     "last_checked_at": None,
                     "last_success_at": None,
@@ -90,6 +91,7 @@ def migrate_state_v1_to_v2(
         works_state[work_id] = {
             "latest": latest_runtime_to_storage(latest),
             "history": [],
+            "unread": {"event_ids": []},
             "health": {
                 "last_checked_at": int(seen_at) if seen_at is not None else None,
                 "last_success_at": int(seen_at) if seen_at is not None else None,

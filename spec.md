@@ -48,6 +48,7 @@
 - `source`: adapter registry の source 名
 - `seed_url`: adapter normalize に再投入できる canonical seed
 - `enabled`: `false` のとき checker はその作品を巡回しない
+- `history_retention`: 任意。作品ごとの既読履歴保持件数。未指定時は既定値 `20`
 - `notification_policy.mode`: v2 migration では既定値 `all`
 - `notification_policy.allowed_update_types`: 明示設定が無ければ `null`
 
@@ -84,7 +85,23 @@
         "episode_code": "KC_0039130008900011_E",
         "episode_title": "第77話その2"
       },
-      "history": [],
+      "history": [
+        {
+          "event_id": "KC_0039130008800011_E",
+          "seen_at": 1769830610,
+          "latest": {
+            "source": "comic-walker",
+            "work_id": "KC_003913_S",
+            "latest_key": "KC_0039130008800011_E",
+            "series_title": "蜘蛛ですが、なにか？",
+            "episode_code": "KC_0039130008800011_E",
+            "episode_title": "第77話その1"
+          }
+        }
+      ],
+      "unread": {
+        "event_ids": ["KC_0039130008800011_E"]
+      },
       "health": {
         "last_checked_at": 1769917010,
         "last_success_at": 1769917010,
@@ -99,7 +116,11 @@
 ### State field rules
 
 - `latest`: 現在の最新話 snapshot。未成功作品では `{}` を許容する
-- `history`: Issue #17 の土台。Issue #7 では空配列を保持し、runtime は内容を解釈しない
+- `history`: 更新イベント列。各 event は `event_id`, `seen_at`, `latest` を持つ
+- `history[].event_id`: `latest_key` をそのまま使う。作品ごとに一意で、履歴追加の idempotency key でもある
+- `history[].seen_at`: その更新 event を checker が検知した UNIX timestamp
+- `history[].latest`: event 時点の latest snapshot
+- `unread.event_ids`: 未読 event id の source of truth。`unread_count` は永続化しない
 - `health.last_checked_at`: 直近でその作品を巡回した UNIX timestamp
 - `health.last_success_at`: 直近で成功した UNIX timestamp
 - `health.consecutive_failures`: 連続失敗回数
@@ -113,6 +134,13 @@
 
 `latest_key` は「更新検知」と「通知 idempotency」の唯一の比較キーであり、タイトルや page title の改善だけでは変えない。
 
+### History retention rule
+
+- 作品ごとに `history_retention` を持てる。未指定時は既定値 `20`
+- trim 時は `unread.event_ids` に含まれる未読 event を全件保持する
+- 既読 event は新しいものから最大 `history_retention` 件だけ保持する
+- 未読 state は `unread.event_ids` を source of truth にするため、trim しても unread marker が壊れない
+
 ## Core behavior
 
 ### Checker execution
@@ -124,10 +152,26 @@ python3 -m manga_watch.check manga_watch/watchlist.json
 - checker は常に JSON を出力する
 - watchlist は入力順で処理し、`updates` の順序も watchlist 順で deterministic にする
 - `latest_key` が変わったときだけ `updates` に積む
+- `latest_key` が変わったとき、未登録の `event_id=latest_key` を `history` に 1 回だけ追加する
+- 同じ `event_id` を再検知しても履歴は重複させない。必要なら event snapshot だけ補完更新する
+- 新規 event が履歴に追加されたときだけ `unread.event_ids` にその id を追加する
 - `latest_key` が同じで `seriesTitle` / `episodeTitle` / `pageTitle` / 補足 metadata だけ改善された場合は silent merge する
 - source ごとの parser/runtime failure は `errors.sources` に積み、成功した作品の state 更新は継続する
 - 失敗した作品も `health.last_checked_at` と `health.consecutive_failures` は更新する
 - watchlist/state の読み込みや state 保存のような run-level failure は `errors.run` に記録し、`CheckRunError` として返す
+
+## Backlog CLI
+
+```bash
+python3 -m manga_watch.backlog --unread-only
+python3 -m manga_watch.backlog --work-id KC_003913_S --json
+python3 -m manga_watch.backlog --mark-read KC_003913_S
+```
+
+- `--unread-only`: 未読がある作品だけ表示する
+- `--work-id`: 対象作品を 1 つに絞る
+- `--json`: 機械可読な履歴 / unread summary を出す
+- `--mark-read <work_id>`: その作品の `unread.event_ids` を空にして保存し、保持ルールに従って既読履歴を trim する
 
 ### Checker error schema
 
@@ -183,6 +227,7 @@ python3 -m manga_watch.runner
 | --- | --- | --- | --- | --- |
 | `python3 -m manga_watch.migrate_v2` | yes | no | no | yes |
 | `python3 -m manga_watch.check` | no | yes | no | yes (`state.json`) |
+| `python3 -m manga_watch.backlog` | no | yes | no | yes (`state.json`, mark-read 時のみ) |
 | `python3 -m manga_watch.runner` | no | yes | no | yes (`state.json`) |
 
 - runtime は v1 / v2 混在運用をサポートしない
@@ -212,6 +257,7 @@ python3 -m manga_watch.migrate_v2 \
 - v1 state に対応 entry が無い場合:
   - `latest` は `{}`
   - `history` は `[]`
+  - `unread.event_ids` は `[]`
   - `health.last_checked_at` / `last_success_at` は `null`
   - `consecutive_failures` は `0`
 - watchlist に無い v1 state entry は `orphaned_state_ids` として report し、v2 には持ち込まない
@@ -249,19 +295,20 @@ python3 -m manga_watch.migrate_v2 \
 migrated sample data に対して最低限これを通す:
 
 ```bash
-python3 -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2
+python3 -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2 tests.test_backlog
 ```
 
 この suite で次を確認できることを cutover 条件にする。
 
 - 最新話検知が `latest_key` 基準で動く
+- 同一 event を再検知しても `history` と `unread.event_ids` が重複しない
 - same stable id 時の metadata merge が silent に行われる
 - 部分失敗時の `errors.sources` と health 更新が期待どおり
+- backlog CLI で未読確認と既読化ができる
 - migration が backup と v2 watchlist/state を正しく生成する
 
 ## Non-goals
 
 - v1 runtime backward compatibility の維持
 - v1 / v2 混在運用
-- history / unread semantics の完成
 - #11 の検証基盤が揃う前の migration 実施
