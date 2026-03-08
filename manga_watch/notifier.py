@@ -181,6 +181,39 @@ def build_update_event(update: Mapping[str, object], *, detected_at: str) -> Upd
     )
 
 
+def event_from_payload(payload: Mapping[str, object]) -> UpdateEvent:
+    if not isinstance(payload, Mapping):
+        raise ValueError("notification event payload must be an object")
+
+    work_id = _coerce_text(payload.get("work_id"))
+    latest_key = _coerce_text(payload.get("latest_key"))
+    detected_at = _coerce_text(payload.get("detected_at"))
+    if not work_id:
+        raise ValueError("notification event payload is missing work_id")
+    if not latest_key:
+        raise ValueError("notification event payload is missing latest_key")
+    if not detected_at:
+        raise ValueError("notification event payload is missing detected_at")
+
+    before = normalize_update_snapshot(payload.get("from"))
+    after = normalize_update_snapshot(payload.get("to"))
+    series_title = _coerce_text(payload.get("series_title")) or work_id
+    update_type = _coerce_text(payload.get("update_type")) or "unknown"
+    notification = normalize_notification_metadata(payload.get("notification"))
+
+    return UpdateEvent(
+        event_id=_coerce_text(payload.get("event_id")) or derive_event_id(work_id, latest_key),
+        work_id=work_id,
+        latest_key=latest_key,
+        series_title=series_title,
+        update_type=update_type,
+        detected_at=detected_at,
+        before=before,
+        after=after,
+        notification=notification,
+    )
+
+
 class Notifier(Protocol):
     def send(self, event: UpdateEvent) -> None:
         ...
@@ -290,31 +323,41 @@ class FanoutNotifier:
             raise RuntimeError("notification backends failed: " + "; ".join(failures))
 
 
+def build_named_notifiers(
+    config: NotifierConfig,
+    *,
+    stream: Optional[TextIO] = None,
+    session: Optional[requests.Session] = None,
+) -> Dict[str, Notifier]:
+    notifiers: Dict[str, Notifier] = {}
+    for backend in config.backends:
+        if backend == "stdout":
+            notifiers["stdout"] = StdoutNotifier(stream=stream)
+            continue
+        if backend == "webhook":
+            notifiers["webhook"] = WebhookNotifier(
+                config.webhook_url or "",
+                timeout=config.webhook_timeout,
+                session=session,
+            )
+            continue
+        supported = ", ".join(sorted(SUPPORTED_NOTIFIER_BACKENDS))
+        raise ValueError(f"unsupported notifier backend: {backend}; supported: {supported}")
+    return notifiers
+
+
 def build_notifier(
     config: NotifierConfig,
     *,
     stream: Optional[TextIO] = None,
     session: Optional[requests.Session] = None,
 ) -> Notifier:
-    notifiers: List[tuple[str, Notifier]] = []
-    for backend in config.backends:
-        if backend == "stdout":
-            notifiers.append(("stdout", StdoutNotifier(stream=stream)))
-            continue
-        if backend == "webhook":
-            notifiers.append(
-                (
-                    "webhook",
-                    WebhookNotifier(
-                        config.webhook_url or "",
-                        timeout=config.webhook_timeout,
-                        session=session,
-                    ),
-                )
-            )
-            continue
-        supported = ", ".join(sorted(SUPPORTED_NOTIFIER_BACKENDS))
-        raise ValueError(f"unsupported notifier backend: {backend}; supported: {supported}")
+    named_notifiers = build_named_notifiers(
+        config,
+        stream=stream,
+        session=session,
+    )
+    notifiers = list(named_notifiers.items())
 
     if len(notifiers) == 1:
         return notifiers[0][1]

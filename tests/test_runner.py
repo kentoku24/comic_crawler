@@ -3,6 +3,7 @@ import json
 import os
 import subprocess
 import sys
+import tempfile
 import unittest
 from pathlib import Path
 
@@ -15,7 +16,8 @@ from manga_watch.notifier import (
     build_notifier,
     build_update_event,
 )
-from manga_watch.runner import RunnerConfig, run_once
+from manga_watch.runner import RunnerConfig, replay_outbox_once, run_once
+from manga_watch.storage import load_state, save_state
 
 
 class FakeNotifier:
@@ -145,6 +147,7 @@ class RunnerTests(unittest.TestCase):
 
     def make_state(self):
         return {
+            "version": 2,
             "works": {
                 "work-1": {
                     "latest": {"series_title": "作品A", "episode_title": "第2話"},
@@ -155,8 +158,22 @@ class RunnerTests(unittest.TestCase):
                         "consecutive_failures": 0,
                     },
                 }
-            }
+            },
+            "last_run_at": None,
+            "notification_outbox": [],
         }
+
+    def make_state_store(self, state=None):
+        store = json.loads(json.dumps(state or self.make_state()))
+
+        def load_from_store():
+            return json.loads(json.dumps(store))
+
+        def save_to_store(next_state):
+            store.clear()
+            store.update(json.loads(json.dumps(next_state)))
+
+        return store, load_from_store, save_to_store
 
     def test_build_update_event_derives_stable_event_id_from_work_id_and_latest_key(self):
         detected_at = "2023-11-14T22:13:20Z"
@@ -265,6 +282,7 @@ class RunnerTests(unittest.TestCase):
             notifier=notifier,
             checker=lambda _: {"updates": []},
             state_loader=self.make_state,
+            state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
             report_logger=reports.append,
             error_logger=errors.append,
@@ -291,6 +309,7 @@ class RunnerTests(unittest.TestCase):
             notifier=notifier,
             checker=lambda _: {"updates": [self.make_update()]},
             state_loader=self.make_state,
+            state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
             report_logger=reports.append,
             error_logger=lambda _: self.fail("unexpected error log"),
@@ -329,6 +348,7 @@ class RunnerTests(unittest.TestCase):
                 ]
             },
             state_loader=self.make_state,
+            state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
             report_logger=reports.append,
             error_logger=lambda _: self.fail("unexpected error log"),
@@ -360,6 +380,7 @@ class RunnerTests(unittest.TestCase):
                 "updates": [update]
             },
             state_loader=self.make_state,
+            state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
             report_logger=lambda _: None,
             error_logger=lambda _: self.fail("unexpected error log"),
@@ -396,6 +417,7 @@ class RunnerTests(unittest.TestCase):
                 ]
             },
             state_loader=self.make_state,
+            state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
             report_logger=lambda _: None,
             error_logger=lambda _: self.fail("unexpected error log"),
@@ -441,6 +463,7 @@ class RunnerTests(unittest.TestCase):
             notifier=notifier,
             checker=lambda _: {"updates": [self.make_update()], "errors": errors},
             state_loader=lambda: state,
+            state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
             report_logger=reports.append,
             error_logger=lambda _: self.fail("unexpected error log"),
@@ -466,6 +489,7 @@ class RunnerTests(unittest.TestCase):
             notifier=notifier,
             checker=lambda _: {"updates": [self.make_update()]},
             state_loader=self.make_state,
+            state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
             report_logger=reports.append,
             error_logger=errors.append,
@@ -479,6 +503,179 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn("巡回実行に失敗しました", errors[0])
         self.assertIn("notifier backend failed", errors[0])
+
+    def test_run_once_continues_delivering_valid_updates_when_one_payload_is_invalid(self):
+        notifier = FakeNotifier()
+        errors = []
+        invalid_update = self.make_update()
+        invalid_update["to"] = {
+            "series_title": "作品A",
+            "episode_title": "第2話",
+            "update_type": "main_story",
+            "default_notify": True,
+        }
+
+        outcome = run_once(
+            self.make_config(),
+            notifier=notifier,
+            checker=lambda _: {"updates": [invalid_update, self.make_update(latest_key="episode-3")]},
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: self.fail("unexpected report log"),
+            error_logger=errors.append,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(2, outcome["notifiedUpdateCount"])
+        self.assertEqual(1, len(notifier.events))
+        self.assertEqual("episode-3", notifier.events[0].latest_key)
+        self.assertEqual(1, len(errors))
+        self.assertIn("work-1: update event work-1 is missing latest_key", errors[0])
+
+    def test_run_once_persists_only_failed_backends_in_notification_outbox(self):
+        stdout_notifier = FakeNotifier()
+        webhook_notifier = FakeNotifier(fail_on_index=0)
+        errors = []
+        store, load_from_store, save_to_store = self.make_state_store()
+
+        outcome = run_once(
+            self.make_config(),
+            named_notifiers={"stdout": stdout_notifier, "webhook": webhook_notifier},
+            checker=lambda _: {"updates": [self.make_update()]},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: None,
+            error_logger=errors.append,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(1, len(stdout_notifier.events))
+        self.assertEqual(0, len(webhook_notifier.events))
+        self.assertEqual(1, len(store["notification_outbox"]))
+        self.assertEqual(["webhook"], store["notification_outbox"][0]["pending_backends"])
+        self.assertEqual(1, store["notification_outbox"][0]["attempt_count"])
+        self.assertIn("webhook: notifier backend failed", store["notification_outbox"][0]["last_error"])
+        self.assertEqual(1, len(errors))
+        self.assertIn("notification delivery failed", errors[0])
+
+    def test_run_once_replays_pending_notification_outbox_on_next_run(self):
+        failing_notifier = FakeNotifier(fail_on_index=0)
+        store, load_from_store, save_to_store = self.make_state_store()
+
+        first_outcome = run_once(
+            self.make_config(),
+            named_notifiers={"stdout": failing_notifier},
+            checker=lambda _: {"updates": [self.make_update()]},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: None,
+            error_logger=lambda _: None,
+        )
+
+        self.assertFalse(first_outcome["ok"])
+        self.assertEqual(1, len(store["notification_outbox"]))
+
+        succeeding_notifier = FakeNotifier()
+        reports = []
+        second_outcome = run_once(
+            self.make_config(),
+            named_notifiers={"stdout": succeeding_notifier},
+            checker=lambda _: {"updates": []},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_300,
+            report_logger=reports.append,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        self.assertTrue(second_outcome["ok"])
+        self.assertEqual(1, len(succeeding_notifier.events))
+        self.assertEqual([], store["notification_outbox"])
+        self.assertIn("通知: 送信した", reports[0])
+        self.assertIn("通知outbox残件: 0件", reports[0])
+
+    def test_replay_outbox_once_delivers_pending_events_and_clears_outbox(self):
+        event = build_update_event(
+            self.make_update(latest_key="episode-2"),
+            detected_at="2023-11-14T22:13:20Z",
+        )
+        store, load_from_store, save_to_store = self.make_state_store(
+            {
+                **self.make_state(),
+                "notification_outbox": [
+                    {
+                        "event": event.as_payload(),
+                        "pending_backends": ["stdout"],
+                        "attempt_count": 1,
+                        "last_attempted_at": "2023-11-14T22:13:20Z",
+                        "last_error": "stdout: timed out",
+                    }
+                ],
+            }
+        )
+        notifier = FakeNotifier()
+        reports = []
+
+        outcome = replay_outbox_once(
+            self.make_config(),
+            named_notifiers={"stdout": notifier},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_300,
+            report_logger=reports.append,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        self.assertTrue(outcome["ok"])
+        self.assertEqual(1, len(notifier.events))
+        self.assertEqual([], store["notification_outbox"])
+        self.assertIn("再送対象: 1件", reports[0])
+        self.assertIn("再送残件: 0件", reports[0])
+
+    def test_replay_outbox_module_replays_pending_events(self):
+        repo_root = Path(__file__).resolve().parents[1]
+        event = build_update_event(
+            self.make_update(latest_key="episode-2"),
+            detected_at="2023-11-14T22:13:20Z",
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            save_state(
+                {
+                    **self.make_state(),
+                    "notification_outbox": [
+                        {
+                            "event": event.as_payload(),
+                            "pending_backends": ["stdout"],
+                            "attempt_count": 1,
+                            "last_attempted_at": "2023-11-14T22:13:20Z",
+                            "last_error": "stdout: timed out",
+                        }
+                    ],
+                },
+                path=str(state_path),
+            )
+            env = os.environ.copy()
+            env["MANGA_WATCH_STATE"] = str(state_path)
+            env["MANGA_WATCH_NOTIFIER_BACKENDS"] = "stdout"
+            env.pop("MANGA_WATCH_WEBHOOK_URL", None)
+
+            result = subprocess.run(
+                [sys.executable, "-m", "manga_watch.replay_outbox"],
+                cwd=repo_root,
+                env=env,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+
+            self.assertEqual(0, result.returncode)
+            self.assertIn(event.event_id, result.stdout)
+            self.assertEqual([], load_state(str(state_path))["notification_outbox"])
 
 
 if __name__ == "__main__":

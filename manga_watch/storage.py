@@ -51,7 +51,12 @@ def default_watchlist() -> Dict[str, object]:
 
 
 def default_state() -> Dict[str, object]:
-    return {"version": STATE_VERSION, "works": {}, "last_run_at": None}
+    return {
+        "version": STATE_VERSION,
+        "works": {},
+        "last_run_at": None,
+        "notification_outbox": [],
+    }
 
 
 def load_watchlist(path: Optional[str] = None) -> Dict[str, object]:
@@ -277,6 +282,7 @@ def validate_state(payload: Mapping[str, object]) -> Dict[str, object]:
         "version": STATE_VERSION,
         "works": normalized_works,
         "last_run_at": normalize_optional_int(payload.get("last_run_at")),
+        "notification_outbox": normalize_notification_outbox(payload.get("notification_outbox")),
     }
     for key, value in payload.items():
         if key in state or value is None:
@@ -318,6 +324,71 @@ def normalize_state_entry(work_id: str, entry: object) -> Dict[str, object]:
         if key in normalized or value is None:
             continue
         normalized[key] = value
+    return normalized
+
+
+def normalize_notification_outbox(outbox: object) -> List[Dict[str, object]]:
+    if outbox is None:
+        return []
+    if not isinstance(outbox, list):
+        raise ValueError("state.notification_outbox must be a list")
+
+    normalized_entries: List[Dict[str, object]] = []
+    for index, entry in enumerate(outbox):
+        normalized_entries.append(normalize_notification_outbox_entry(entry, index=index))
+    return normalized_entries
+
+
+def normalize_notification_outbox_entry(entry: object, *, index: int) -> Dict[str, object]:
+    if not isinstance(entry, Mapping):
+        raise ValueError(f"state.notification_outbox[{index}] must be an object")
+
+    event = entry.get("event")
+    if not isinstance(event, Mapping):
+        raise ValueError(f"state.notification_outbox[{index}].event must be an object")
+
+    pending_backends = entry.get("pending_backends", entry.get("pendingBackends", []))
+    if pending_backends is None:
+        pending_backends = []
+    if not isinstance(pending_backends, list):
+        raise ValueError(f"state.notification_outbox[{index}].pending_backends must be a list")
+
+    normalized_pending_backends: List[str] = []
+    seen_backends = set()
+    for backend in pending_backends:
+        normalized_backend = str(backend).strip()
+        if not normalized_backend or normalized_backend in seen_backends:
+            continue
+        seen_backends.add(normalized_backend)
+        normalized_pending_backends.append(normalized_backend)
+
+    attempt_count = int(entry.get("attempt_count", entry.get("attemptCount", 0)) or 0)
+    if attempt_count < 0:
+        raise ValueError(f"state.notification_outbox[{index}].attempt_count must be >= 0")
+
+    normalized = {
+        "event": dict(event),
+        "pending_backends": normalized_pending_backends,
+        "attempt_count": attempt_count,
+        "last_attempted_at": normalize_optional_text(
+            entry.get("last_attempted_at", entry.get("lastAttemptedAt"))
+        ),
+        "last_error": normalize_optional_text(entry.get("last_error", entry.get("lastError"))),
+    }
+    for key, value in entry.items():
+        if key in {
+            "event",
+            "pending_backends",
+            "pendingBackends",
+            "attempt_count",
+            "attemptCount",
+            "last_attempted_at",
+            "lastAttemptedAt",
+            "last_error",
+            "lastError",
+        } or value is None:
+            continue
+        normalized[camel_to_snake(str(key))] = value
     return normalized
 
 
@@ -461,6 +532,13 @@ def normalize_optional_int(value: object) -> Optional[int]:
     if value is None:
         return None
     return int(value)
+
+
+def normalize_optional_text(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
 
 
 def normalize_optional_history_retention(value: object, *, field_name: str) -> Optional[int]:

@@ -109,5 +109,6 @@
       }
     }
   },
-  "last_run_at": 1769917010
+  "last_run_at": 1769917010,
+  "notification_outbox": []
 }
