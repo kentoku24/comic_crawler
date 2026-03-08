@@ -1,4 +1,4 @@
-# AGENTS.md instructions for /Users/kentoku.matsunami/Documents/GitHub/comic_crawler
+# AGENTS.md instructions for /Users/kentokumatsunami/Documents/GitHub/comic_crawler
 
 When questions involve OpenAI APIs, SDKs, Codex, or other OpenAI products, use the OpenAI developer documentation MCP server as the source of truth and avoid web search unless the MCP server cannot answer.
 

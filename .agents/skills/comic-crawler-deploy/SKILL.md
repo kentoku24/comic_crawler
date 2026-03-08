@@ -91,9 +91,14 @@ docker compose up -d --build --force-recreate
 
 - `docker compose ps` で `comic-crawler` が `Up`
 - container working dir が `/Users/kentokumatsunami/Documents/GitHub/comic_crawler`
-- `docker compose logs --tail=... comic-crawler` に `[discord] command listener started:` が出る
 - startup run が `ok: True` で、`configuration error` が無い
 - 次回実行時刻が出ている
+
+inbound command が有効なときは、追加で次を確認する。
+
+- `docker compose logs --tail=... comic-crawler` に `[discord] command listener started:` が出る
+
+`DISCORD_INBOUND_ENABLED=false` のように inbound command を無効化している構成では、listener start log が出なくても deploy failure とみなさない。
 
 `DISCORD_BOT_TOKEN is required` などの設定エラーが出た場合は、まず local `.env` と code-side env passthrough を疑う。
 
