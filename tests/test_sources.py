@@ -154,6 +154,36 @@ class SourceAdapterTests(unittest.TestCase):
     def test_kakuyomu_fixtures(self):
         self._assert_fixture_matrix("kakuyomu")
 
+    def test_comic_walker_normalize_accepts_canonical_series_url(self):
+        work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")
+
+        self.assertEqual(
+            {
+                "source": "comic-walker",
+                "kind": "comic-walker",
+                "workId": "KC_123456_S",
+                "seedUrl": "https://comic-walker.com/detail/KC_123456_S",
+                "series": "KC_123456_S",
+                "seriesCode": "KC_123456_S",
+            },
+            work.to_dict(),
+        )
+
+    def test_kakuyomu_normalize_accepts_work_url(self):
+        work = KakuyomuAdapter().normalize("https://kakuyomu.jp/works/123/")
+
+        self.assertEqual(
+            {
+                "source": "kakuyomu",
+                "kind": "kakuyomu",
+                "workId": "kakuyomu:123",
+                "seedUrl": "https://kakuyomu.jp/works/123",
+                "series": "kakuyomu:123",
+                "numericWorkId": "123",
+            },
+            work.to_dict(),
+        )
+
     def _assert_fixture_matrix(self, source: str):
         source_dir = FIXTURES_ROOT / source
         actual_cases = sorted(path.name for path in source_dir.iterdir() if path.is_dir())
