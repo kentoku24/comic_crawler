@@ -52,8 +52,11 @@
 - `seed_url`: adapter normalize に再投入できる canonical seed
 - `enabled`: `false` のとき checker はその作品を巡回しない
 - `history_retention`: 任意。作品ごとの既読履歴保持件数。未指定時は既定値 `20`
-- `notification_policy.mode`: v2 migration では既定値 `all`
-- `notification_policy.allowed_update_types`: 明示設定が無ければ `null`
+- `notification_policy.mode`: `all` / `important_only` / `mute`。v2 migration では既定値 `all`
+- `notification_policy.allowed_update_types`: 明示設定が無ければ `null`。`null` でないときは mode より優先する
+- `notification_policy.mode=all`: classification default を bypass して全 `update_type` を通知する
+- `notification_policy.mode=important_only`: `main_story` と `unknown` を通知する
+- `notification_policy.mode=mute`: どの `update_type` も通知しない
 - `health_policy.expected_interval_seconds`: stale 判定用の期待巡回間隔。未指定時は `CRAWL_INTERVAL`、無ければ `CRAWL_SCHEDULE`、さらに無ければ既定 cron (`0 19 * * *`) から導出する
 
 ### `watchlist add` CLI
@@ -249,7 +252,8 @@ python3 -m manga_watch.check manga_watch/watchlist.json
 - 同じ `event_id` を再検知しても履歴は重複させない。必要なら event snapshot だけ補完更新する
 - 新規 event が履歴に追加されたときだけ `unread.event_ids` にその id を追加する
 - `latest_key` が同じで `seriesTitle` / `episodeTitle` / `pageTitle` / 補足 metadata だけ改善された場合は silent merge する
-- update event と state.latest には `update_type`, `classification_reason`, `default_notify` を含める
+- state.latest / history.latest には `update_type`, `classification_reason`, `default_notify` を含める
+- checker の `updates[]` には top-level `notification` を含める。`should_notify=false` は「更新あり / backend 通知なし」を意味し、`updates=[]` の「更新なし」と区別できるようにする
 - source ごとの parser/runtime failure は `errors.sources` に積み、成功した作品の state 更新は継続する
 - retry 対象は transport error / timeout / HTTP `429` / `5xx` に限定する
 - HTTP `404`、unsupported URL、parse error は即失敗として `errors.sources` に積む
@@ -357,6 +361,13 @@ python3 -m manga_watch.runner
   "series_title": "蜘蛛ですが、なにか？",
   "update_type": "main_story",
   "detected_at": "2026-03-08T08:00:00Z",
+  "notification": {
+    "mode": "important_only",
+    "allowed_update_types": null,
+    "should_notify": true,
+    "applied_via": "mode",
+    "reason": "mode=important_only allows main_story"
+  },
   "from": {
     "latest_key": "KC_0039130008800011_E",
     "series_title": "蜘蛛ですが、なにか？",
@@ -380,10 +391,11 @@ python3 -m manga_watch.runner
 - `event_id` は `sha256(work_id + "\n" + latest_key)` を `"<work_id>:<digest>"` にした stable id
 - `detected_at` は UTC の RFC 3339 timestamp
 - `from` / `to` は snake_case に正規化した snapshot
-- runner は既定通知対象 (`default_notify=true` or update-type default) の update だけを backend に送る
+- `notification` は watchlist policy を適用した effective decision。`default_notify=false` な update でも `mode=all` や explicit `allowed_update_types` で `should_notify=true` になり得る
+- runner は `notification.should_notify=true` の update だけを backend に送る。`notification` が無い legacy payload だけ `default_notify` / update-type default に fallback する
 - suppressed update は state と run report には残るが backend には送らない
 
-### Default notification behavior
+### Classification defaults and notification policy
 
 - `main_story`: 既定通知対象
 - `unknown`: fail-open で既定通知対象
@@ -391,8 +403,12 @@ python3 -m manga_watch.runner
 - `announcement`: 既定抑制対象
 - `main_story` と suppress 対象が衝突した場合は `unknown` に倒す
 - `bonus` と `announcement` だけが衝突した場合は suppress 側に残す
-- runner は既定通知対象だけを notifier backend に送る
-- suppressed update も state と run report には残し、run report には `既定通知対象件数` と `既定抑制件数` を含める
+- `allowed_update_types` が明示設定されていれば、それをその作品の最終通知判定として使う。空 list も有効で、その場合は全 suppress
+- `allowed_update_types=null` のときだけ `mode` を使う
+- `mode=all`: 全 `update_type` を通知し、classification default を bypass する
+- `mode=important_only`: `main_story` と `unknown` だけを通知する
+- `mode=mute`: 全 suppress
+- suppressed update も state と run report には残し、run report には `通知対象件数` と `通知抑制件数` を含める
 
 ## Reader / Writer compatibility matrix
 

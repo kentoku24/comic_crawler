@@ -15,7 +15,13 @@ import requests
 from manga_watch import check
 from manga_watch.sources import LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
 from manga_watch.sources.base import SourceParseError
-from manga_watch.storage import latest_runtime_to_storage, latest_storage_to_runtime, validate_state
+from manga_watch.storage import (
+    evaluate_notification_policy,
+    latest_runtime_to_storage,
+    latest_storage_to_runtime,
+    validate_state,
+    validate_watchlist,
+)
 
 
 class FakeAdapter(SourceAdapter):
@@ -51,13 +57,15 @@ def watchlist_entry(
     source="fake",
     seed_url="https://example.com/work",
     enabled=True,
+    notification_policy=None,
 ):
     return {
         "id": work_id,
         "source": source,
         "seed_url": seed_url,
         "enabled": enabled,
-        "notification_policy": {
+        "notification_policy": notification_policy
+        or {
             "mode": "all",
             "allowed_update_types": None,
         },
@@ -285,6 +293,78 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("comic-action:13933686331663374228", entry["id"])
         self.assertEqual("comic-action", entry["source"])
 
+    def test_validate_watchlist_rejects_unknown_notification_policy_mode(self):
+        with self.assertRaisesRegex(ValueError, "notification_policy.mode must be one of"):
+            validate_watchlist(
+                {
+                    "version": 2,
+                    "works": [
+                        watchlist_entry(
+                            notification_policy={
+                                "mode": "weekly_digest",
+                                "allowed_update_types": None,
+                            }
+                        )
+                    ],
+                }
+            )
+
+    def test_evaluate_notification_policy_truth_table(self):
+        cases = [
+            (
+                {"mode": "all", "allowed_update_types": None},
+                "bonus",
+                True,
+                "mode",
+                "mode=all notifies every update_type",
+            ),
+            (
+                {"mode": "important_only", "allowed_update_types": None},
+                "main_story",
+                True,
+                "mode",
+                "mode=important_only allows main_story",
+            ),
+            (
+                {"mode": "important_only", "allowed_update_types": None},
+                "announcement",
+                False,
+                "mode",
+                "mode=important_only suppresses announcement",
+            ),
+            (
+                {"mode": "mute", "allowed_update_types": None},
+                "unknown",
+                False,
+                "mode",
+                "mode=mute suppresses every update_type",
+            ),
+            (
+                {"mode": "mute", "allowed_update_types": ["announcement"]},
+                "announcement",
+                True,
+                "allowed_update_types",
+                "allowed_update_types override matched announcement",
+            ),
+            (
+                {"mode": "all", "allowed_update_types": ["main_story"]},
+                "bonus",
+                False,
+                "allowed_update_types",
+                "allowed_update_types override did not include bonus",
+            ),
+        ]
+
+        for policy, update_type, should_notify, applied_via, reason in cases:
+            with self.subTest(policy=policy, update_type=update_type):
+                decision = evaluate_notification_policy(policy, update_type=update_type)
+
+                self.assertEqual(policy["mode"], decision["mode"])
+                self.assertEqual(policy["allowed_update_types"], decision["allowed_update_types"])
+                self.assertEqual(should_notify, decision["should_notify"])
+                self.assertEqual(applied_via, decision["applied_via"])
+                self.assertEqual(reason, decision["reason"])
+
     def test_run_check_initializes_state_without_updates(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
@@ -382,12 +462,205 @@ class CheckTests(unittest.TestCase):
                 "id": "work-1",
                 "from": latest_storage_to_runtime(previous["latest"]),
                 "to": latest,
+                "notification": {
+                    "mode": "all",
+                    "allowed_update_types": None,
+                    "should_notify": True,
+                    "applied_via": "mode",
+                    "reason": "mode=all notifies every update_type",
+                },
                 "update_type": "main_story",
                 "classification_reason": "episode_title matched main-story numbering",
                 "default_notify": True,
             },
             update,
         )
+
+    def test_apply_item_transition_evaluates_notification_policy_truth_table(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-1",
+                "series_title": "作品A",
+                "episode_title": "第1話",
+                "url": "https://example.com/work/1",
+            },
+            "history": [],
+            "unread": {"event_ids": []},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        cases = [
+            (
+                "mode=all bypasses suppressed defaults",
+                {"mode": "all", "allowed_update_types": None},
+                "bonus",
+                False,
+                True,
+                "mode",
+                None,
+            ),
+            (
+                "mode=important_only allows main_story",
+                {"mode": "important_only", "allowed_update_types": None},
+                "main_story",
+                True,
+                True,
+                "mode",
+                None,
+            ),
+            (
+                "mode=important_only allows unknown",
+                {"mode": "important_only", "allowed_update_types": None},
+                "unknown",
+                True,
+                True,
+                "mode",
+                None,
+            ),
+            (
+                "mode=important_only suppresses bonus",
+                {"mode": "important_only", "allowed_update_types": None},
+                "bonus",
+                False,
+                False,
+                "mode",
+                None,
+            ),
+            (
+                "mode=mute suppresses everything",
+                {"mode": "mute", "allowed_update_types": None},
+                "main_story",
+                True,
+                False,
+                "mode",
+                None,
+            ),
+            (
+                "allowed_update_types overrides mute",
+                {"mode": "mute", "allowed_update_types": ["bonus"]},
+                "bonus",
+                False,
+                True,
+                "allowed_update_types",
+                ["bonus"],
+            ),
+            (
+                "empty allowed_update_types overrides all",
+                {"mode": "all", "allowed_update_types": []},
+                "main_story",
+                True,
+                False,
+                "allowed_update_types",
+                [],
+            ),
+        ]
+
+        for description, policy, update_type, default_notify, should_notify, applied_via, allowed in cases:
+            latest = {
+                "source": "fake",
+                "workId": "work-1",
+                "latestKey": f"ep-{update_type}",
+                "seriesTitle": "作品A",
+                "episodeTitle": f"{update_type} update",
+                "url": f"https://example.com/{update_type}",
+                "update_type": update_type,
+                "default_notify": default_notify,
+            }
+
+            with self.subTest(description=description):
+                next_entry, update = check.apply_item_transition(
+                    "work-1",
+                    previous,
+                    latest,
+                    seen_at=20,
+                    history_retention=5,
+                    notification_policy=policy,
+                )
+
+                self.assertIsNotNone(update)
+                self.assertEqual(1, len(next_entry["history"]))
+                self.assertEqual(["ep-" + update_type], next_entry["unread"]["event_ids"])
+                self.assertEqual(policy["mode"], update["notification"]["mode"])
+                self.assertEqual(allowed, update["notification"]["allowed_update_types"])
+                self.assertEqual(should_notify, update["notification"]["should_notify"])
+                self.assertEqual(applied_via, update["notification"]["applied_via"])
+
+    def test_run_check_keeps_suppressed_updates_in_state_and_machine_readable_output(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            state_path = Path(tmpdir) / "state.json"
+            watchlist = [watchlist_entry()]
+            watchlist[0]["notification_policy"] = {
+                "mode": "important_only",
+                "allowed_update_types": None,
+            }
+            write_watchlist(watchlist_path, watchlist)
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "works": {
+                            "work-1": {
+                                "latest": {
+                                    "source": "fake",
+                                    "work_id": "work-1",
+                                    "latest_key": "ep-1",
+                                    "series_title": "作品A",
+                                    "episode_title": "第1話",
+                                    "url": "https://example.com/work/1",
+                                },
+                                "history": [],
+                                "unread": {"event_ids": []},
+                                "health": {
+                                    "last_checked_at": 10,
+                                    "last_success_at": 10,
+                                    "consecutive_failures": 0,
+                                },
+                            }
+                        },
+                        "last_run_at": 10,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+
+            latest = {
+                "source": "fake",
+                "workId": "work-1",
+                "latestKey": "ep-2",
+                "seriesTitle": "作品A",
+                "episodeTitle": "番外編",
+                "url": "https://example.com/work/2",
+                "update_type": "bonus",
+                "classification_reason": "episode_title matched bonus marker",
+                "default_notify": False,
+            }
+
+            with mock.patch.dict(os.environ, {"MANGA_WATCH_STATE": str(state_path)}, clear=False):
+                with mock.patch(
+                    "manga_watch.check.normalize_item",
+                    return_value={
+                        "source": "fake",
+                        "workId": "work-1",
+                        "seedUrl": "https://example.com/work",
+                    },
+                ):
+                    with mock.patch("manga_watch.check.compute_latest", return_value=latest):
+                        result = check.run_check(str(watchlist_path))
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual({"sources": [], "run": []}, result["errors"])
+        self.assertEqual(1, len(result["updates"]))
+        self.assertFalse(result["updates"][0]["notification"]["should_notify"])
+        self.assertEqual("important_only", result["updates"][0]["notification"]["mode"])
+        self.assertEqual(["ep-2"], state["works"]["work-1"]["unread"]["event_ids"])
+        self.assertEqual(["ep-2"], [event["event_id"] for event in state["works"]["work-1"]["history"]])
 
     def test_apply_item_transition_silently_merges_metadata_when_latest_key_is_stable(self):
         previous = {

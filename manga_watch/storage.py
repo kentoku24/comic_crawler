@@ -3,12 +3,22 @@ import os
 import re
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
+from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES
+
 DEFAULT_WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "watchlist.json")
 DEFAULT_STATE_PATH = os.path.join(os.path.dirname(__file__), "state.json")
 
 WATCHLIST_VERSION = 2
 STATE_VERSION = 2
 DEFAULT_HISTORY_RETENTION = 20
+NOTIFICATION_POLICY_MODE_ALL = "all"
+NOTIFICATION_POLICY_MODE_IMPORTANT_ONLY = "important_only"
+NOTIFICATION_POLICY_MODE_MUTE = "mute"
+SUPPORTED_NOTIFICATION_POLICY_MODES = {
+    NOTIFICATION_POLICY_MODE_ALL,
+    NOTIFICATION_POLICY_MODE_IMPORTANT_ONLY,
+    NOTIFICATION_POLICY_MODE_MUTE,
+}
 
 _LATEST_RUNTIME_TO_STORAGE = {
     "workId": "work_id",
@@ -146,16 +156,102 @@ def normalize_notification_policy(policy: object, work_id: str) -> Dict[str, obj
     mode = str(policy.get("mode") or "").strip()
     if not mode:
         raise ValueError(f"watchlist entry {work_id} notification_policy.mode is required")
+    if mode not in SUPPORTED_NOTIFICATION_POLICY_MODES:
+        supported_modes = ", ".join(sorted(SUPPORTED_NOTIFICATION_POLICY_MODES))
+        raise ValueError(
+            f"watchlist entry {work_id} notification_policy.mode must be one of: {supported_modes}"
+        )
     allowed_update_types = policy.get("allowed_update_types")
     if allowed_update_types is not None:
         if not isinstance(allowed_update_types, list):
             raise ValueError(
                 f"watchlist entry {work_id} notification_policy.allowed_update_types must be a list or null"
             )
-        allowed_update_types = [str(item) for item in allowed_update_types]
+        normalized_allowed_update_types: List[str] = []
+        seen_update_types = set()
+        for item in allowed_update_types:
+            normalized_update_type = str(item).strip()
+            if not normalized_update_type or normalized_update_type in seen_update_types:
+                continue
+            seen_update_types.add(normalized_update_type)
+            normalized_allowed_update_types.append(normalized_update_type)
+        allowed_update_types = normalized_allowed_update_types
     return {
         "mode": mode,
         "allowed_update_types": allowed_update_types,
+    }
+
+
+def evaluate_notification_policy(
+    policy: Mapping[str, object],
+    *,
+    update_type: object,
+) -> Dict[str, object]:
+    mode = str(policy.get("mode") or "").strip()
+    if mode not in SUPPORTED_NOTIFICATION_POLICY_MODES:
+        raise ValueError(f"unsupported notification_policy.mode: {mode or '<empty>'}")
+
+    allowed_update_types = policy.get("allowed_update_types")
+    normalized_allowed_update_types: Optional[List[str]]
+    if allowed_update_types is None:
+        normalized_allowed_update_types = None
+    else:
+        if not isinstance(allowed_update_types, list):
+            raise ValueError("notification_policy.allowed_update_types must be a list or null")
+        normalized_allowed_update_types = []
+        seen_update_types = set()
+        for item in allowed_update_types:
+            normalized_update_type = str(item).strip()
+            if not normalized_update_type or normalized_update_type in seen_update_types:
+                continue
+            seen_update_types.add(normalized_update_type)
+            normalized_allowed_update_types.append(normalized_update_type)
+
+    normalized_update_type = str(update_type or "").strip() or "unknown"
+    if normalized_allowed_update_types is not None:
+        should_notify = normalized_update_type in normalized_allowed_update_types
+        reason = (
+            f"allowed_update_types override matched {normalized_update_type}"
+            if should_notify
+            else f"allowed_update_types override did not include {normalized_update_type}"
+        )
+        return {
+            "mode": mode,
+            "allowed_update_types": normalized_allowed_update_types,
+            "should_notify": should_notify,
+            "applied_via": "allowed_update_types",
+            "reason": reason,
+        }
+
+    if mode == NOTIFICATION_POLICY_MODE_ALL:
+        return {
+            "mode": mode,
+            "allowed_update_types": None,
+            "should_notify": True,
+            "applied_via": "mode",
+            "reason": "mode=all notifies every update_type",
+        }
+
+    if mode == NOTIFICATION_POLICY_MODE_MUTE:
+        return {
+            "mode": mode,
+            "allowed_update_types": None,
+            "should_notify": False,
+            "applied_via": "mode",
+            "reason": "mode=mute suppresses every update_type",
+        }
+
+    should_notify = normalized_update_type in DEFAULT_NOTIFY_UPDATE_TYPES
+    return {
+        "mode": mode,
+        "allowed_update_types": None,
+        "should_notify": should_notify,
+        "applied_via": "mode",
+        "reason": (
+            f"mode=important_only allows {normalized_update_type}"
+            if should_notify
+            else f"mode=important_only suppresses {normalized_update_type}"
+        ),
     }
 
 

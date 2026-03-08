@@ -21,6 +21,13 @@ checker の出力契約は JSON のままです。
       "update_type": "main_story",
       "classification_reason": "episode_title matched main-story numbering",
       "default_notify": true,
+      "notification": {
+        "mode": "important_only",
+        "allowed_update_types": null,
+        "should_notify": true,
+        "applied_via": "mode",
+        "reason": "mode=important_only allows main_story"
+      },
       "from": {"seriesTitle": "...", "episodeTitle": "..."},
       "to": {
         "seriesTitle": "...",
@@ -115,7 +122,16 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 - `bonus`: 既定では notifier backend に通知しない
 - `announcement`: 既定では notifier backend に通知しない
 
-`main_story` と suppress 対象が衝突した場合は `unknown` に倒し、`bonus` と `announcement` だけが衝突した場合は suppress 側に残します。checker / state / run report には suppressed update も残ります。
+`main_story` と suppress 対象が衝突した場合は `unknown` に倒し、`bonus` と `announcement` だけが衝突した場合は suppress 側に残します。
+
+watchlist の `notification_policy` は classification default の上に適用されます。
+
+- `allowed_update_types` が `null` でないときは mode より優先する
+- `mode=all`: `default_notify` を無視して全 `update_type` を通知する
+- `mode=important_only`: `main_story` と `unknown` だけを通知する
+- `mode=mute`: どの `update_type` も通知しない
+
+checker / state / run report には suppressed update も残ります。machine-readable な checker 出力では `updates[].notification.should_notify=false` で「更新はあったが通知しない」を区別できます。
 
 ## Notification events
 
@@ -130,6 +146,13 @@ runner が backend に送る update event は次の schema です。
   "series_title": "蜘蛛ですが、なにか？",
   "update_type": "main_story",
   "detected_at": "2026-03-08T08:00:00Z",
+  "notification": {
+    "mode": "important_only",
+    "allowed_update_types": null,
+    "should_notify": true,
+    "applied_via": "mode",
+    "reason": "mode=important_only allows main_story"
+  },
   "from": {
     "latest_key": "KC_0039130008800011_E",
     "series_title": "蜘蛛ですが、なにか？",
@@ -151,6 +174,7 @@ runner が backend に送る update event は次の schema です。
 
 - `event_id` は `work_id + latest_key` を SHA-256 で固定長化した stable id です。consumer はこれで dedupe します。
 - delivery contract は consumer 視点では at-least-once 前提です。duplicate を受け取っても `event_id` で idempotent に処理してください。
+- `notification` は watchlist policy を適用した時点の effective decision です。`default_notify=false` な `bonus` update でも `mode=all` なら `should_notify=true` になります。
 - current runner は persisted outbox を持たず、backend 送信は同期 1 回です。backend failure が state 更新後に起きると manual replay が必要です。
 - `stdout` backend は 1 event = 1 JSON line を標準出力へ flush します。
 - `webhook` backend は 1 event ごとに JSON POST します。HTTP `2xx` だけを success とし、それ以外の status / timeout / transport error は failure として run を失敗扱いにします。
