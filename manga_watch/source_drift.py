@@ -9,6 +9,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .sources import HttpClient, RequestsHttpClient, registered_sources
 from .sources.base import SourceParseError
+from .sources.champion_cross import (
+    ChampionCrossAdapter,
+    canonical_champion_cross_series_rss_url,
+    extract_champion_cross_series_hash,
+    parse_champion_cross_rss_latest,
+)
 from .sources.comic_action import ComicActionAdapter, extract_comic_action_series_id, parse_comic_action_title
 from .sources.comic_walker import ComicWalkerAdapter, parse_comic_walker_title
 from .sources.kakuyomu import KakuyomuAdapter
@@ -82,6 +88,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "seed episode page exposes series_id",
             "seed episode page exposes nextReadableProductUri",
             "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "champion-cross": SourceCanaryContract(
+        source="champion-cross",
+        seed_url="https://championcross.jp/episodes/f35108c56e75d",
+        fixture_bundle="tests/fixtures/champion-cross/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series hash",
+            "series RSS feed keeps the latest episode URL",
+            "series RSS feed keeps the latest episode title",
         ),
     ),
     "kakuyomu": SourceCanaryContract(
@@ -211,9 +227,39 @@ def _kakuyomu_canary(contract: SourceCanaryContract, http_client: HttpClient) ->
     )
 
 
+def _champion_cross_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = ChampionCrossAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    episode_html = http_client.get_text(work.seed_url)
+    series_hash = extract_champion_cross_series_hash(episode_html)
+    if not series_hash:
+        raise SourceParseError("champion-cross: series hash not found")
+
+    rss_url = canonical_champion_cross_series_rss_url(series_hash)
+    feed_text = http_client.get_text(rss_url)
+    latest_url, latest_title, series_title = parse_champion_cross_rss_latest(feed_text)
+    if not latest_title:
+        raise SourceParseError("champion-cross: latest episode title not found")
+
+    return (
+        (work.seed_url, rss_url),
+        (
+            CanaryObservation("series_hash", series_hash),
+            CanaryObservation("series_title", series_title or ""),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", latest_title),
+        ),
+    )
+
+
 CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
+    "champion-cross": _champion_cross_canary,
     "kakuyomu": _kakuyomu_canary,
 }
 

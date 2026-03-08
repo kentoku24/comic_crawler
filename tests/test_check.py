@@ -305,6 +305,31 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("comic-action:13933686331663374228", entry["id"])
         self.assertEqual("comic-action", entry["source"])
 
+    def test_build_watchlist_entry_uses_stable_champion_cross_work_id(self):
+        fake_client = mock.Mock()
+        fake_client.get_text.return_value = """
+        <html>
+          <body>
+            <a href="https://championcross.jp/series/4756324e1c1b1/rss">RSS</a>
+          </body>
+        </html>
+        """
+        with mock.patch(
+            "manga_watch.check.normalize_item",
+            return_value={
+                "source": "champion-cross",
+                "workId": "https://championcross.jp/episodes/f35108c56e75d",
+                "seedUrl": "https://championcross.jp/episodes/f35108c56e75d",
+            },
+        ):
+            entry = check.build_watchlist_entry(
+                "https://championcross.jp/episodes/f35108c56e75d",
+                http_client=fake_client,
+            )
+
+        self.assertEqual("champion-cross:4756324e1c1b1", entry["id"])
+        self.assertEqual("champion-cross", entry["source"])
+
     def test_validate_watchlist_rejects_unknown_notification_policy_mode(self):
         with self.assertRaisesRegex(ValueError, "notification_policy.mode must be one of"):
             validate_watchlist(
