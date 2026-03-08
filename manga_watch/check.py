@@ -18,7 +18,10 @@ from manga_watch.sources import (
     normalize_seed_url,
 )
 from manga_watch.sources.base import SourceParseError
-from manga_watch.sources.comic_action import extract_comic_action_series_id
+from manga_watch.sources.comic_action import (
+    extract_comic_action_series_id,
+    extract_comic_action_series_id_from_seed_url,
+)
 from manga_watch.storage import (
     NOTIFICATION_POLICY_MODE_ALL,
     evaluate_notification_policy,
@@ -396,9 +399,18 @@ def stable_work_id_for_item(
     if source != "comic-action":
         return item_id_for_state(item)
 
+    stable_series = str(item.get("series") or "")
+    if stable_series.startswith("comic-action:"):
+        return stable_series
+
     seed_url = str(item.get("seedUrl") or "")
     if not seed_url:
         raise RuntimeError("comic-action: seedUrl is required to derive work_id")
+
+    series_id = str(item.get("seriesId") or "") or extract_comic_action_series_id_from_seed_url(seed_url)
+    if series_id:
+        return f"comic-action:{series_id}"
+
     client = http_client or RequestsHttpClient()
     html = client.get_text(seed_url)
     series_id = extract_comic_action_series_id(html)

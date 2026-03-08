@@ -86,6 +86,18 @@ class FixtureHttpClient:
             raise AssertionError(f"{self.case_dir}: bundle not fully consumed: {remaining!r}")
 
 
+class StaticHttpClient:
+    def __init__(self, responses):
+        self.responses = dict(responses)
+        self.calls = []
+
+    def get_text(self, url: str) -> str:
+        self.calls.append(url)
+        if url not in self.responses:
+            raise AssertionError(f"unexpected request: {url!r}")
+        return self.responses[url]
+
+
 def load_fixture_case(source: str, case_name: str):
     case_dir = FIXTURES_ROOT / source / case_name
     manifest = json.loads((case_dir / "manifest.json").read_text(encoding="utf-8"))
@@ -182,6 +194,62 @@ class SourceAdapterTests(unittest.TestCase):
                 "numericWorkId": "123",
             },
             work.to_dict(),
+        )
+
+    def test_comic_action_normalize_accepts_series_feed_url(self):
+        work = ComicActionAdapter().normalize("https://comic-action.com/rss/series/13933686331606207128?free_only=1")
+
+        self.assertEqual(
+            {
+                "source": "comic-action",
+                "kind": "comic-action",
+                "workId": "comic-action:13933686331606207128",
+                "seedUrl": "https://comic-action.com/rss/series/13933686331606207128",
+                "series": "comic-action:13933686331606207128",
+                "seriesId": "13933686331606207128",
+                "feedKind": "rss",
+            },
+            work.to_dict(),
+        )
+
+    def test_comic_action_fetch_latest_accepts_series_feed_url(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/atom/series/13933686331606207128")
+        client = StaticHttpClient(
+            {
+                "https://comic-action.com/atom/series/13933686331606207128": """
+                <feed>
+                  <entry>
+                    <link href="https://comic-action.com/episode/11341664176570134078" />
+                  </entry>
+                </feed>
+                """,
+                "https://comic-action.com/episode/11341664176570134078": """
+                <html>
+                  <head>
+                    <title>第1話 母さんの形見 / つぐもも - 浜田よしかづ | webアクション</title>
+                  </head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("comic-action:13933686331606207128", latest["workId"])
+        self.assertEqual(
+            "https://comic-action.com/episode/11341664176570134078",
+            latest["latestKey"],
+        )
+        self.assertEqual("つぐもも", latest["seriesTitle"])
+        self.assertEqual("第1話 母さんの形見", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/atom/series/13933686331606207128",
+                "https://comic-action.com/episode/11341664176570134078",
+            ],
+            client.calls,
         )
 
     def _assert_fixture_matrix(self, source: str):

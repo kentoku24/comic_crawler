@@ -185,7 +185,7 @@ runner が backend に送る update event は次の schema です。
 | Source | `watchlist add` accepted inputs | Stored `seed_url` | `work_id` | `latest_key` |
 | --- | --- | --- | --- | --- |
 | ComicWalker | canonical series URL, episode URL | `https://comic-walker.com/detail/<series>` | `KC_XXXXXX_S` | `episodeCode` |
-| webアクション | episode URL only | 入力 URL のまま | `comic-action:<series_id>` | 最終到達 episode URL |
+| webアクション | episode URL, RSS/Atom series feed URL | canonical episode URL または canonical series feed URL | `comic-action:<series_id>` | 最終到達 episode URL |
 | Kakuyomu | work URL, episode URL | 入力 URL のまま | `kakuyomu:<numeric_work_id>` | 最新 episode id |
 
 Phase 1 では source ごとの capability 差を隠しません。`watchlist add` が受け付ける URL 種別は上の表だけです。
@@ -239,7 +239,7 @@ python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
   "error": {
     "kind": "unsupported_url_type",
     "message": "comic-action does not support this URL type for `watchlist add`: https://comic-action.com/series/123",
-    "next_action": "Supported input types for comic-action: episode URL. Examples: https://comic-action.com/episode/123456"
+    "next_action": "Supported input types for comic-action: episode URL, series feed URL. Examples: https://comic-action.com/episode/123456 / https://comic-action.com/rss/series/123456"
   }
 }
 ```

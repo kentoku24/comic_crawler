@@ -31,8 +31,11 @@ SOURCE_CAPABILITIES = (
     SourceCapability(
         source="comic-action",
         domains=("comic-action.com",),
-        input_labels=("episode URL",),
-        examples=("https://comic-action.com/episode/123456",),
+        input_labels=("episode URL", "series feed URL"),
+        examples=(
+            "https://comic-action.com/episode/123456",
+            "https://comic-action.com/rss/series/123456",
+        ),
     ),
     SourceCapability(
         source="kakuyomu",

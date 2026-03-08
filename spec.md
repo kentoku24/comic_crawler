@@ -127,7 +127,7 @@ python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
 | Source | accepted input URL types | canonical / stored `seed_url` |
 | --- | --- | --- |
 | ComicWalker | canonical series URL, episode URL | `https://comic-walker.com/detail/<series>` |
-| webアクション | episode URL only | 入力 URL のまま |
+| webアクション | episode URL, RSS/Atom series feed URL | canonical episode URL または canonical series feed URL |
 | Kakuyomu | work URL, episode URL | 入力 URL のまま |
 
 Phase 1 はこの matrix を source of truth とし、未記載の URL 種別は `unsupported_url_type` にする。
