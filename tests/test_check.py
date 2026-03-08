@@ -508,6 +508,59 @@ class CheckTests(unittest.TestCase):
             update,
         )
 
+    def test_apply_item_transition_records_multi_update_gap_metadata(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-1",
+                "series_title": "作品A",
+                "episode_title": "第1話",
+                "url": "https://example.com/work/1",
+            },
+            "history": [],
+            "unread": {"event_ids": []},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-4",
+            "seriesTitle": "作品A",
+            "episodeTitle": "第4話",
+            "url": "https://example.com/work/4",
+        }
+
+        next_entry, update = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertEqual("ep-4", next_entry["history"][0]["event_id"])
+        self.assertEqual(
+            {
+                "from_latest": latest_storage_to_runtime(previous["latest"]),
+                "multiple_updates": True,
+                "estimated_new_episode_count": 3,
+                "estimation_basis": "episode_title_number",
+            },
+            {
+                "from_latest": latest_storage_to_runtime(next_entry["history"][0]["gap"]["from_latest"]),
+                "multiple_updates": next_entry["history"][0]["gap"]["multiple_updates"],
+                "estimated_new_episode_count": next_entry["history"][0]["gap"]["estimated_new_episode_count"],
+                "estimation_basis": next_entry["history"][0]["gap"]["estimation_basis"],
+            },
+        )
+        self.assertEqual(latest_storage_to_runtime(previous["latest"]), update["from"])
+        self.assertEqual(latest, update["to"])
+
     def test_apply_item_transition_evaluates_notification_policy_truth_table(self):
         previous = {
             "latest": {

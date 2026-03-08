@@ -4,6 +4,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
 import json
 import os
+import re
 import sys
 import time
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
@@ -42,6 +43,12 @@ DEFAULT_NOTIFICATION_POLICY = {
     "mode": NOTIFICATION_POLICY_MODE_ALL,
     "allowed_update_types": None,
 }
+EPISODE_NUMBER_PATTERNS = (
+    re.compile(r"第\s*(\d+)\s*話"),
+    re.compile(r"\bEpisode\s+(\d+)\b", re.IGNORECASE),
+    re.compile(r"\bEp\.?\s*(\d+)\b", re.IGNORECASE),
+    re.compile(r"#\s*(\d+)"),
+)
 
 
 class CheckRunError(RuntimeError):
@@ -219,12 +226,58 @@ def unread_state_for_entry(previous_entry: Optional[Mapping[str, object]]) -> Di
     return unread
 
 
+def episode_label_candidates(latest: Mapping[str, object]) -> List[str]:
+    candidates: List[str] = []
+    for key in ("episodeTitle", "pageTitle", "episode_title", "page_title"):
+        value = latest.get(key)
+        if not isinstance(value, str):
+            continue
+        label = value.strip()
+        if label and label not in candidates:
+            candidates.append(label)
+    return candidates
+
+
+def episode_number_for_latest(latest: Mapping[str, object]) -> Optional[int]:
+    for label in episode_label_candidates(latest):
+        for pattern in EPISODE_NUMBER_PATTERNS:
+            match = pattern.search(label)
+            if match:
+                return int(match.group(1))
+    return None
+
+
+def build_history_gap(
+    previous_latest: Mapping[str, object],
+    latest: Mapping[str, object],
+) -> Dict[str, object]:
+    gap: Dict[str, object] = {
+        "from_latest": latest_runtime_to_storage(previous_latest),
+        "multiple_updates": None,
+        "estimation_basis": "previous_latest_only",
+    }
+
+    previous_episode_number = episode_number_for_latest(previous_latest)
+    latest_episode_number = episode_number_for_latest(latest)
+    if previous_episode_number is None or latest_episode_number is None:
+        return gap
+    if latest_episode_number <= previous_episode_number:
+        return gap
+
+    estimated_new_episode_count = latest_episode_number - previous_episode_number
+    gap["estimated_new_episode_count"] = estimated_new_episode_count
+    gap["multiple_updates"] = estimated_new_episode_count > 1
+    gap["estimation_basis"] = "episode_title_number"
+    return gap
+
+
 def sync_history_event(
     history,
     latest: Mapping[str, object],
     *,
     seen_at: int,
     insert_if_missing: bool,
+    new_event: Optional[Mapping[str, object]] = None,
 ):
     event_id = latest_id_for_state(latest)
     if not event_id:
@@ -248,11 +301,14 @@ def sync_history_event(
         return updated_history, False
 
     updated_history.append(
-        {
+        dict(
+            new_event
+            or {
             "event_id": event_id,
             "seen_at": seen_at,
             "latest": latest_runtime_to_storage(latest),
-        }
+            }
+        )
     )
     return updated_history, True
 
@@ -284,11 +340,18 @@ def apply_item_transition(
     previous_latest_id = latest_id_for_state(previous_latest)
     latest_id = latest_id_for_state(latest_copy)
     if previous_latest_id != latest_id:
+        next_event = {
+            "event_id": latest_id,
+            "seen_at": seen_at,
+            "latest": latest_runtime_to_storage(latest_copy),
+            "gap": build_history_gap(previous_latest, latest_copy),
+        }
         history, inserted = sync_history_event(
             history,
             latest_copy,
             seen_at=seen_at,
             insert_if_missing=True,
+            new_event=next_event,
         )
         if inserted and latest_id not in unread_event_ids:
             unread_event_ids.append(latest_id)

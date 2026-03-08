@@ -97,7 +97,9 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 
 各作品は `latest`, `history`, `unread`, `health` を持ちます。
 
-- `history`: `event_id` と `seen_at` を持つ更新イベント列
+- `history`: `event_id`, `seen_at`, `latest` を持つ更新イベント列。`latest_key` が進んだ event には任意で `gap` を持てる
+- `history[].gap.from_latest`: 直前 run で見えていた latest snapshot。複数話進行を exact に取れない source でも最低限この差分は残す
+- `history[].gap.estimated_new_episode_count`: `episodeTitle` / `pageTitle` から話数を比較できたときだけ入る推定件数
 - `unread.event_ids`: 未読イベントの source of truth
 - `health`: `last_checked_at`, `last_success_at`, `consecutive_failures`
 
@@ -114,7 +116,10 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 ```
 
 - `--json`: unread 数と履歴イベントを JSON で出力
+- `--json` 出力の event には任意で `gap` が入り、`from_latest` と推定話数から multi-update gap を downstream に渡せる
 - `--mark-read <work_id>`: その作品の現在未読を既読化し、保持ルールに従って履歴を trim
+
+複数話進行の推定は source 固有 id ではなく title から行います。`第N話` / `Episode N` / `Ep.N` / `#N` のような番号が両端で取れるときだけ `estimated_new_episode_count` を出し、取れない source や title では `from_latest` だけを残す fallback にします。
 
 ### legacy v1 input
 

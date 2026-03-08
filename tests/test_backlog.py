@@ -107,6 +107,69 @@ class BacklogTests(unittest.TestCase):
         self.assertEqual("第3話", payload["works"][0]["latest_label"])
         self.assertEqual("ep-3", payload["works"][0]["unread_events"][0]["event_id"])
 
+    def test_backlog_module_reports_multi_update_gap_in_json_and_text(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            write_state(
+                state_path,
+                {
+                    "version": 2,
+                    "works": {
+                        "work-1": {
+                            "latest": {
+                                "series_title": "作品A",
+                                "episode_title": "第4話",
+                                "latest_key": "ep-4",
+                            },
+                            "history": [
+                                {
+                                    "event_id": "ep-4",
+                                    "seen_at": 1700000100,
+                                    "latest": {
+                                        "series_title": "作品A",
+                                        "episode_title": "第4話",
+                                        "latest_key": "ep-4",
+                                        "url": "https://example.com/ep-4",
+                                    },
+                                    "gap": {
+                                        "from_latest": {
+                                            "series_title": "作品A",
+                                            "episode_title": "第1話",
+                                            "latest_key": "ep-1",
+                                            "url": "https://example.com/ep-1",
+                                        },
+                                        "multiple_updates": True,
+                                        "estimated_new_episode_count": 3,
+                                        "estimation_basis": "episode_title_number",
+                                    },
+                                }
+                            ],
+                            "unread": {"event_ids": ["ep-4"]},
+                            "health": {
+                                "last_checked_at": 1700000100,
+                                "last_success_at": 1700000100,
+                                "consecutive_failures": 0,
+                            },
+                        }
+                    },
+                    "last_run_at": 1700000100,
+                },
+            )
+
+            json_result = self.run_backlog_module("--state", str(state_path), "--json")
+            text_result = self.run_backlog_module("--state", str(state_path))
+
+        self.assertEqual(0, json_result.returncode, msg=json_result.stderr)
+        self.assertEqual(0, text_result.returncode, msg=text_result.stderr)
+
+        payload = json.loads(json_result.stdout)
+        gap = payload["works"][0]["unread_events"][0]["gap"]
+        self.assertEqual("第1話", gap["from_episode_label"])
+        self.assertEqual(3, gap["estimated_new_episode_count"])
+        self.assertTrue(gap["multiple_updates"])
+        self.assertEqual("episode_title_number", gap["estimation_basis"])
+        self.assertIn("gap from 第1話 (+3 estimated)", text_result.stdout)
+
     def test_backlog_module_mark_read_all_clears_unread_state(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = Path(tmpdir) / "state.json"
