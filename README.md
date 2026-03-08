@@ -126,6 +126,8 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 
 watchlist の `notification_policy` は classification default の上に適用されます。
 
+- `allowed_update_types` に明示できる値は `main_story`, `bonus`, `announcement`, `unknown` のみ
+- typo や未対応値を入れた watchlist は validation error として reject する
 - `allowed_update_types` が `null` でないときは mode より優先する
 - `mode=all`: `default_notify` を無視して全 `update_type` を通知する
 - `mode=important_only`: `main_story` と `unknown` だけを通知する
