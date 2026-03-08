@@ -1,0 +1,5 @@
+interface:
+  display_name: "Chief Issue Reviewer"
+  short_description: "Repo-specific issue readiness reviewer for comic_crawler."
+  default_prompt: "Use $chief-issue-reviewer to review this issue for comic_crawler, decide APPROVE or NG, and post the result as an issue comment."
+
