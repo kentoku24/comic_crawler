@@ -8,8 +8,8 @@ import time
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
 from manga_watch.sources import (
-    DEFAULT_ADAPTERS,
     HttpClient,
+    REGISTERED_ADAPTERS,
     RequestsHttpClient,
     SourceAdapter,
     WorkDescriptor,
@@ -110,7 +110,7 @@ class SourceResult:
 
 
 def _selected_adapters(adapters: Optional[Sequence[SourceAdapter]]) -> Sequence[SourceAdapter]:
-    return DEFAULT_ADAPTERS if adapters is None else adapters
+    return REGISTERED_ADAPTERS if adapters is None else adapters
 
 
 def item_id_for_state(item: Mapping[str, object]) -> str:

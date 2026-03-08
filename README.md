@@ -162,6 +162,17 @@ runner をローカル起動する場合は Discord 環境変数を入れてか�
 python3 -m manga_watch.runner
 ```
 
+## Adding a source adapter
+
+`manga_watch/sources/registry.py` の `REGISTERED_ADAPTERS` が adapter registration の single source of truth です。
+
+1. `manga_watch/sources/` に concrete `SourceAdapter` module を追加する
+2. `manga_watch/sources/registry.py` の `REGISTERED_ADAPTERS` に adapter instance を追加する
+3. fixture / state contract に影響がある場合は `tests/fixtures/` や関連 test を更新する
+4. `.venv/bin/python -m unittest tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2` を実行する
+
+2 を忘れると `tests.test_sources.SourceAdapterTests.test_registry_covers_every_concrete_adapter_module` が失敗します。
+
 ## One-time migration from v1
 
 ```bash
@@ -198,4 +209,4 @@ python3 -m manga_watch.migrate_v2 \
 - サイトの HTML が変わって検知が止まったら `python3 -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
 - migration や state contract を更新したら `python3 -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2` を回す
 - run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_sources tests.test_update_classification tests.test_check tests.test_runner tests.test_migrate_v2` で runner まで確認する
-- 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` に登録する
+- 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` に登録して fixture / source tests を更新する
