@@ -440,10 +440,14 @@ def run_once(
         suppressed_update_count = len(suppressed_updates)
 
         state = state_loader()
-        pending_events = [
-            build_update_event(update, detected_at=detected_at)
-            for update in notify_updates
-        ]
+        pending_events = []
+        event_build_errors: List[str] = []
+        for update in notify_updates:
+            try:
+                pending_events.append(build_update_event(update, detected_at=detected_at))
+            except Exception as exc:
+                work_id = str(update.get("work_id") or update.get("id") or "<unknown>")
+                event_build_errors.append(f"{work_id}: {exc}")
         had_existing_outbox = bool(load_notification_outbox(state))
         enqueued_count = enqueue_notification_events(
             state,
@@ -462,8 +466,11 @@ def run_once(
         update_notification_sent = int(delivery["deliveredCount"]) > 0
         if had_existing_outbox or enqueued_count > 0 or outbox_pending_count > 0:
             state_saver(state)
+        failure_messages = list(event_build_errors)
         if delivery["errors"]:
-            raise RuntimeError("notification delivery failed: " + "; ".join(delivery["errors"]))
+            failure_messages.extend(delivery["errors"])
+        if failure_messages:
+            raise RuntimeError("notification delivery failed: " + "; ".join(failure_messages))
 
         report_logger(
             format_run_report(

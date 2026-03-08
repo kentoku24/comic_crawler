@@ -504,6 +504,35 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("巡回実行に失敗しました", errors[0])
         self.assertIn("notifier backend failed", errors[0])
 
+    def test_run_once_continues_delivering_valid_updates_when_one_payload_is_invalid(self):
+        notifier = FakeNotifier()
+        errors = []
+        invalid_update = self.make_update()
+        invalid_update["to"] = {
+            "series_title": "作品A",
+            "episode_title": "第2話",
+            "update_type": "main_story",
+            "default_notify": True,
+        }
+
+        outcome = run_once(
+            self.make_config(),
+            notifier=notifier,
+            checker=lambda _: {"updates": [invalid_update, self.make_update(latest_key="episode-3")]},
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: self.fail("unexpected report log"),
+            error_logger=errors.append,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(2, outcome["notifiedUpdateCount"])
+        self.assertEqual(1, len(notifier.events))
+        self.assertEqual("episode-3", notifier.events[0].latest_key)
+        self.assertEqual(1, len(errors))
+        self.assertIn("work-1: update event work-1 is missing latest_key", errors[0])
+
     def test_run_once_persists_only_failed_backends_in_notification_outbox(self):
         stdout_notifier = FakeNotifier()
         webhook_notifier = FakeNotifier(fail_on_index=0)
