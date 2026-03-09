@@ -1,4 +1,4 @@
-# AGENTS.md instructions for /Users/kentoku.matsunami/Documents/GitHub/comic_crawler
+# AGENTS.md instructions for /Users/kentokumatsunami/Documents/GitHub/comic_crawler
 
 When questions involve OpenAI APIs, SDKs, Codex, or other OpenAI products, use the OpenAI developer documentation MCP server as the source of truth and avoid web search unless the MCP server cannot answer.
 
@@ -8,6 +8,7 @@ This repository has Codex project-local skills under `./.agents/skills`. Treat t
 
 ### Available skills
 
+- comic-crawler-deploy: comic_crawler の main runtime を安全にデプロイする repo-local skill。固定 checkout `リポジトリルート/comic_crawler` を source of truth にし、`docker compose up -d --build --force-recreate` と startup log 検証までを行う。local `.env` の missing secret は補完せず blocker として扱う。Use when: 「デプロイして」「本番反映して」「main checkout のコンテナを立ち上げ直して」のように実運用反映をしたいとき、Discord 用 env が code 側で compose に渡っているか確認し、足りなければ修正して PR を作りたいとき。 (file: ./.agents/skills/comic-crawler-deploy/SKILL.md)
 - gh-issue-dependency-spawner: GitHub の Epic / 管理 Issue を起点に、依存関係つき child issues を dependency wave ごとに並列 Spawn する。親セッションは実装せず、各 child issue は `$gh-issue-maker-chief-engineer-loop` に委譲する。 Use when: #6 のような dependency-organized Issue をまとめて進めたいとき。 (file: ./.agents/skills/gh-issue-dependency-spawner/SKILL.md)
 - chief-issue-reviewer: comic_crawler リポジトリ専用の Chief Issue Reviewer。GitHub Issue が実装着手可能な粒度まで詰まっているかをレビューし、`APPROVE` または改善案付き `NG` を必ず issue comment に残す。Use when: comic_crawler の Issue URL/番号を受けて implement-ready か判定したいとき、accepted scope / 技術的制約 / DoD / テスト観点の不足を洗いたいとき。 (file: ./.agents/skills/chief-issue-reviewer/SKILL.md)
 - gh-issue-maker-chief-engineer-loop: GitHub Issue を起点に、accepted scope と制約を抽出し、`maker` 実装、PR 更新、`$spacex-chief-reviewer` による gate、`$merger` による merge gate までを標準ループで進める。Use when: Issue URL/番号だけで作業を開始したいとき、Issue に既存の `$chief-issue-reviewer` または legacy Chief Engineer レビューがあるとき。 (file: ./.agents/skills/gh-issue-maker-chief-engineer-loop/SKILL.md)
