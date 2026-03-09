@@ -3,7 +3,7 @@ name: comic-crawler-deploy
 description: >
   comic_crawler の main runtime を安全にデプロイする repo-local skill。Use when:
   「デプロイして」「本番反映して」「main checkout のコンテナを立ち上げ直して」
-  のように、/Users/kentokumatsunami/Documents/GitHub/comic_crawler を source of truth
+  のように、リポジトリルート配下の `comic_crawler` checkout を source of truth
   として Docker Compose runtime を更新したいとき、Discord 用 env が code 側で
   compose に渡っているか確認したいとき、足りなければ code を修正して PR を作りたいとき。
 ---
@@ -18,7 +18,7 @@ description: >
 
 ## Fixed Runtime Contract
 
-- deploy target checkout は `/Users/kentokumatsunami/Documents/GitHub/comic_crawler`
+- deploy target checkout は `リポジトリルート/comic_crawler`
 - deploy は target checkout から `docker compose up -d --build --force-recreate` を実行する
 - runtime container の `com.docker.compose.project.working_dir` は上記 path を指しているべき
 - local `.env` は gitignored であり、tracked file や PR に secret を書かない
@@ -90,7 +90,7 @@ docker compose up -d --build --force-recreate
 少なくとも次を確認する。
 
 - `docker compose ps` で `comic-crawler` が `Up`
-- container working dir が `/Users/kentokumatsunami/Documents/GitHub/comic_crawler`
+- container working dir が `リポジトリルート/comic_crawler`
 - startup run が `ok: True` で、`configuration error` が無い
 - 次回実行時刻が出ている
 
