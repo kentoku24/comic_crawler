@@ -463,6 +463,7 @@ def run_once(
     checker_completed = primary_failure is None
 
     try:
+        # Re-open the durable snapshot written by the checker for delivery/outbox persistence.
         state = state_loader()
     except Exception as exc:
         errors["run"].append(runner_error_record("load_runner_state", exc))
