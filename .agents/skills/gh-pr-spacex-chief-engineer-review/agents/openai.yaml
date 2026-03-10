@@ -1,4 +1,0 @@
-interface:
-  display_name: "Chief Engineer PR Review"
-  short_description: "Chief-engineer PR review with description checks."
-  default_prompt: "Use $gh-pr-spacex-chief-engineer-review to review this PR, verify the PR description against the implementation, and check whether prior chief-engineer comments are resolved."

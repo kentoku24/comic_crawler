@@ -1,0 +1,4 @@
+interface:
+  display_name: "Merger"
+  short_description: "Final merge-ready merger gate that can self-merge only when merge:true is explicit."
+  default_prompt: "Use $merger on this PR. Verify gh-pr-reviewer approval evidence, resolved review threads, and GitHub merge-ready state, then leave a PR comment with APPROVE or NG. If the decision is NG, include the concrete reason in the PR comment. Only merge the PR when merge:true is explicitly requested and you approve it."
