@@ -28,6 +28,7 @@ from manga_watch.notifier import (
     detected_at_for_timestamp,
     event_from_payload,
 )
+from manga_watch.secret_redaction import redact_secret_text
 from manga_watch.storage import DEFAULT_WATCHLIST_PATH, get_state_path, load_state, save_state
 from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES
 
@@ -233,6 +234,7 @@ def deliver_notification_outbox(
     *,
     named_notifiers: Mapping[str, Notifier],
     attempted_at: str,
+    redaction_secrets: tuple[str, ...] = (),
 ) -> Dict[str, object]:
     outbox = load_notification_outbox(state)
     remaining: List[Dict[str, object]] = []
@@ -255,9 +257,10 @@ def deliver_notification_outbox(
                 backend_notifier.send(event)
                 delivered_count += 1
             except Exception as exc:
+                redacted_message = redact_secret_text(exc, secrets=redaction_secrets)
                 pending_backends.append(backend_name)
-                entry_failures.append(f"{backend_name}: {exc}")
-                failures.append(f"{event.event_id} {backend_name}: {exc}")
+                entry_failures.append(f"{backend_name}: {redacted_message}")
+                failures.append(f"{event.event_id} {backend_name}: {redacted_message}")
 
         if pending_backends:
             remaining.append(
@@ -283,12 +286,19 @@ def checker_error_count(errors: Dict[str, List[Dict[str, object]]]) -> int:
     return len(errors["sources"]) + len(errors["run"])
 
 
-def format_failure_report(timestamp: str, trigger_source: str, exc: Exception) -> str:
+def format_failure_report(
+    timestamp: str,
+    trigger_source: str,
+    exc: Exception,
+    *,
+    redaction_secrets: tuple[str, ...] = (),
+) -> str:
     return "\n".join(
         [
             f"巡回実行に失敗しました ({timestamp})",
             f"トリガー: {trigger_source}",
-            f"エラー: {exc.__class__.__name__}: {exc}",
+            "エラー: "
+            f"{exc.__class__.__name__}: {redact_secret_text(exc, secrets=redaction_secrets)}",
         ]
     )
 
@@ -310,21 +320,32 @@ def format_replay_report(
     )
 
 
-def format_replay_failure_report(timestamp: str, exc: Exception) -> str:
+def format_replay_failure_report(
+    timestamp: str,
+    exc: Exception,
+    *,
+    redaction_secrets: tuple[str, ...] = (),
+) -> str:
     return "\n".join(
         [
             f"通知 outbox の再送に失敗しました ({timestamp})",
-            f"エラー: {exc.__class__.__name__}: {exc}",
+            "エラー: "
+            f"{exc.__class__.__name__}: {redact_secret_text(exc, secrets=redaction_secrets)}",
         ]
     )
 
 
-def runner_error_record(stage: str, exc: Exception) -> Dict[str, str]:
+def runner_error_record(
+    stage: str,
+    exc: Exception,
+    *,
+    redaction_secrets: tuple[str, ...] = (),
+) -> Dict[str, str]:
     return {
         "stage": stage,
         "kind": "runtime",
         "errorType": exc.__class__.__name__,
-        "message": str(exc),
+        "message": redact_secret_text(exc, secrets=redaction_secrets),
     }
 
 
@@ -399,6 +420,15 @@ def rejected_run_outcome(trigger_source: str, *, timestamp: str) -> Dict[str, ob
     }
 
 
+def runner_redaction_secrets(config: "RunnerConfig") -> tuple[str, ...]:
+    secrets = []
+    if config.notifier_config.webhook_url:
+        secrets.append(config.notifier_config.webhook_url)
+    if config.discord_outbound_config is not None:
+        secrets.append(config.discord_outbound_config.bot_token)
+    return tuple(secrets)
+
+
 def run_once(
     config: RunnerConfig,
     *,
@@ -413,6 +443,7 @@ def run_once(
     error_logger: Callable[[str], None] = report_to_stderr,
     trigger_source: str = TRIGGER_SOURCE_SCHEDULED,
 ) -> Dict[str, object]:
+    redaction_secrets = runner_redaction_secrets(config)
     named_notifiers = resolve_named_notifiers(
         config,
         notifier=notifier,
@@ -451,10 +482,21 @@ def run_once(
         try:
             errors = normalize_checker_errors(result)
         except Exception as normalize_exc:
-            errors = {"sources": [], "run": [runner_error_record("normalize_checker_errors", normalize_exc)]}
+            errors = {
+                "sources": [],
+                "run": [
+                    runner_error_record(
+                        "normalize_checker_errors",
+                        normalize_exc,
+                        redaction_secrets=redaction_secrets,
+                    )
+                ],
+            }
     except Exception as exc:
         primary_failure = exc
-        errors["run"].append(runner_error_record("checker", exc))
+        errors["run"].append(
+            runner_error_record("checker", exc, redaction_secrets=redaction_secrets)
+        )
 
     update_count = len(updates)
     notify_updates, suppressed_updates = partition_updates_by_notification_policy(updates)
@@ -466,7 +508,9 @@ def run_once(
         # Re-open the durable snapshot written by the checker for delivery/outbox persistence.
         state = state_loader()
     except Exception as exc:
-        errors["run"].append(runner_error_record("load_runner_state", exc))
+        errors["run"].append(
+            runner_error_record("load_runner_state", exc, redaction_secrets=redaction_secrets)
+        )
         if primary_failure is None:
             primary_failure = exc
 
@@ -485,6 +529,7 @@ def run_once(
                         runner_error_record(
                             "build_update_event",
                             RuntimeError(f"{work_id}: {exc}"),
+                            redaction_secrets=redaction_secrets,
                         )
                     )
 
@@ -501,6 +546,7 @@ def run_once(
                 state,
                 named_notifiers=named_notifiers,
                 attempted_at=detected_at,
+                redaction_secrets=redaction_secrets,
             )
             outbox_pending_count = int(delivery["remainingCount"])
             if had_existing_outbox or enqueued_count > 0 or outbox_pending_count > 0:
@@ -508,7 +554,9 @@ def run_once(
             if delivery["errors"]:
                 delivery_failures.extend(delivery["errors"])
         except Exception as exc:
-            errors["run"].append(runner_error_record("generic_notification", exc))
+            errors["run"].append(
+                runner_error_record("generic_notification", exc, redaction_secrets=redaction_secrets)
+            )
             if primary_failure is None:
                 primary_failure = exc
 
@@ -529,6 +577,7 @@ def run_once(
                     state,
                     client=resolved_discord_client,
                     attempted_at=detected_at,
+                    redaction_secrets=redaction_secrets,
                 )
                 daily_notification_sent = int(daily_delivery["deliveredCount"]) > 0
                 if enqueue_result["queued"] or int(daily_delivery["attemptedCount"]) > 0:
@@ -536,7 +585,13 @@ def run_once(
                 if daily_delivery["errors"]:
                     delivery_failures.extend(daily_delivery["errors"])
             except Exception as exc:
-                errors["run"].append(runner_error_record("discord_daily_notification", exc))
+                errors["run"].append(
+                    runner_error_record(
+                        "discord_daily_notification",
+                        exc,
+                        redaction_secrets=redaction_secrets,
+                    )
+                )
                 if primary_failure is None:
                     primary_failure = exc
 
@@ -554,6 +609,7 @@ def run_once(
         errors=errors,
         delivery_failures=delivery_failures,
         state_lines=format_state_lines(state),
+        redaction_secrets=redaction_secrets,
     )
 
     if resolved_discord_client is not None and config.discord_outbound_config is not None:
@@ -569,6 +625,7 @@ def run_once(
                     timestamp=timestamp,
                     trigger_source=trigger_source,
                     exc=exc,
+                    redaction_secrets=redaction_secrets,
                 )
             )
 
@@ -583,7 +640,14 @@ def run_once(
             f"{first_run_error.get('stage')}: {first_run_error.get('message')}"
         )
     if primary_failure is not None:
-        error_logger(format_failure_report(timestamp, trigger_source, primary_failure))
+        error_logger(
+            format_failure_report(
+                timestamp,
+                trigger_source,
+                primary_failure,
+                redaction_secrets=redaction_secrets,
+            )
+        )
 
     outcome = {
         "ok": error_count == 0 and not delivery_failures and run_report_delivery_error is None,
@@ -597,9 +661,15 @@ def run_once(
         "dailyNotificationSent": daily_notification_sent,
     }
     if primary_failure is not None:
-        outcome["error"] = f"{primary_failure.__class__.__name__}: {primary_failure}"
+        outcome["error"] = (
+            f"{primary_failure.__class__.__name__}: "
+            f"{redact_secret_text(primary_failure, secrets=redaction_secrets)}"
+        )
     elif run_report_delivery_error is not None:
-        outcome["error"] = f"{run_report_delivery_error.__class__.__name__}: {run_report_delivery_error}"
+        outcome["error"] = (
+            f"{run_report_delivery_error.__class__.__name__}: "
+            f"{redact_secret_text(run_report_delivery_error, secrets=redaction_secrets)}"
+        )
     return outcome
 
 
@@ -696,6 +766,7 @@ def replay_outbox_once(
     report_logger: Callable[[str], None] = report_to_stdout,
     error_logger: Callable[[str], None] = report_to_stderr,
 ) -> Dict[str, object]:
+    redaction_secrets = runner_redaction_secrets(config)
     named_notifiers = resolve_named_notifiers(
         config,
         notifier=notifier,
@@ -711,6 +782,7 @@ def replay_outbox_once(
             state,
             named_notifiers=named_notifiers,
             attempted_at=detected_at,
+            redaction_secrets=redaction_secrets,
         )
         state_saver(state)
         if delivery["errors"]:
@@ -732,14 +804,20 @@ def replay_outbox_once(
             "timestamp": timestamp,
         }
     except Exception as exc:
-        error_logger(format_replay_failure_report(timestamp, exc))
+        error_logger(
+            format_replay_failure_report(
+                timestamp,
+                exc,
+                redaction_secrets=redaction_secrets,
+            )
+        )
         return {
             "ok": False,
             "attemptedEventCount": 0,
             "deliveredCount": 0,
             "remainingCount": 0,
             "timestamp": timestamp,
-            "error": f"{exc.__class__.__name__}: {exc}",
+            "error": f"{exc.__class__.__name__}: {redact_secret_text(exc, secrets=redaction_secrets)}",
         }
 
 

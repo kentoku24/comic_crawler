@@ -46,6 +46,14 @@ class FakeNotifier:
         self.events.append(event)
 
 
+class SecretLeakingNotifier:
+    def __init__(self, message):
+        self.message = message
+
+    def send(self, event):
+        raise RuntimeError(self.message)
+
+
 class FakeResponse:
     def __init__(self, status_code, text=""):
         self.status_code = status_code
@@ -91,6 +99,22 @@ class FakeDiscordClient:
             raise RuntimeError("discord delivery failed")
         if channel_id in self.fail_channels:
             raise RuntimeError(f"discord delivery failed for {channel_id}")
+
+
+class SecretLeakingDiscordClient:
+    def __init__(self, token):
+        self.token = token
+        self.calls = []
+
+    def send_message(self, channel_id, content):
+        self.calls.append(
+            {
+                "channel_id": channel_id,
+                "content": content,
+            }
+        )
+        if channel_id == "main-channel":
+            raise RuntimeError(f"discord auth failed with Authorization: Bot {self.token}")
 
 
 class RunnerTests(unittest.TestCase):
@@ -328,6 +352,21 @@ class RunnerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Webhook delivery failed"):
             notifier.send(event)
+
+    def test_webhook_notifier_masks_webhook_url_in_transport_error(self):
+        webhook_url = "https://discord.com/api/webhooks/123/secret"
+        event = build_update_event(
+            self.make_update(latest_key="episode-2"),
+            detected_at="2023-11-14T22:13:20Z",
+        )
+        session = FakeSession(error=requests.Timeout(f"POST {webhook_url} timed out"))
+        notifier = WebhookNotifier(webhook_url, session=session)
+
+        with self.assertRaises(RuntimeError) as exc_info:
+            notifier.send(event)
+
+        self.assertNotIn(webhook_url, str(exc_info.exception))
+        self.assertIn("[REDACTED_WEBHOOK_URL]", str(exc_info.exception))
 
     def test_run_once_without_updates_only_logs_report(self):
         notifier = FakeNotifier()
@@ -783,6 +822,61 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("boom", discord.calls[0]["content"])
         self.assertEqual(1, len(errors))
         self.assertIn("boom", errors[0])
+
+    def test_run_once_redacts_secrets_from_failure_outputs(self):
+        bot_token = "discord-bot-token"
+        webhook_url = "https://discord.com/api/webhooks/123/secret"
+        discord = SecretLeakingDiscordClient(bot_token)
+        errors = []
+        store, load_from_store, save_to_store = self.make_state_store()
+        config = RunnerConfig(
+            timezone_name="Asia/Tokyo",
+            watchlist_path="/tmp/watchlist.json",
+            crawl_schedule="0 19 * * *",
+            crawl_interval=None,
+            run_on_startup=True,
+            notifier_config=NotifierConfig(backends=("webhook",), webhook_url=webhook_url),
+            discord_outbound_config=DiscordOutboundConfig(
+                bot_token=bot_token,
+                main_channel_id="main-channel",
+                run_report_channel_id="run-report-channel",
+            ),
+        )
+
+        outcome = run_once(
+            config,
+            named_notifiers={"webhook": SecretLeakingNotifier(f"webhook delivery failed for {webhook_url}")},
+            discord_client=discord,
+            checker=lambda _: {"updates": [self.make_update()]},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: self.fail("unexpected report log"),
+            error_logger=errors.append,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(2, len(discord.calls))
+        run_report = discord.calls[1]["content"]
+        self.assertNotIn(bot_token, run_report)
+        self.assertNotIn(webhook_url, run_report)
+        self.assertIn("[REDACTED_BOT_TOKEN]", run_report)
+        self.assertIn("[REDACTED_WEBHOOK_URL]", run_report)
+        self.assertEqual(1, len(errors))
+        self.assertNotIn(bot_token, errors[0])
+        self.assertNotIn(webhook_url, errors[0])
+        self.assertIn("[REDACTED_BOT_TOKEN]", errors[0])
+        self.assertIn("[REDACTED_WEBHOOK_URL]", errors[0])
+        self.assertNotIn(webhook_url, store["notification_outbox"][0]["last_error"])
+        self.assertIn("[REDACTED_WEBHOOK_URL]", store["notification_outbox"][0]["last_error"])
+        self.assertNotIn(
+            bot_token,
+            store["discord_delivery"]["daily_notification"]["pending_messages"][0]["last_error"],
+        )
+        self.assertIn(
+            "[REDACTED_BOT_TOKEN]",
+            store["discord_delivery"]["daily_notification"]["pending_messages"][0]["last_error"],
+        )
 
     def test_handle_fetch_trigger_accepts_when_idle_and_runs_in_background(self):
         checker_started = threading.Event()
