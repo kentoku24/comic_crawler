@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import time
 from datetime import datetime
 from typing import Callable, Dict, List, Mapping, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -10,6 +11,7 @@ from manga_watch.discord_text import (
     latest_display_label_for_snapshot,
     series_label_for_snapshot,
 )
+from manga_watch.status import default_expected_interval_seconds, derive_health_status
 from manga_watch.storage import load_state, load_watchlist
 
 DEFAULT_TIMEZONE = "Asia/Tokyo"
@@ -50,11 +52,32 @@ def render_work_line(work_id: str, latest: Mapping[str, object]) -> str:
     return f"{format_discord_link(latest_label(latest), latest.get('url'), truncate_label=False)}　{series}"
 
 
+def has_saved_data_warning(
+    work_entry: Mapping[str, object],
+    health: Mapping[str, object],
+    *,
+    now: int,
+    timezone_name: str,
+) -> bool:
+    health_policy = work_entry.get("health_policy") or {}
+    expected_interval_seconds = int(
+        health_policy.get("expected_interval_seconds")
+        or default_expected_interval_seconds(now=now, timezone_name=timezone_name)
+    )
+    derived_health = derive_health_status(
+        health,
+        now=now,
+        expected_interval_seconds=expected_interval_seconds,
+    )
+    return derived_health["state"] in {"degraded", "broken", "stale"}
+
+
 def build_latest_query_lines(
     watchlist: Mapping[str, object],
     state: Mapping[str, object],
     *,
     timezone_name: Optional[str] = None,
+    now: Optional[int] = None,
 ) -> List[str]:
     works = watchlist.get("works", [])
     if not isinstance(works, list):
@@ -65,6 +88,7 @@ def build_latest_query_lines(
         raise ValueError("state.works must be an object")
 
     timezone_name = validated_timezone_name(timezone_name or os.environ.get("TZ", DEFAULT_TIMEZONE))
+    current_time = int(time.time()) if now is None else int(now)
     lines = [
         HEADER_LINE,
         f"最終巡回: {format_last_run(state.get('last_run_at'), timezone_name)}",
@@ -100,7 +124,12 @@ def build_latest_query_lines(
         if not isinstance(health, Mapping):
             raise ValueError(f"state entry {work_id}.health must be an object")
 
-        partial_failure = partial_failure or int(health.get("consecutive_failures") or 0) > 0
+        partial_failure = partial_failure or has_saved_data_warning(
+            raw_entry,
+            health,
+            now=current_time,
+            timezone_name=timezone_name,
+        )
         rendered_works.append(render_work_line(work_id, latest))
 
     if not rendered_works or all(line.startswith("（未取得）") for line in rendered_works):
@@ -118,8 +147,9 @@ def build_latest_query_response(
     state: Mapping[str, object],
     *,
     timezone_name: Optional[str] = None,
+    now: Optional[int] = None,
 ) -> str:
-    return "\n".join(build_latest_query_lines(watchlist, state, timezone_name=timezone_name))
+    return "\n".join(build_latest_query_lines(watchlist, state, timezone_name=timezone_name, now=now))
 
 
 def handle_latest_query(
