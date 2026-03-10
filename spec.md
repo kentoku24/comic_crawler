@@ -1,5 +1,11 @@
 # SPEC.md
 
+> Canonical document note:
+> この仕様書の Git 上の実ファイル名は `spec.md` だが、repo 内の canonical
+> document name は `SPEC.md` とする。case-insensitive filesystem では
+> `SPEC.md` と legacy `spec.md` の path が衝突しうるため、canonical docs
+> と current issues で `SPEC.md` と書かれている場合は、このファイルを指す。
+
 ## 1. Purpose
 
 本仕様書は `comic_crawler` の受け入れ仕様を定義する。
