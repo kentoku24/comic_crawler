@@ -21,8 +21,6 @@ from manga_watch.notifier import (
 )
 from manga_watch.runner import (
     FETCH_ACCEPTED_MESSAGE,
-    FETCH_REJECTED_MESSAGE,
-    RUN_IN_PROGRESS_REASON,
     TRIGGER_SOURCE_DISCORD_FETCH,
     TRIGGER_SOURCE_SCHEDULED,
     TRIGGER_SOURCE_STARTUP,
@@ -927,13 +925,17 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(reports))
         self.assertEqual([], notifier.events)
 
-    def test_run_coordinator_rejects_startup_while_fetch_is_in_progress(self):
+    def test_run_coordinator_queues_startup_while_fetch_is_in_progress(self):
         checker_started = threading.Event()
         allow_finish = threading.Event()
+        reports = []
+        call_count = {"value": 0}
 
         def checker(_):
-            checker_started.set()
-            allow_finish.wait(1.0)
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                checker_started.set()
+                allow_finish.wait(1.0)
             return {"updates": []}
 
         coordinator = RunCoordinator(
@@ -943,7 +945,7 @@ class RunnerTests(unittest.TestCase):
             state_loader=self.make_state,
             state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
-            report_logger=lambda _: None,
+            report_logger=reports.append,
             error_logger=lambda _: self.fail("unexpected error log"),
         )
 
@@ -953,21 +955,29 @@ class RunnerTests(unittest.TestCase):
 
         startup_outcome = coordinator.run(TRIGGER_SOURCE_STARTUP)
 
-        self.assertFalse(startup_outcome["ok"])
-        self.assertTrue(startup_outcome["rejected"])
+        self.assertTrue(startup_outcome["ok"])
+        self.assertTrue(startup_outcome["accepted"])
+        self.assertTrue(startup_outcome["queued"])
+        self.assertTrue(startup_outcome["serialized"])
         self.assertEqual(TRIGGER_SOURCE_STARTUP, startup_outcome["triggerSource"])
-        self.assertEqual(RUN_IN_PROGRESS_REASON, startup_outcome["error"])
 
         allow_finish.set()
         self.wait_until(lambda: not coordinator.is_running())
+        self.assertEqual(2, call_count["value"])
+        self.assertEqual(2, len(reports))
+        self.assertIn("トリガー: startup", reports[1])
 
-    def test_run_coordinator_rejects_scheduled_while_fetch_is_in_progress(self):
+    def test_run_coordinator_queues_scheduled_while_fetch_is_in_progress(self):
         checker_started = threading.Event()
         allow_finish = threading.Event()
+        reports = []
+        call_count = {"value": 0}
 
         def checker(_):
-            checker_started.set()
-            allow_finish.wait(1.0)
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                checker_started.set()
+                allow_finish.wait(1.0)
             return {"updates": []}
 
         coordinator = RunCoordinator(
@@ -977,7 +987,7 @@ class RunnerTests(unittest.TestCase):
             state_loader=self.make_state,
             state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
-            report_logger=lambda _: None,
+            report_logger=reports.append,
             error_logger=lambda _: self.fail("unexpected error log"),
         )
 
@@ -987,13 +997,17 @@ class RunnerTests(unittest.TestCase):
 
         scheduled_outcome = coordinator.run(TRIGGER_SOURCE_SCHEDULED)
 
-        self.assertFalse(scheduled_outcome["ok"])
-        self.assertTrue(scheduled_outcome["rejected"])
+        self.assertTrue(scheduled_outcome["ok"])
+        self.assertTrue(scheduled_outcome["accepted"])
+        self.assertTrue(scheduled_outcome["queued"])
+        self.assertTrue(scheduled_outcome["serialized"])
         self.assertEqual(TRIGGER_SOURCE_SCHEDULED, scheduled_outcome["triggerSource"])
-        self.assertEqual(RUN_IN_PROGRESS_REASON, scheduled_outcome["error"])
 
         allow_finish.set()
         self.wait_until(lambda: not coordinator.is_running())
+        self.assertEqual(2, call_count["value"])
+        self.assertEqual(2, len(reports))
+        self.assertIn("トリガー: scheduled", reports[1])
 
     def test_handle_fetch_trigger_accepts_again_after_failure(self):
         call_count = {"value": 0}
@@ -1031,7 +1045,7 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("boom", errors[0])
         self.assertEqual(1, len(reports))
 
-    def test_rejected_fetch_does_not_invoke_checker_state_or_notifier(self):
+    def test_queued_fetch_defers_second_run_until_current_run_finishes(self):
         checker_started = threading.Event()
         allow_finish = threading.Event()
         calls = {"checker": 0, "state_loader": 0, "state_saver": 0}
@@ -1065,11 +1079,13 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(accepted_outcome["accepted"])
         self.assertTrue(checker_started.wait(0.5))
 
-        rejected_outcome = start_fetch_run(coordinator)
+        queued_outcome = start_fetch_run(coordinator)
 
-        self.assertFalse(rejected_outcome["ok"])
-        self.assertTrue(rejected_outcome["rejected"])
-        self.assertEqual(FETCH_REJECTED_MESSAGE, rejected_outcome["message"])
+        self.assertTrue(queued_outcome["ok"])
+        self.assertTrue(queued_outcome["accepted"])
+        self.assertTrue(queued_outcome["queued"])
+        self.assertTrue(queued_outcome["serialized"])
+        self.assertEqual(FETCH_ACCEPTED_MESSAGE, queued_outcome["message"])
         self.assertEqual(1, calls["checker"])
         self.assertEqual(0, calls["state_loader"])
         self.assertEqual(0, calls["state_saver"])
@@ -1077,6 +1093,7 @@ class RunnerTests(unittest.TestCase):
 
         allow_finish.set()
         self.wait_until(lambda: not coordinator.is_running())
+        self.assertEqual(2, calls["checker"])
 
     def test_replay_outbox_once_delivers_pending_events_and_clears_outbox(self):
         event = build_update_event(

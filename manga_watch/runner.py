@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
+from collections import deque
 import os
 import sys
 import threading
 import time
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta
-from typing import Callable, Dict, List, Mapping, Optional
+from typing import Callable, Deque, Dict, List, Mapping, Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from manga_watch.check import CheckRunError, run_check
@@ -420,6 +421,28 @@ def rejected_run_outcome(trigger_source: str, *, timestamp: str) -> Dict[str, ob
     }
 
 
+def queued_run_outcome(
+    trigger_source: str,
+    *,
+    timestamp: str,
+    background: bool,
+) -> Dict[str, object]:
+    return {
+        "ok": True,
+        "accepted": True,
+        "queued": True,
+        "serialized": True,
+        "background": background,
+        "updateCount": 0,
+        "notifiedUpdateCount": 0,
+        "suppressedUpdateCount": 0,
+        "errorCount": 0,
+        "outboxPendingCount": 0,
+        "timestamp": timestamp,
+        "triggerSource": trigger_source,
+    }
+
+
 def runner_redaction_secrets(config: "RunnerConfig") -> tuple[str, ...]:
     secrets = []
     if config.notifier_config.webhook_url:
@@ -687,6 +710,8 @@ class RunCoordinator:
     error_logger: Callable[[str], None] = report_to_stderr
     thread_factory: Callable[..., threading.Thread] = threading.Thread
     _lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
+    _pending_trigger_sources: Deque[str] = field(default_factory=deque, init=False, repr=False)
+    _pending_lock: threading.Lock = field(default_factory=threading.Lock, init=False, repr=False)
 
     def is_running(self) -> bool:
         return self._lock.locked()
@@ -711,18 +736,35 @@ class RunCoordinator:
 
     def _run_with_lock(self, *, trigger_source: str) -> Dict[str, object]:
         try:
-            return self._run_once(trigger_source=trigger_source)
+            outcome = self._run_once(trigger_source=trigger_source)
+            while True:
+                next_trigger_source = self._dequeue_trigger_source()
+                if next_trigger_source is None:
+                    return outcome
+                outcome = self._run_once(trigger_source=next_trigger_source)
         finally:
             self._lock.release()
 
+    def _enqueue_trigger_source(self, trigger_source: str) -> None:
+        with self._pending_lock:
+            self._pending_trigger_sources.append(trigger_source)
+
+    def _dequeue_trigger_source(self) -> Optional[str]:
+        with self._pending_lock:
+            if not self._pending_trigger_sources:
+                return None
+            return self._pending_trigger_sources.popleft()
+
     def run(self, trigger_source: str) -> Dict[str, object]:
         if not self._lock.acquire(blocking=False):
-            return rejected_run_outcome(trigger_source, timestamp=self._timestamp())
+            self._enqueue_trigger_source(trigger_source)
+            return queued_run_outcome(trigger_source, timestamp=self._timestamp(), background=False)
         return self._run_with_lock(trigger_source=trigger_source)
 
     def start_background(self, trigger_source: str) -> Dict[str, object]:
         if not self._lock.acquire(blocking=False):
-            return rejected_run_outcome(trigger_source, timestamp=self._timestamp())
+            self._enqueue_trigger_source(trigger_source)
+            return queued_run_outcome(trigger_source, timestamp=self._timestamp(), background=True)
 
         thread = self.thread_factory(
             target=self._run_with_lock,
@@ -747,10 +789,6 @@ class RunCoordinator:
 
 def start_fetch_run(coordinator: RunCoordinator) -> Dict[str, object]:
     outcome = coordinator.start_background(TRIGGER_SOURCE_DISCORD_FETCH)
-    if outcome.get("rejected"):
-        outcome["message"] = FETCH_REJECTED_MESSAGE
-        return outcome
-
     outcome["message"] = FETCH_ACCEPTED_MESSAGE
     return outcome
 
