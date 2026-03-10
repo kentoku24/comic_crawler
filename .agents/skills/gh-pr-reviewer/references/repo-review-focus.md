@@ -1,12 +1,12 @@
-# comic_crawler Review Focus
+# de-group Review Focus
 
 必要なときだけこのファイルを読む。
-この repo で `spacex-chief-reviewer` が見るべき「固定チェックリストではない reviewer の観点」をまとめる。
+この repo で `gh-pr-reviewer` が見るべき「固定チェックリストではない PR Reviewer の観点」をまとめる。
 
 ## 1. Repo Fit
 
-この repo は単一の checker script と周辺 docs が中心で、複雑な層構造を前提にしていない。
-したがって reviewer は「より大きくて抽象的な設計が美しいか」ではなく、「この変更量でこの repo に素直に収まるか」を見る。
+この repo は dotfiles、skill、agent 設定、文書が同居しており、変更ごとに重視すべき観点が少しずつ違う。
+したがって PR Reviewer は「より大きくて抽象的な設計が美しいか」ではなく、「この変更量でこの repo の実際の構成に素直に収まるか」を見る。
 
 見ること:
 - 小さな変更で済むところに大きな構造を持ち込んでいないか
@@ -24,7 +24,7 @@ PR Description や関連 Issue の約束が、実装の結果として本当に�
 
 ## 3. Resolution Quality
 
-過去の chief-engineer 指摘は「コメントに返事したか」ではなく、「実装として納得できる形で解消したか」を見る。
+過去の chief-engineer 指摘は「コメントに返事したか」ではなく、「実装または文書として納得できる形で解消したか」を見る。
 レビューで `NG` を出すなら、解消の方向を一段具体化して返す。
 
 見ること:
@@ -34,11 +34,11 @@ PR Description や関連 Issue の約束が、実装の結果として本当に�
 
 ## 4. Validation Fit
 
-reviewer は「十分に証明されたか」を見る。ここでの十分さは、変更のリスクに比例する。
+PR Reviewer は「十分に証明されたか」を見る。ここでの十分さは、変更のリスクに比例する。
 
 見ること:
 - 軽微な変更なら軽い根拠で足りるか
-- 挙動変更や parser 変更なら、それに見合う根拠があるか
+- skill / agent / 運用導線の変更なら、それに見合う根拠があるか
 - 根拠が無いのに楽観的に approve していないか
 
 ## 5. Approval Bar

@@ -1,0 +1,5 @@
+model: gpt-5
+skill:
+  name: gh-issue-reviewer
+  short_description: "GitHub Issue の実装開始可否を確認し、APPROVE または NG のコメントを残す。"
+  default_prompt: "Use $gh-issue-reviewer on this GitHub Issue. Extract 実施範囲, 制約, 対象外, and 着手前に解消すべき論点, then leave an Issue comment with APPROVE or NG."

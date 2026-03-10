@@ -16,7 +16,7 @@ Issue Brief
   - ...
 - Non-goals:
   - ...
-- Existing Chief Engineer guidance:
+- Existing gh-issue-reviewer guidance:
   - ...
 - Constraints:
   - ...
@@ -44,8 +44,7 @@ Maker Packet
   - `worktree_ready`
   - `pr_opened`
   - `review_state_changed`
-  - `merged`
-  - `issue_closed`
+  - `merger_state_changed`
 - Relevant files:
   - ...
 - Constraints:
@@ -57,10 +56,10 @@ Maker Packet
   - ...
 ```
 
-## Chief Reviewer Review Packet
+## PR Reviewer Review Packet
 
 ```text
-Chief Reviewer Review Packet
+PR Reviewer Review Packet
 - Issue:
 - PR:
 - Cycle:
@@ -77,12 +76,43 @@ Chief Reviewer Review Packet
 - Requested decision: APPROVE | NG
 ```
 
-## Chief Reviewer Gate
+## PR Reviewer Gate
 
 ```text
-Chief Reviewer Gate
-- Reviewer agent:
+PR Reviewer Gate
+- PR Reviewer agent:
 - Decision: APPROVE | NG
+- Blocking issues:
+  - ...
+- Required rework:
+  - ...
+- Residual risks:
+  - ...
+```
+
+## Merger Packet
+
+```text
+Merger Packet
+- Issue:
+- PR:
+- Merger execution mode: `spawn_agent` (independent context)
+- PR Reviewer prerequisite:
+- Merge: `true` | `false`
+- Verification evidence:
+  - ...
+- Known gaps:
+  - ...
+- Requested decision: APPROVE | NG
+```
+
+## Merger Gate
+
+```text
+Merger Gate
+- Merger agent:
+- Decision: APPROVE | NG
+- Merge executed: yes | no
 - Blocking issues:
   - ...
 - Required rework:
@@ -98,8 +128,8 @@ Orchestrated Child Heartbeat
 - Issue:
 - Parent issue:
 - Run id:
-- Checkpoint: `worktree_ready` | `pr_opened` | `review_state_changed` | `merged` | `issue_closed`
-- Terminal result: `in_progress` | `merge_pending` | `issue_close_pending` | `done` | `blocked` | `failed`
+- Checkpoint: `worktree_ready` | `pr_opened` | `review_state_changed` | `merger_state_changed`
+- Terminal result: `in_progress` | `gh-pr-reviewer-gate-pending` | `merger_pending` | `ready_to_merge` | `merged` | `done` | `blocked` | `failed`
 - Branch:
 - Worktree:
 - PR:
@@ -117,8 +147,8 @@ Cycle Update
 - Cycle:
 - Goal:
 - Execution mode:
-- Progress checkpoint: `planning` | `worktree_ready` | `pr_opened` | `review_state_changed` | `merged` | `issue_closed`
-- Terminal result: `in_progress` | `done` | `reviewer_gate_pending` | `merge_pending` | `issue_close_pending` | `blocked` | `failed`
+- Progress checkpoint: `planning` | `worktree_ready` | `pr_opened` | `review_state_changed` | `merger_state_changed`
+- Terminal result: `in_progress` | `done` | `gh-pr-reviewer-gate-pending` | `merger_pending` | `ready_to_merge` | `merged` | `blocked` | `failed`
 - Worktrees (if used):
   - ...
 - Branches (if used):
@@ -128,7 +158,8 @@ Cycle Update
 - PR status:
 - Evidence gained:
   - ...
-- Chief Reviewer decision:
+- PR Reviewer decision:
+- Merger decision:
 - Blockers:
   - ...
 - Next move:

@@ -2,21 +2,17 @@
 multi_agent = true
 
 [agents]
-max_threads = 6
-max_depth = 1
+max_threads = 10
+max_depth = 2
 
 [agents.explorer]
 description = "Read-only explorer for mapping the smallest relevant code path before implementation."
 config_file = "agents/explorer.toml"
 
-[agents.chief_engineer]
-description = "Read-only technical authority for constraints, risks, and safer alternatives."
-config_file = "agents/chief-engineer.toml"
+[agents."gh-pr-reviewer"]
+description = "Read-only PR reviewer role for approval gates and implementation risks."
+config_file = "agents/gh-pr-reviewer.toml"
 
 [agents.maker]
 description = "Implementation-focused worker for the smallest bounded issue packet."
 config_file = "agents/maker.toml"
-
-[agents.telemetry]
-description = "Read-only validator for tests, evidence, and residual risk."
-config_file = "agents/telemetry.toml"
