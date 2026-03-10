@@ -322,6 +322,7 @@ python3.12 -m venv .venv
 .venv/bin/python -m manga_watch.source_drift --format json
 .venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
 .venv/bin/python -m manga_watch.run_mocked_acceptance
+.venv/bin/python -m manga_watch.discord_real_e2e --case all --json
 ```
 
 runner をローカル起動する場合は notifier 環境変数と Discord outbound 環境変数を入れてから実行します。
@@ -336,6 +337,7 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 ```
 
 Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。
+Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 
 ## Status CLI
 
