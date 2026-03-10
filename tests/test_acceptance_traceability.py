@@ -6,7 +6,7 @@ import unittest
 from tests.acceptance_traceability import ACCEPTANCE_TRACEABILITY
 
 
-EXPECTED_MUST_CASE_IDS = {
+EXPECTED_MOCKED_CASE_IDS = {
     "TC-LATEST-01",
     "TC-LATEST-02",
     "TC-LATEST-03",
@@ -18,6 +18,7 @@ EXPECTED_MUST_CASE_IDS = {
     "TC-LATEST-09",
     "TC-LATEST-10",
     "TC-LATEST-11",
+    "TC-LATEST-12",
     "TC-DAILY-01",
     "TC-DAILY-02",
     "TC-DAILY-03",
@@ -38,8 +39,11 @@ EXPECTED_MUST_CASE_IDS = {
     "TC-REPORT-04",
     "TC-DELIVERY-01",
     "TC-DELIVERY-02",
+    "TC-DELIVERY-03",
+    "TC-DELIVERY-04",
     "TC-STATE-01",
     "TC-STATE-02",
+    "TC-STATE-03",
     "TC-SEC-01",
     "TC-SEC-02",
     "TC-SEC-03",
@@ -55,8 +59,8 @@ VALID_LAYERS = {
 
 
 class AcceptanceTraceabilityTests(unittest.TestCase):
-    def test_manifest_covers_current_must_cases(self):
-        self.assertEqual(EXPECTED_MUST_CASE_IDS, set(ACCEPTANCE_TRACEABILITY))
+    def test_manifest_covers_mocked_acceptance_cases(self):
+        self.assertEqual(EXPECTED_MOCKED_CASE_IDS, set(ACCEPTANCE_TRACEABILITY))
 
     def test_manifest_uses_known_layers(self):
         for case_id, entry in ACCEPTANCE_TRACEABILITY.items():

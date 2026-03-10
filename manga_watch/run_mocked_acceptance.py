@@ -5,15 +5,7 @@ import argparse
 import sys
 import unittest
 
-MOCKED_ACCEPTANCE_MODULES = (
-    "tests.test_discord_latest",
-    "tests.test_discord_fetch",
-    "tests.test_discord_inbound",
-    "tests.test_discord_outbound",
-    "tests.test_runner",
-    "tests.test_check",
-    "tests.test_storage",
-)
+from tests.acceptance_suite import MOCKED_ACCEPTANCE_MODULES
 
 
 def build_parser() -> argparse.ArgumentParser:
