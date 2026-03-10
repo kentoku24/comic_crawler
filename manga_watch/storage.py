@@ -1,7 +1,11 @@
 import json
 import os
 import re
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+import tempfile
+from contextlib import contextmanager
+from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
+
+import fcntl
 
 from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES, SUPPORTED_UPDATE_TYPES
 
@@ -90,20 +94,43 @@ def save_watchlist(watchlist: Mapping[str, object], path: Optional[str] = None) 
     atomic_write_json(path or get_watchlist_path(), validate_watchlist(watchlist))
 
 
+@contextmanager
+def advisory_file_lock(path: str) -> Iterator[None]:
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    lock_path = f"{path}.lock"
+    lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
+
+
 def atomic_write_json(path: str, payload: Mapping[str, object]) -> None:
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
-    tmp_path = f"{path}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp_path, path)
-    dir_fd = os.open(directory, os.O_RDONLY)
-    try:
-        os.fsync(dir_fd)
-    finally:
-        os.close(dir_fd)
+    prefix = f".{os.path.basename(path) or 'state'}."
+    with advisory_file_lock(path):
+        fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=prefix, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+            dir_fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                pass
+            raise
 
 
 def validate_watchlist(payload: Mapping[str, object]) -> Dict[str, object]:

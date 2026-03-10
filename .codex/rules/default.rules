@@ -1,0 +1,16 @@
+prefix_rule(
+    pattern = ["gh", "issue"],
+    decision = "allow",
+    justification = "Allow GitHub issue operations automatically in comic_crawler.",
+    match = [
+        "gh issue create --title test --body test",
+        "gh issue edit 123 --title updated",
+        "gh issue comment 123 --body note",
+        "gh issue close 123",
+        "gh issue reopen 123",
+    ],
+    not_match = [
+        "gh pr create",
+        "gh api repos/openai/codex/issues",
+    ],
+)

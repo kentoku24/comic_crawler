@@ -142,7 +142,7 @@ def item_id_for_state(item: Mapping[str, object]) -> str:
 
 
 def latest_id_for_state(latest: Mapping[str, object]) -> str:
-    return str(latest.get("latestKey") or latest.get("episodeCode") or latest.get("url") or "")
+    return str(latest.get("latestKey") or latest.get("latest_key") or "")
 
 
 def update_type_for_latest(latest: Mapping[str, object]) -> str:
@@ -691,6 +691,7 @@ def run_check(
 
     state["last_run_at"] = now
     try:
+        # Persist source observations before control returns to the runner's delivery phase.
         save_state(state)
     except Exception as exc:
         errors["run"].append(run_error_record("save_state", exc))

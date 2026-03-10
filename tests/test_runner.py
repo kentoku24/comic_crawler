@@ -21,8 +21,6 @@ from manga_watch.notifier import (
 )
 from manga_watch.runner import (
     FETCH_ACCEPTED_MESSAGE,
-    FETCH_REJECTED_MESSAGE,
-    RUN_IN_PROGRESS_REASON,
     TRIGGER_SOURCE_DISCORD_FETCH,
     TRIGGER_SOURCE_SCHEDULED,
     TRIGGER_SOURCE_STARTUP,
@@ -44,6 +42,14 @@ class FakeNotifier:
         if self.fail_on_index is not None and len(self.events) == self.fail_on_index:
             raise RuntimeError("notifier backend failed")
         self.events.append(event)
+
+
+class SecretLeakingNotifier:
+    def __init__(self, message):
+        self.message = message
+
+    def send(self, event):
+        raise RuntimeError(self.message)
 
 
 class FakeResponse:
@@ -91,6 +97,22 @@ class FakeDiscordClient:
             raise RuntimeError("discord delivery failed")
         if channel_id in self.fail_channels:
             raise RuntimeError(f"discord delivery failed for {channel_id}")
+
+
+class SecretLeakingDiscordClient:
+    def __init__(self, token):
+        self.token = token
+        self.calls = []
+
+    def send_message(self, channel_id, content):
+        self.calls.append(
+            {
+                "channel_id": channel_id,
+                "content": content,
+            }
+        )
+        if channel_id == "main-channel":
+            raise RuntimeError(f"discord auth failed with Authorization: Bot {self.token}")
 
 
 class RunnerTests(unittest.TestCase):
@@ -328,6 +350,21 @@ class RunnerTests(unittest.TestCase):
 
         with self.assertRaisesRegex(RuntimeError, "Webhook delivery failed"):
             notifier.send(event)
+
+    def test_webhook_notifier_masks_webhook_url_in_transport_error(self):
+        webhook_url = "https://discord.com/api/webhooks/123/secret"
+        event = build_update_event(
+            self.make_update(latest_key="episode-2"),
+            detected_at="2023-11-14T22:13:20Z",
+        )
+        session = FakeSession(error=requests.Timeout(f"POST {webhook_url} timed out"))
+        notifier = WebhookNotifier(webhook_url, session=session)
+
+        with self.assertRaises(RuntimeError) as exc_info:
+            notifier.send(event)
+
+        self.assertNotIn(webhook_url, str(exc_info.exception))
+        self.assertIn("[REDACTED_WEBHOOK_URL]", str(exc_info.exception))
 
     def test_run_once_without_updates_only_logs_report(self):
         notifier = FakeNotifier()
@@ -592,6 +629,18 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn("work-1: update event work-1 is missing latest_key", errors[0])
 
+    def test_build_update_event_requires_explicit_latest_key_without_fallback(self):
+        invalid_update = self.make_update()
+        invalid_update["to"] = {
+            "series_title": "作品A",
+            "episode_title": "第2話",
+            "episode_code": "episode-2",
+            "url": "https://example.com/2",
+        }
+
+        with self.assertRaisesRegex(ValueError, "update event work-1 is missing latest_key"):
+            build_update_event(invalid_update, detected_at="2023-11-14T22:13:20Z")
+
     def test_run_once_persists_only_failed_backends_in_notification_outbox(self):
         stdout_notifier = FakeNotifier()
         webhook_notifier = FakeNotifier(fail_on_index=0)
@@ -737,6 +786,52 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertIn("daily notification: 送信した", reports[0])
 
+    def test_run_once_reports_daily_pending_and_delivery_failure_visibility(self):
+        store, load_from_store, save_to_store = self.make_state_store(
+            {
+                **self.make_state(),
+                "discord_delivery": {
+                    "daily_notification": {
+                        "delivered_latest_keys": {},
+                        "pending_messages": [
+                            {
+                                "channel_id": "main-channel",
+                                "content": "pending message",
+                                "message_keys": [{"work_id": "work-1", "latest_key": "episode-2"}],
+                                "created_at": "2023-11-14T22:13:20Z",
+                                "attempt_count": 1,
+                                "last_attempted_at": "2023-11-14T22:14:00Z",
+                                "last_error": "discord delivery failed for main-channel",
+                            }
+                        ],
+                    }
+                },
+            }
+        )
+        discord = FakeDiscordClient(fail_channels={"main-channel"})
+        errors = []
+
+        outcome = run_once(
+            self.make_config(with_discord=True),
+            notifier=FakeNotifier(),
+            discord_client=discord,
+            checker=lambda _: {"updates": []},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_300,
+            report_logger=lambda _: self.fail("unexpected report log"),
+            error_logger=errors.append,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(["main-channel", "run-report-channel"], [call["channel_id"] for call in discord.calls])
+        self.assertIn("Discord daily pending: 1件", discord.calls[1]["content"])
+        self.assertIn("delivery failure: 1件", discord.calls[1]["content"])
+        self.assertIn("generic notifier outbox残件: 0件", discord.calls[1]["content"])
+        self.assertEqual(1, len(store["discord_delivery"]["daily_notification"]["pending_messages"]))
+        self.assertEqual(1, len(errors))
+        self.assertIn("notification delivery failed", errors[0])
+
     def test_run_once_logs_secondary_failure_when_run_report_delivery_fails(self):
         discord = FakeDiscordClient(fail_channels={"run-report-channel"})
         errors = []
@@ -784,6 +879,61 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn("boom", errors[0])
 
+    def test_run_once_redacts_secrets_from_failure_outputs(self):
+        bot_token = "discord-bot-token"
+        webhook_url = "https://discord.com/api/webhooks/123/secret"
+        discord = SecretLeakingDiscordClient(bot_token)
+        errors = []
+        store, load_from_store, save_to_store = self.make_state_store()
+        config = RunnerConfig(
+            timezone_name="Asia/Tokyo",
+            watchlist_path="/tmp/watchlist.json",
+            crawl_schedule="0 19 * * *",
+            crawl_interval=None,
+            run_on_startup=True,
+            notifier_config=NotifierConfig(backends=("webhook",), webhook_url=webhook_url),
+            discord_outbound_config=DiscordOutboundConfig(
+                bot_token=bot_token,
+                main_channel_id="main-channel",
+                run_report_channel_id="run-report-channel",
+            ),
+        )
+
+        outcome = run_once(
+            config,
+            named_notifiers={"webhook": SecretLeakingNotifier(f"webhook delivery failed for {webhook_url}")},
+            discord_client=discord,
+            checker=lambda _: {"updates": [self.make_update()]},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: self.fail("unexpected report log"),
+            error_logger=errors.append,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(2, len(discord.calls))
+        run_report = discord.calls[1]["content"]
+        self.assertNotIn(bot_token, run_report)
+        self.assertNotIn(webhook_url, run_report)
+        self.assertIn("[REDACTED_BOT_TOKEN]", run_report)
+        self.assertIn("[REDACTED_WEBHOOK_URL]", run_report)
+        self.assertEqual(1, len(errors))
+        self.assertNotIn(bot_token, errors[0])
+        self.assertNotIn(webhook_url, errors[0])
+        self.assertIn("[REDACTED_BOT_TOKEN]", errors[0])
+        self.assertIn("[REDACTED_WEBHOOK_URL]", errors[0])
+        self.assertNotIn(webhook_url, store["notification_outbox"][0]["last_error"])
+        self.assertIn("[REDACTED_WEBHOOK_URL]", store["notification_outbox"][0]["last_error"])
+        self.assertNotIn(
+            bot_token,
+            store["discord_delivery"]["daily_notification"]["pending_messages"][0]["last_error"],
+        )
+        self.assertIn(
+            "[REDACTED_BOT_TOKEN]",
+            store["discord_delivery"]["daily_notification"]["pending_messages"][0]["last_error"],
+        )
+
     def test_handle_fetch_trigger_accepts_when_idle_and_runs_in_background(self):
         checker_started = threading.Event()
         allow_finish = threading.Event()
@@ -821,13 +971,17 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(reports))
         self.assertEqual([], notifier.events)
 
-    def test_run_coordinator_rejects_startup_while_fetch_is_in_progress(self):
+    def test_run_coordinator_queues_startup_while_fetch_is_in_progress(self):
         checker_started = threading.Event()
         allow_finish = threading.Event()
+        reports = []
+        call_count = {"value": 0}
 
         def checker(_):
-            checker_started.set()
-            allow_finish.wait(1.0)
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                checker_started.set()
+                allow_finish.wait(1.0)
             return {"updates": []}
 
         coordinator = RunCoordinator(
@@ -837,7 +991,7 @@ class RunnerTests(unittest.TestCase):
             state_loader=self.make_state,
             state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
-            report_logger=lambda _: None,
+            report_logger=reports.append,
             error_logger=lambda _: self.fail("unexpected error log"),
         )
 
@@ -847,21 +1001,29 @@ class RunnerTests(unittest.TestCase):
 
         startup_outcome = coordinator.run(TRIGGER_SOURCE_STARTUP)
 
-        self.assertFalse(startup_outcome["ok"])
-        self.assertTrue(startup_outcome["rejected"])
+        self.assertTrue(startup_outcome["ok"])
+        self.assertTrue(startup_outcome["accepted"])
+        self.assertTrue(startup_outcome["queued"])
+        self.assertTrue(startup_outcome["serialized"])
         self.assertEqual(TRIGGER_SOURCE_STARTUP, startup_outcome["triggerSource"])
-        self.assertEqual(RUN_IN_PROGRESS_REASON, startup_outcome["error"])
 
         allow_finish.set()
         self.wait_until(lambda: not coordinator.is_running())
+        self.assertEqual(2, call_count["value"])
+        self.assertEqual(2, len(reports))
+        self.assertIn("トリガー: startup", reports[1])
 
-    def test_run_coordinator_rejects_scheduled_while_fetch_is_in_progress(self):
+    def test_run_coordinator_queues_scheduled_while_fetch_is_in_progress(self):
         checker_started = threading.Event()
         allow_finish = threading.Event()
+        reports = []
+        call_count = {"value": 0}
 
         def checker(_):
-            checker_started.set()
-            allow_finish.wait(1.0)
+            call_count["value"] += 1
+            if call_count["value"] == 1:
+                checker_started.set()
+                allow_finish.wait(1.0)
             return {"updates": []}
 
         coordinator = RunCoordinator(
@@ -871,7 +1033,7 @@ class RunnerTests(unittest.TestCase):
             state_loader=self.make_state,
             state_saver=lambda _: None,
             now_fn=lambda: 1_700_000_000,
-            report_logger=lambda _: None,
+            report_logger=reports.append,
             error_logger=lambda _: self.fail("unexpected error log"),
         )
 
@@ -881,13 +1043,17 @@ class RunnerTests(unittest.TestCase):
 
         scheduled_outcome = coordinator.run(TRIGGER_SOURCE_SCHEDULED)
 
-        self.assertFalse(scheduled_outcome["ok"])
-        self.assertTrue(scheduled_outcome["rejected"])
+        self.assertTrue(scheduled_outcome["ok"])
+        self.assertTrue(scheduled_outcome["accepted"])
+        self.assertTrue(scheduled_outcome["queued"])
+        self.assertTrue(scheduled_outcome["serialized"])
         self.assertEqual(TRIGGER_SOURCE_SCHEDULED, scheduled_outcome["triggerSource"])
-        self.assertEqual(RUN_IN_PROGRESS_REASON, scheduled_outcome["error"])
 
         allow_finish.set()
         self.wait_until(lambda: not coordinator.is_running())
+        self.assertEqual(2, call_count["value"])
+        self.assertEqual(2, len(reports))
+        self.assertIn("トリガー: scheduled", reports[1])
 
     def test_handle_fetch_trigger_accepts_again_after_failure(self):
         call_count = {"value": 0}
@@ -925,7 +1091,7 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("boom", errors[0])
         self.assertEqual(1, len(reports))
 
-    def test_rejected_fetch_does_not_invoke_checker_state_or_notifier(self):
+    def test_queued_fetch_defers_second_run_until_current_run_finishes(self):
         checker_started = threading.Event()
         allow_finish = threading.Event()
         calls = {"checker": 0, "state_loader": 0, "state_saver": 0}
@@ -959,11 +1125,13 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(accepted_outcome["accepted"])
         self.assertTrue(checker_started.wait(0.5))
 
-        rejected_outcome = start_fetch_run(coordinator)
+        queued_outcome = start_fetch_run(coordinator)
 
-        self.assertFalse(rejected_outcome["ok"])
-        self.assertTrue(rejected_outcome["rejected"])
-        self.assertEqual(FETCH_REJECTED_MESSAGE, rejected_outcome["message"])
+        self.assertTrue(queued_outcome["ok"])
+        self.assertTrue(queued_outcome["accepted"])
+        self.assertTrue(queued_outcome["queued"])
+        self.assertTrue(queued_outcome["serialized"])
+        self.assertEqual(FETCH_ACCEPTED_MESSAGE, queued_outcome["message"])
         self.assertEqual(1, calls["checker"])
         self.assertEqual(0, calls["state_loader"])
         self.assertEqual(0, calls["state_saver"])
@@ -971,6 +1139,7 @@ class RunnerTests(unittest.TestCase):
 
         allow_finish.set()
         self.wait_until(lambda: not coordinator.is_running())
+        self.assertEqual(2, calls["checker"])
 
     def test_replay_outbox_once_delivers_pending_events_and_clears_outbox(self):
         event = build_update_event(
@@ -1009,6 +1178,65 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual([], store["notification_outbox"])
         self.assertIn("再送対象: 1件", reports[0])
         self.assertIn("再送残件: 0件", reports[0])
+
+    def test_replay_outbox_once_keeps_discord_daily_pending_messages_untouched(self):
+        event = build_update_event(
+            self.make_update(latest_key="episode-2"),
+            detected_at="2023-11-14T22:13:20Z",
+        )
+        store, load_from_store, save_to_store = self.make_state_store(
+            {
+                **self.make_state(),
+                "notification_outbox": [
+                    {
+                        "event": event.as_payload(),
+                        "pending_backends": ["stdout"],
+                        "attempt_count": 1,
+                        "last_attempted_at": "2023-11-14T22:13:20Z",
+                        "last_error": "stdout: timed out",
+                    }
+                ],
+                "discord_delivery": {
+                    "daily_notification": {
+                        "delivered_latest_keys": {},
+                        "pending_messages": [
+                            {
+                                "channel_id": "main-channel",
+                                "content": "pending daily message",
+                                "message_keys": [{"work_id": "work-1", "latest_key": "episode-2"}],
+                                "created_at": "2023-11-14T22:13:20Z",
+                                "attempt_count": 1,
+                                "last_attempted_at": "2023-11-14T22:14:00Z",
+                                "last_error": "discord delivery failed for main-channel",
+                            }
+                        ],
+                    }
+                },
+            }
+        )
+        notifier = FakeNotifier()
+
+        outcome = replay_outbox_once(
+            self.make_config(),
+            named_notifiers={"stdout": notifier},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_300,
+            report_logger=lambda _: None,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        self.assertTrue(outcome["ok"])
+        self.assertEqual(1, len(notifier.events))
+        self.assertEqual([], store["notification_outbox"])
+        self.assertEqual(
+            1,
+            len(store["discord_delivery"]["daily_notification"]["pending_messages"]),
+        )
+        self.assertEqual(
+            "episode-2",
+            store["discord_delivery"]["daily_notification"]["pending_messages"][0]["message_keys"][0]["latest_key"],
+        )
 
     def test_replay_outbox_module_replays_pending_events(self):
         repo_root = Path(__file__).resolve().parents[1]
