@@ -198,13 +198,7 @@ def daily_notification_key(update: Mapping[str, object]) -> Optional[Tuple[str, 
     latest = update.get("to", {}) or {}
     if not isinstance(latest, Mapping):
         latest = {}
-    latest_key = _coerce_text(
-        latest.get("latest_key")
-        or latest.get("latestKey")
-        or latest.get("episode_code")
-        or latest.get("episodeCode")
-        or latest.get("url")
-    )
+    latest_key = _coerce_text(latest.get("latest_key") or latest.get("latestKey"))
     if not work_id or not latest_key:
         return None
     return work_id, latest_key
