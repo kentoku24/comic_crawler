@@ -8,6 +8,8 @@ from typing import Dict, List, Mapping, Optional, Protocol, Sequence, TextIO, Tu
 
 import requests
 
+from manga_watch.secret_redaction import redact_secret_text
+
 DEFAULT_WEBHOOK_TIMEOUT = 10
 SUPPORTED_NOTIFIER_BACKENDS = {"stdout", "webhook"}
 
@@ -298,12 +300,17 @@ class WebhookNotifier:
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise RuntimeError(f"Webhook delivery failed: {exc}") from exc
+            raise RuntimeError(
+                f"Webhook delivery failed: {redact_secret_text(exc, secrets=(self.webhook_url,))}"
+            ) from exc
 
         if 200 <= response.status_code < 300:
             return
 
-        detail = response.text.strip().replace("\n", " ")
+        detail = redact_secret_text(
+            response.text.strip().replace("\n", " "),
+            secrets=(self.webhook_url,),
+        )
         raise RuntimeError(f"Webhook returned HTTP {response.status_code}: {detail[:300]}")
 
 

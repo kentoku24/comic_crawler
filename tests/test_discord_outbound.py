@@ -2,6 +2,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
+import requests
+
 from manga_watch.discord_outbound import (
     DiscordChannelClient,
     DiscordOutboundConfig,
@@ -149,6 +151,44 @@ class DiscordOutboundTests(unittest.TestCase):
         )
         self.assertEqual({"limit": 100, "after": "10"}, session.calls[1]["params"])
         self.assertEqual("latest", messages[0]["content"])
+
+    def test_discord_channel_client_masks_bot_token_in_transport_error(self):
+        token = "discord-bot-token"
+        session = FakeSession(error=requests.Timeout(f"Authorization: Bot {token}"))
+        client = DiscordChannelClient(
+            DiscordOutboundConfig(
+                bot_token=token,
+                main_channel_id="main-channel",
+                run_report_channel_id="run-report-channel",
+            ),
+            session=session,
+        )
+
+        with self.assertRaises(RuntimeError) as exc_info:
+            client.send_message("run-report-channel", "hello")
+
+        self.assertNotIn(token, str(exc_info.exception))
+        self.assertIn("[REDACTED_BOT_TOKEN]", str(exc_info.exception))
+
+    def test_discord_channel_client_masks_bot_token_in_error_response(self):
+        token = "discord-bot-token"
+        session = FakeSession(
+            responses=[FakeResponse(401, text=f"Authorization header was Bot {token}")]
+        )
+        client = DiscordChannelClient(
+            DiscordOutboundConfig(
+                bot_token=token,
+                main_channel_id="main-channel",
+                run_report_channel_id="run-report-channel",
+            ),
+            session=session,
+        )
+
+        with self.assertRaises(RuntimeError) as exc_info:
+            client.send_message("run-report-channel", "hello")
+
+        self.assertNotIn(token, str(exc_info.exception))
+        self.assertIn("[REDACTED_BOT_TOKEN]", str(exc_info.exception))
 
     def test_state_round_trip_preserves_discord_delivery_state(self):
         state = {

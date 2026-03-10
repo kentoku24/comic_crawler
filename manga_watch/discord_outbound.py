@@ -8,6 +8,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 
+from manga_watch.secret_redaction import redact_secret_text
 from manga_watch.discord_text import (
     episode_label_for_snapshot,
     series_label_for_snapshot,
@@ -101,12 +102,17 @@ class DiscordChannelClient:
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise RuntimeError(f"Discord delivery failed: {exc}") from exc
+            raise RuntimeError(
+                f"Discord delivery failed: {redact_secret_text(exc, secrets=(self.config.bot_token,))}"
+            ) from exc
 
         if 200 <= response.status_code < 300:
             return
 
-        detail = response.text.strip().replace("\n", " ")
+        detail = redact_secret_text(
+            response.text.strip().replace("\n", " "),
+            secrets=(self.config.bot_token,),
+        )
         raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
 
     def get_current_user_id(self) -> str:
@@ -120,7 +126,10 @@ class DiscordChannelClient:
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise RuntimeError(f"Discord current-user lookup failed: {exc}") from exc
+            raise RuntimeError(
+                "Discord current-user lookup failed: "
+                f"{redact_secret_text(exc, secrets=(self.config.bot_token,))}"
+            ) from exc
 
         if 200 <= response.status_code < 300:
             payload = response.json()
@@ -129,7 +138,10 @@ class DiscordChannelClient:
                 return user_id
             raise RuntimeError("Discord current-user lookup returned no id")
 
-        detail = response.text.strip().replace("\n", " ")
+        detail = redact_secret_text(
+            response.text.strip().replace("\n", " "),
+            secrets=(self.config.bot_token,),
+        )
         raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
 
     def list_channel_messages(
@@ -159,7 +171,9 @@ class DiscordChannelClient:
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise RuntimeError(f"Discord channel read failed: {exc}") from exc
+            raise RuntimeError(
+                f"Discord channel read failed: {redact_secret_text(exc, secrets=(self.config.bot_token,))}"
+            ) from exc
 
         if 200 <= response.status_code < 300:
             payload = response.json()
@@ -167,7 +181,10 @@ class DiscordChannelClient:
                 raise RuntimeError("Discord channel read returned an invalid payload")
             return [dict(message) for message in payload if isinstance(message, Mapping)]
 
-        detail = response.text.strip().replace("\n", " ")
+        detail = redact_secret_text(
+            response.text.strip().replace("\n", " "),
+            secrets=(self.config.bot_token,),
+        )
         raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
 
 
@@ -367,6 +384,7 @@ def deliver_daily_notifications(
     *,
     client: DiscordTransport,
     attempted_at: str,
+    redaction_secrets: Sequence[object] = (),
 ) -> Dict[str, object]:
     daily_notification = _daily_notification_state(state)
     pending_messages = list(daily_notification.get("pending_messages", []) or [])
@@ -402,9 +420,12 @@ def deliver_daily_notifications(
             blocked = True
             entry["attempt_count"] = int(entry.get("attempt_count", 0) or 0) + 1
             entry["last_attempted_at"] = attempted_at
-            entry["last_error"] = str(exc)
+            entry["last_error"] = redact_secret_text(exc, secrets=redaction_secrets)
             remaining_messages.append(entry)
-            errors.append(f"daily_notification: {exc}")
+            errors.append(
+                "daily_notification: "
+                f"{redact_secret_text(exc, secrets=redaction_secrets)}"
+            )
 
     daily_notification["pending_messages"] = remaining_messages
     return {
@@ -447,6 +468,7 @@ def build_run_report_message(
     errors: Mapping[str, Sequence[Mapping[str, object]]],
     delivery_failures: Sequence[str],
     state_lines: Sequence[str],
+    redaction_secrets: Sequence[object] = (),
 ) -> str:
     source_failures = len(errors.get("sources", []))
     run_failures = len(errors.get("run", []))
@@ -472,13 +494,20 @@ def build_run_report_message(
         f"delivery failure: {delivery_failure_count}件",
     ]
     checker_error_lines = _format_checker_error_lines(errors)
+    if redaction_secrets:
+        checker_error_lines = [
+            redact_secret_text(line, secrets=redaction_secrets) for line in checker_error_lines
+        ]
     if checker_error_lines:
         lines.append("failure details:")
         lines.extend(checker_error_lines)
     if delivery_failures:
         if not checker_error_lines:
             lines.append("failure details:")
-        lines.extend(f"- delivery: {failure}" for failure in delivery_failures)
+        lines.extend(
+            f"- delivery: {redact_secret_text(failure, secrets=redaction_secrets)}"
+            for failure in delivery_failures
+        )
     lines.append("現在のリスト:")
     lines.extend(state_lines)
     return "\n".join(lines)
@@ -489,11 +518,13 @@ def format_run_report_delivery_failure(
     timestamp: str,
     trigger_source: str,
     exc: Exception,
+    redaction_secrets: Sequence[object] = (),
 ) -> str:
     return "\n".join(
         [
             f"{RUN_REPORT_FAILURE_HEADLINE} ({timestamp})",
             f"トリガー: {trigger_source}",
-            f"エラー: {exc.__class__.__name__}: {exc}",
+            "エラー: "
+            f"{exc.__class__.__name__}: {redact_secret_text(exc, secrets=redaction_secrets)}",
         ]
     )
