@@ -2,6 +2,18 @@
 
 Docker コンテナ 1 つで定期クロールし、generic notifier backend (`stdout` / webhook) に update event を送れる漫画更新監視アプリです。Discord surface は別契約で、daily notification を main channel、run report を run-report channel へ送ります。stdout/stderr はローカル運用ログとして引き続き使います。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
 
+## Canonical docs
+
+この repo の source of truth は次の 5 文書です。
+
+- `doc/要件定義書.md`
+- `doc/設計書.md`
+- `spec.md` (document title: `SPEC.md`)
+- `doc/運用手順書.md`
+- `doc/受け入れテスト計画書.md`
+
+root の受け入れ仕様書は Git 上の実ファイル名を `spec.md` にしていますが、文書名と cross-document 参照では `SPEC.md` と表記します。これは macOS などの case-insensitive filesystem で path 衝突を避けるためです。canonical docs や新しい issue / PR で `SPEC.md` と書かれている場合は、この `spec.md` を指します。旧 single-file spec への過去の言及は reference 扱いで、source of truth ではありません。
+
 ## Python 3.12 baseline
 
 Docker / ローカル開発 / 将来の CI はすべて Python `3.12` を単一の runtime baseline とします。Docker image policy は `python:3.12-slim` に合わせ、ローカルツール向けには `.python-version` でも `3.12` を宣言します。Python `3.10` / `3.11` compatibility は要求しません。
@@ -105,7 +117,7 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 - `health`: `last_checked_at`, `last_success_at`, `consecutive_failures`
 - root `discord_delivery.daily_notification`: Discord main channel 向け daily notification の durable dedupe / pending state
 
-履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と migration contract は [spec.md](spec.md) を source of truth とします。
+履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と migration contract は [root 受け入れ仕様書 (`spec.md`, 文書名: `SPEC.md`)](spec.md) を source of truth とします。
 
 ### backlog CLI
 
@@ -413,7 +425,7 @@ Post-rollback smoke checks:
 - manifest に書かれた backup と pre-cutover image / commit を戻したあと、復元した pre-cutover runtime 上で `python3 -m manga_watch.check manga_watch/urls.txt` を実行し、v1 data を正常に読めることを確認する
 - `docker compose up -d comic-crawler` で pre-cutover runner を再起動し、初回 run のログに想定外の parser/state error や notification burst が無いことを確認する
 
-詳細な mapping / cutover / rollback 条件は [spec.md](spec.md) を参照してください。
+詳細な mapping / cutover / rollback 条件は [root 受け入れ仕様書 (`spec.md`, 文書名: `SPEC.md`)](spec.md) を参照してください。
 
 ## Repository layout
 
