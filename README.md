@@ -105,7 +105,7 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 - `health`: `last_checked_at`, `last_success_at`, `consecutive_failures`
 - root `discord_delivery.daily_notification`: Discord main channel 向け daily notification の durable dedupe / pending state
 
-履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と migration contract は [spec.md](spec.md) を source of truth とします。
+履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と migration contract は [SPEC.md](SPEC.md) を source of truth とします。
 
 ### backlog CLI
 
@@ -413,7 +413,7 @@ Post-rollback smoke checks:
 - manifest に書かれた backup と pre-cutover image / commit を戻したあと、復元した pre-cutover runtime 上で `python3 -m manga_watch.check manga_watch/urls.txt` を実行し、v1 data を正常に読めることを確認する
 - `docker compose up -d comic-crawler` で pre-cutover runner を再起動し、初回 run のログに想定外の parser/state error や notification burst が無いことを確認する
 
-詳細な mapping / cutover / rollback 条件は [spec.md](spec.md) を参照してください。
+詳細な mapping / cutover / rollback 条件は [SPEC.md](SPEC.md) を参照してください。
 
 ## Repository layout
 
