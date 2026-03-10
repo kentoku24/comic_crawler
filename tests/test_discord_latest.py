@@ -254,6 +254,78 @@ class DiscordLatestTests(unittest.TestCase):
             response,
         )
 
+    def test_build_latest_query_response_uses_plain_text_and_fallback_labels_without_url(self):
+        watchlist = self.make_watchlist(
+            [
+                {
+                    "id": "work-1",
+                    "source": "comic-walker",
+                    "seed_url": "https://example.com/work-1",
+                    "enabled": True,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                }
+            ]
+        )
+        state = self.make_state(
+            {
+                "work-1": {
+                    "latest": {
+                        "series": "作品A fallback",
+                        "episode_code": "ep-2",
+                    },
+                    "history": [],
+                    "health": {"consecutive_failures": 0},
+                }
+            },
+            last_run_at=1_700_000_000,
+        )
+
+        response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
+
+        self.assertIn("ep-2　作品A fallback", response)
+        self.assertNotIn("[ep-2]", response)
+
+    def test_build_latest_query_response_warns_for_stale_saved_data(self):
+        watchlist = self.make_watchlist(
+            [
+                {
+                    "id": "work-1",
+                    "source": "comic-walker",
+                    "seed_url": "https://example.com/work-1",
+                    "enabled": True,
+                    "health_policy": {"expected_interval_seconds": 3_600},
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                }
+            ]
+        )
+        state = self.make_state(
+            {
+                "work-1": {
+                    "latest": {
+                        "series_title": "作品A",
+                        "episode_title": "第2話",
+                        "url": "https://example.com/2",
+                    },
+                    "history": [],
+                    "health": {
+                        "last_checked_at": 1_700_010_000,
+                        "last_success_at": 1_700_000_000,
+                        "consecutive_failures": 0,
+                    },
+                }
+            },
+            last_run_at=1_700_010_000,
+        )
+
+        response = build_latest_query_response(
+            watchlist,
+            state,
+            timezone_name="Asia/Tokyo",
+            now=1_700_008_000,
+        )
+
+        self.assertTrue(response.endswith(PARTIAL_FAILURE_WARNING))
+
     def test_episode_label_truncation_matches_spec_examples(self):
         self.assertEqual("第71話 abcdefg…", truncate_episode_label("第71話 abcdefghijk"))
         self.assertEqual("第71話 あいうえおかき…", truncate_episode_label("第71話 あいうえおかきくけ"))
