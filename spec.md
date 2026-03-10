@@ -45,9 +45,6 @@
 
 本仕様の対象外は以下とする。
 
-- migration / rollback
-- v1 互換性
-- v1 / v2 混在運用
 - Status CLI の受け入れ仕様
 - Backlog CLI の受け入れ仕様
 - retry / backoff の具体アルゴリズム
@@ -494,5 +491,4 @@ run report は少なくとも以下を含まなければならない。
 - 実装の分割方法そのもの
 - retry/backoff の数式や細部
 - CLI 出力の細かな文言
-- migration / rollback 手順
 - Status CLI / Backlog CLI の詳細契約
