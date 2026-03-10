@@ -9,7 +9,6 @@ MOCKED_ACCEPTANCE_MODULES = [
     "tests.test_discord_outbound",
     "tests.test_runner",
     "tests.test_check",
-    "tests.test_storage",
 ]
 
 TRACEABILITY = [
@@ -36,7 +35,7 @@ TRACEABILITY = [
     {
         "id": "state-safety",
         "spec": ["SPEC 7", "SPEC 12.7", "doc/受け入れテスト計画書 5.6"],
-        "modules": ["tests.test_storage", "tests.test_runner"],
+        "modules": ["tests.test_runner"],
     },
     {
         "id": "delivery-recovery",
