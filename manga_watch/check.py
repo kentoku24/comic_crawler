@@ -691,6 +691,7 @@ def run_check(
 
     state["last_run_at"] = now
     try:
+        # Persist source observations before control returns to the runner's delivery phase.
         save_state(state)
     except Exception as exc:
         errors["run"].append(run_error_record("save_state", exc))
