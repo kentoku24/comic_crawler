@@ -142,7 +142,7 @@ def item_id_for_state(item: Mapping[str, object]) -> str:
 
 
 def latest_id_for_state(latest: Mapping[str, object]) -> str:
-    return str(latest.get("latestKey") or latest.get("episodeCode") or latest.get("url") or "")
+    return str(latest.get("latestKey") or latest.get("latest_key") or "")
 
 
 def update_type_for_latest(latest: Mapping[str, object]) -> str:

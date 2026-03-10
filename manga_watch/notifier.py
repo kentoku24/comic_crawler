@@ -25,9 +25,6 @@ def _snapshot_latest_key(snapshot: Mapping[str, object]) -> Optional[str]:
     return _coerce_text(
         snapshot.get("latest_key")
         or snapshot.get("latestKey")
-        or snapshot.get("episode_code")
-        or snapshot.get("episodeCode")
-        or snapshot.get("url")
     )
 
 

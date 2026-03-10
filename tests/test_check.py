@@ -909,6 +909,63 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(20, next_entry["health"]["last_checked_at"])
         self.assertEqual([], next_entry["history"])
 
+    def test_run_check_silently_merges_metadata_without_emitting_update(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            state_path = Path(tmpdir) / "state.json"
+            write_watchlist(watchlist_path, [watchlist_entry()])
+
+            initial_latest = {
+                "source": "fake",
+                "workId": "work-1",
+                "latestKey": "ep-1",
+                "seriesTitle": "旧タイトル",
+                "episodeTitle": "旧サブタイトル",
+                "url": "https://example.com/work/1",
+            }
+            improved_latest = {
+                "source": "fake",
+                "workId": "work-1",
+                "latestKey": "ep-1",
+                "seriesTitle": "新タイトル",
+                "episodeTitle": "新サブタイトル",
+                "pageTitle": "作品A 第1話",
+                "nextUpdateLabel": "次回更新予定 3/15",
+                "summary": "補足",
+                "url": "https://example.com/work/1",
+                "update_type": "main_story",
+                "classification_reason": "episode_title matched main-story numbering",
+                "default_notify": True,
+            }
+
+            with mock.patch.dict(os.environ, {"MANGA_WATCH_STATE": str(state_path)}, clear=False):
+                with mock.patch(
+                    "manga_watch.check.normalize_item",
+                    return_value={
+                        "source": "fake",
+                        "workId": "work-1",
+                        "seedUrl": "https://example.com/work",
+                    },
+                ):
+                    with mock.patch(
+                        "manga_watch.check.compute_latest",
+                        side_effect=[initial_latest, improved_latest],
+                    ):
+                        first_result = check.run_check(str(watchlist_path))
+                        second_result = check.run_check(str(watchlist_path))
+                        state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual([], first_result["updates"])
+        self.assertEqual([], second_result["updates"])
+        self.assertEqual({"sources": [], "run": []}, second_result["errors"])
+        self.assertEqual("ep-1", state["works"]["work-1"]["latest"]["latest_key"])
+        self.assertEqual("新タイトル", state["works"]["work-1"]["latest"]["series_title"])
+        self.assertEqual("新サブタイトル", state["works"]["work-1"]["latest"]["episode_title"])
+        self.assertEqual("作品A 第1話", state["works"]["work-1"]["latest"]["page_title"])
+        self.assertEqual("次回更新予定 3/15", state["works"]["work-1"]["latest"]["next_update_label"])
+        self.assertEqual([], state["works"]["work-1"]["history"])
+        self.assertEqual([], state["works"]["work-1"]["unread"]["event_ids"])
+
     def test_validate_state_normalizes_next_update_label_in_latest_snapshot(self):
         state = validate_state(
             {

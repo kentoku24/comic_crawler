@@ -8,6 +8,7 @@ from manga_watch.discord_outbound import (
     DiscordChannelClient,
     DiscordOutboundConfig,
     build_daily_notification_message,
+    enqueue_daily_notification,
 )
 from manga_watch.storage import load_state, save_state
 
@@ -93,6 +94,74 @@ class DiscordOutboundTests(unittest.TestCase):
         self.assertEqual("新着エピソードを検知しました（2023-11-15）", lines[0])
         self.assertEqual("[作品A：第71話 abcdefg…](<https://example.com/latest>)←第1話", lines[1])
         self.assertEqual("[作品B：第3話](<https://example.com/latest>)←第2話", lines[2])
+
+    def test_enqueue_daily_notification_skips_updates_without_latest_key(self):
+        state = {
+            "discord_delivery": {
+                "daily_notification": {
+                    "delivered_latest_keys": {},
+                    "pending_messages": [],
+                }
+            }
+        }
+        update = {
+            "id": "work-1",
+            "from": {
+                "seriesTitle": "作品A",
+                "episodeTitle": "第1話",
+                "latestKey": "episode-1",
+            },
+            "to": {
+                "series_title": "作品A",
+                "episode_title": "第2話 改題",
+                "episode_code": "episode-2",
+                "url": "https://example.com/latest",
+            },
+        }
+
+        result = enqueue_daily_notification(
+            state,
+            updates=[update],
+            channel_id="main-channel",
+            now_ts=1_700_000_000,
+            timezone_name="Asia/Tokyo",
+            created_at="2023-11-14T22:13:20Z",
+        )
+
+        self.assertEqual({"queued": False, "candidateUpdateCount": 0}, result)
+        self.assertEqual([], state["discord_delivery"]["daily_notification"]["pending_messages"])
+
+    def test_enqueue_daily_notification_dedupes_by_work_id_and_latest_key_even_if_metadata_changes(self):
+        state = {
+            "discord_delivery": {
+                "daily_notification": {
+                    "delivered_latest_keys": {
+                        "work-1": {
+                            "latest_key": "episode-2",
+                            "delivered_at": "2023-11-14T22:13:20Z",
+                        }
+                    },
+                    "pending_messages": [],
+                }
+            }
+        }
+
+        result = enqueue_daily_notification(
+            state,
+            updates=[
+                self.make_update(
+                    episode_title="第2話 改題",
+                    previous="第2話",
+                )
+            ],
+            channel_id="main-channel",
+            now_ts=1_700_000_300,
+            timezone_name="Asia/Tokyo",
+            created_at="2023-11-14T22:18:20Z",
+        )
+
+        self.assertEqual({"queued": False, "candidateUpdateCount": 0}, result)
+        self.assertEqual([], state["discord_delivery"]["daily_notification"]["pending_messages"])
 
     def test_discord_channel_client_posts_bot_message(self):
         session = FakeSession(responses=[FakeResponse(200)])
