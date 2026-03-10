@@ -533,6 +533,8 @@ def run_once(
                         )
                     )
 
+            # Generic notifier delivery owns the durable outbox. It is the only
+            # pending queue that the manual replay CLI is allowed to touch.
             had_existing_outbox = bool(load_notification_outbox(state))
             enqueued_count = enqueue_notification_events(
                 state,
@@ -562,6 +564,8 @@ def run_once(
 
         if resolved_discord_client is not None and config.discord_outbound_config is not None:
             try:
+                # Discord daily delivery owns its own pending state and replays
+                # it on the next run rather than through replay_outbox.py.
                 enqueue_result = enqueue_daily_notification(
                     state,
                     updates=notify_updates,
@@ -778,6 +782,8 @@ def replay_outbox_once(
 
     try:
         state = state_loader()
+        # Manual replay is intentionally limited to the generic notifier outbox.
+        # Discord daily pending messages remain owned by the next regular run.
         delivery = deliver_notification_outbox(
             state,
             named_notifiers=named_notifiers,

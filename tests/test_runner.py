@@ -788,6 +788,52 @@ class RunnerTests(unittest.TestCase):
         )
         self.assertIn("daily notification: 送信した", reports[0])
 
+    def test_run_once_reports_daily_pending_and_delivery_failure_visibility(self):
+        store, load_from_store, save_to_store = self.make_state_store(
+            {
+                **self.make_state(),
+                "discord_delivery": {
+                    "daily_notification": {
+                        "delivered_latest_keys": {},
+                        "pending_messages": [
+                            {
+                                "channel_id": "main-channel",
+                                "content": "pending message",
+                                "message_keys": [{"work_id": "work-1", "latest_key": "episode-2"}],
+                                "created_at": "2023-11-14T22:13:20Z",
+                                "attempt_count": 1,
+                                "last_attempted_at": "2023-11-14T22:14:00Z",
+                                "last_error": "discord delivery failed for main-channel",
+                            }
+                        ],
+                    }
+                },
+            }
+        )
+        discord = FakeDiscordClient(fail_channels={"main-channel"})
+        errors = []
+
+        outcome = run_once(
+            self.make_config(with_discord=True),
+            notifier=FakeNotifier(),
+            discord_client=discord,
+            checker=lambda _: {"updates": []},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_300,
+            report_logger=lambda _: self.fail("unexpected report log"),
+            error_logger=errors.append,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual(["main-channel", "run-report-channel"], [call["channel_id"] for call in discord.calls])
+        self.assertIn("Discord daily pending: 1件", discord.calls[1]["content"])
+        self.assertIn("delivery failure: 1件", discord.calls[1]["content"])
+        self.assertIn("generic notifier outbox残件: 0件", discord.calls[1]["content"])
+        self.assertEqual(1, len(store["discord_delivery"]["daily_notification"]["pending_messages"]))
+        self.assertEqual(1, len(errors))
+        self.assertIn("notification delivery failed", errors[0])
+
     def test_run_once_logs_secondary_failure_when_run_report_delivery_fails(self):
         discord = FakeDiscordClient(fail_channels={"run-report-channel"})
         errors = []
@@ -1115,6 +1161,65 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual([], store["notification_outbox"])
         self.assertIn("再送対象: 1件", reports[0])
         self.assertIn("再送残件: 0件", reports[0])
+
+    def test_replay_outbox_once_keeps_discord_daily_pending_messages_untouched(self):
+        event = build_update_event(
+            self.make_update(latest_key="episode-2"),
+            detected_at="2023-11-14T22:13:20Z",
+        )
+        store, load_from_store, save_to_store = self.make_state_store(
+            {
+                **self.make_state(),
+                "notification_outbox": [
+                    {
+                        "event": event.as_payload(),
+                        "pending_backends": ["stdout"],
+                        "attempt_count": 1,
+                        "last_attempted_at": "2023-11-14T22:13:20Z",
+                        "last_error": "stdout: timed out",
+                    }
+                ],
+                "discord_delivery": {
+                    "daily_notification": {
+                        "delivered_latest_keys": {},
+                        "pending_messages": [
+                            {
+                                "channel_id": "main-channel",
+                                "content": "pending daily message",
+                                "message_keys": [{"work_id": "work-1", "latest_key": "episode-2"}],
+                                "created_at": "2023-11-14T22:13:20Z",
+                                "attempt_count": 1,
+                                "last_attempted_at": "2023-11-14T22:14:00Z",
+                                "last_error": "discord delivery failed for main-channel",
+                            }
+                        ],
+                    }
+                },
+            }
+        )
+        notifier = FakeNotifier()
+
+        outcome = replay_outbox_once(
+            self.make_config(),
+            named_notifiers={"stdout": notifier},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_300,
+            report_logger=lambda _: None,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        self.assertTrue(outcome["ok"])
+        self.assertEqual(1, len(notifier.events))
+        self.assertEqual([], store["notification_outbox"])
+        self.assertEqual(
+            1,
+            len(store["discord_delivery"]["daily_notification"]["pending_messages"]),
+        )
+        self.assertEqual(
+            "episode-2",
+            store["discord_delivery"]["daily_notification"]["pending_messages"][0]["message_keys"][0]["latest_key"],
+        )
 
     def test_replay_outbox_module_replays_pending_events(self):
         repo_root = Path(__file__).resolve().parents[1]
