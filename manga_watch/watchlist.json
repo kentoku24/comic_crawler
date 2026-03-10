@@ -60,6 +60,26 @@
         "mode": "all",
         "allowed_update_types": null
       }
+    },
+    {
+      "id": "champion-cross:4756324e1c1b1",
+      "source": "champion-cross",
+      "seed_url": "https://championcross.jp/episodes/f35108c56e75d",
+      "enabled": true,
+      "notification_policy": {
+        "mode": "all",
+        "allowed_update_types": null
+      }
+    },
+    {
+      "id": "champion-cross:6504eab816435",
+      "source": "champion-cross",
+      "seed_url": "https://championcross.jp/episodes/f36f12cbe8810",
+      "enabled": true,
+      "notification_policy": {
+        "mode": "all",
+        "allowed_update_types": null
+      }
     }
   ]
 }

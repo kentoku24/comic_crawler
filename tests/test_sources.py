@@ -9,6 +9,7 @@ from pathlib import Path
 import manga_watch.sources as source_package
 from manga_watch.sources import REGISTERED_ADAPTERS, REGISTERED_SOURCES, SourceAdapter
 from manga_watch.sources.base import SourceParseError
+from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
@@ -34,6 +35,14 @@ SOURCE_CASES = {
         "broken_missing_next",
         "broken_loop",
     ),
+    "champion-cross": (
+        "normal",
+        "episode_seed_missing_next_update",
+    ),
+    "champion-cross": (
+        "normal",
+        "episode_seed_missing_next_update",
+    ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
 ERROR_TYPES = {
@@ -57,6 +66,11 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "escaped_next_uri": "main_story",
         "broken_missing_next": "main_story",
         "broken_loop": "main_story",
+    },
+    "champion-cross": {
+        "normal": "main_story",
+        "episode_seed_missing_next_update": "main_story",
+        "episode_seed_missing_next_update": "main_story",
     },
 }
 
@@ -141,7 +155,7 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "kakuyomu"),
+            ("comic-walker", "comic-action", "champion-cross", "kakuyomu"),
             REGISTERED_SOURCES,
         )
 
@@ -166,6 +180,9 @@ class SourceAdapterTests(unittest.TestCase):
     def test_kakuyomu_fixtures(self):
         self._assert_fixture_matrix("kakuyomu")
 
+    def test_champion_cross_fixtures(self):
+        self._assert_fixture_matrix("champion-cross")
+
     def test_comic_walker_normalize_accepts_canonical_series_url(self):
         work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")
 
@@ -189,9 +206,53 @@ class SourceAdapterTests(unittest.TestCase):
                 "source": "kakuyomu",
                 "kind": "kakuyomu",
                 "workId": "kakuyomu:123",
-                "seedUrl": "https://kakuyomu.jp/works/123",
+                "seedUrl": "https://kakuyomu.jp/works/123/",
                 "series": "kakuyomu:123",
                 "numericWorkId": "123",
+            },
+            work.to_dict(),
+        )
+
+    def test_champion_cross_normalize_accepts_series_url(self):
+        work = ChampionCrossAdapter().normalize("https://championcross.jp/series/abc123/?ref=top")
+
+        self.assertEqual(
+            {
+                "source": "champion-cross",
+                "kind": "champion-cross",
+                "workId": "champion-cross:abc123",
+                "seedUrl": "https://championcross.jp/series/abc123",
+                "series": "champion-cross:abc123",
+                "seriesHash": "abc123",
+            },
+            work.to_dict(),
+        )
+
+    def test_champion_cross_normalize_accepts_series_rss_url(self):
+        work = ChampionCrossAdapter().normalize("https://championcross.jp/series/abc123/rss?ref=top")
+
+        self.assertEqual(
+            {
+                "source": "champion-cross",
+                "kind": "champion-cross",
+                "workId": "champion-cross:abc123",
+                "seedUrl": "https://championcross.jp/series/abc123/rss",
+                "series": "champion-cross:abc123",
+                "seriesHash": "abc123",
+                "feedKind": "rss",
+            },
+            work.to_dict(),
+        )
+
+    def test_champion_cross_normalize_accepts_episode_url(self):
+        work = ChampionCrossAdapter().normalize("https://championcross.jp/episodes/ep12345/?page=1")
+
+        self.assertEqual(
+            {
+                "source": "champion-cross",
+                "kind": "champion-cross",
+                "workId": "https://championcross.jp/episodes/ep12345",
+                "seedUrl": "https://championcross.jp/episodes/ep12345",
             },
             work.to_dict(),
         )
@@ -252,6 +313,117 @@ class SourceAdapterTests(unittest.TestCase):
             client.calls,
         )
 
+    def test_comic_action_fetch_latest_extracts_next_update_label_from_latest_page(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/episode/111")
+        client = StaticHttpClient(
+            {
+                "https://comic-action.com/episode/111": """
+                <html>
+                  <head><title>第1話 / 作品B - webアクション | comic-action</title></head>
+                  <body>
+                    <script type="text/json" data-value='{"readableProduct":{"nextReadableProductUri":"https://comic-action.com/episode/222"}}'></script>
+                  </body>
+                </html>
+                """,
+                "https://comic-action.com/episode/222": """
+                <html>
+                  <head><title>第2話 / 作品B - webアクション | comic-action</title></head>
+                  <body>
+                    <div class="viewer-colophon-update-container">
+                      <p class="viewer-colophon-next-update">次回更新： 4月3日</p>
+                    </div>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("4月3日", latest["nextUpdateLabel"])
+
+    def test_comic_walker_fetch_latest_extracts_next_update_label(self):
+        adapter = ComicWalkerAdapter()
+        work = adapter.normalize("https://comic-walker.com/detail/KC_123456_S")
+        client = StaticHttpClient(
+            {
+                "https://comic-walker.com/detail/KC_123456_S": """
+                <html>
+                  <body>
+                    <script id="__NEXT_DATA__" type="application/json">
+                      {"episodes":["KC_123456001_E","KC_123456003_E"]}
+                    </script>
+                  </body>
+                </html>
+                """,
+                "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456003_E?episodeType=latest": """
+                <html>
+                  <head><title>【作品A】第3話｜カドコミ (コミックウォーカー)</title></head>
+                  <body>
+                    <div class="EpisodesTabContents_nextUpdateDate__YDQiC">次回更新予定日：未定</div>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("未定", latest["nextUpdateLabel"])
+
+    def test_kakuyomu_fetch_latest_extracts_next_update_label_from_schedule(self):
+        adapter = KakuyomuAdapter()
+        work = adapter.normalize("https://kakuyomu.jp/works/123")
+        client = StaticHttpClient(
+            {
+                "https://kakuyomu.jp/works/123": """
+                <html>
+                  <body>
+                    <script id="__NEXT_DATA__" type="application/json">
+                      {"props":{"pageProps":{"__APOLLO_STATE__":{"WorkSchedule:123":{"description":"毎日 12:08"}}}},"Episode:456":{"id":"456","title":"第1話","publishedAt":"2025-01-01T00:00:00Z"},"Episode:789":{"id":"789","title":"第2話","publishedAt":"2025-02-01T00:00:00Z"}}
+                    </script>
+                  </body>
+                </html>
+                """,
+                "https://kakuyomu.jp/works/123/episodes/789": """
+                <html>
+                  <head><title>第2話 - 作品C - カクヨム</title></head>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("毎日 12:08", latest["nextUpdateLabel"])
+
+    def test_kakuyomu_fetch_latest_allows_null_schedule(self):
+        adapter = KakuyomuAdapter()
+        work = adapter.normalize("https://kakuyomu.jp/works/123")
+        client = StaticHttpClient(
+            {
+                "https://kakuyomu.jp/works/123": """
+                <html>
+                  <body>
+                    <script id="__NEXT_DATA__" type="application/json">
+                      {"props":{"pageProps":{"__APOLLO_STATE__":{"Work:123":{"schedule":null}}}},"Episode:456":{"id":"456","title":"第1話","publishedAt":"2025-01-01T00:00:00Z"},"Episode:789":{"id":"789","title":"第2話","publishedAt":"2025-02-01T00:00:00Z"}}
+                    </script>
+                  </body>
+                </html>
+                """,
+                "https://kakuyomu.jp/works/123/episodes/789": """
+                <html>
+                  <head><title>第2話 - 作品C - カクヨム</title></head>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertNotIn("nextUpdateLabel", latest)
+
     def test_comic_action_fetch_latest_accepts_www_episode_links_from_feed(self):
         adapter = ComicActionAdapter()
         work = adapter.normalize("https://comic-action.com/rss/series/13933686331606207128")
@@ -292,6 +464,66 @@ class SourceAdapterTests(unittest.TestCase):
             client.calls,
         )
 
+    def test_champion_cross_normalize_accepts_series_rss_url(self):
+        work = ChampionCrossAdapter().normalize("https://championcross.jp/series/4756324e1c1b1/rss?from=share")
+
+        self.assertEqual(
+            {
+                "source": "champion-cross",
+                "kind": "champion-cross",
+                "workId": "champion-cross:4756324e1c1b1",
+                "seedUrl": "https://championcross.jp/series/4756324e1c1b1/rss",
+                "series": "champion-cross:4756324e1c1b1",
+                "seriesHash": "4756324e1c1b1",
+                "feedKind": "rss",
+            },
+            work.to_dict(),
+        )
+
+    def test_champion_cross_fetch_latest_accepts_series_url(self):
+        adapter = ChampionCrossAdapter()
+        work = adapter.normalize("https://championcross.jp/series/4756324e1c1b1/")
+        client = StaticHttpClient(
+            {
+                "https://championcross.jp/series/4756324e1c1b1/rss": """
+                <rss>
+                  <channel>
+                    <title>織津江大志の異世界クリ娘サバイバル日誌</title>
+                    <item>
+                      <title><![CDATA[第71話 ウェンディゴ2]]></title>
+                      <link>https://championcross.jp/episodes/f35108c56e75d/?utm_source=rss&amp;utm_medium=referral</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://championcross.jp/episodes/f35108c56e75d": """
+                <html>
+                  <body>
+                    <a href="/category/manga?type=連載中&amp;day=火" class="series-h-day-of-week-link">
+                      <span class="series-h-tag-label">火曜更新</span>
+                    </a>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("champion-cross:4756324e1c1b1", latest["workId"])
+        self.assertEqual("champion-cross:4756324e1c1b1", latest["series"])
+        self.assertEqual("https://championcross.jp/episodes/f35108c56e75d", latest["latestKey"])
+        self.assertEqual("織津江大志の異世界クリ娘サバイバル日誌", latest["seriesTitle"])
+        self.assertEqual("第71話 ウェンディゴ2", latest["episodeTitle"])
+        self.assertEqual("火曜更新", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://championcross.jp/series/4756324e1c1b1/rss",
+                "https://championcross.jp/episodes/f35108c56e75d",
+            ],
+            client.calls,
+        )
+
     def _assert_fixture_matrix(self, source: str):
         source_dir = FIXTURES_ROOT / source
         actual_cases = sorted(path.name for path in source_dir.iterdir() if path.is_dir())
@@ -318,6 +550,8 @@ class SourceAdapterTests(unittest.TestCase):
                         expected_latest,
                         {key: latest_dict[key] for key in expected_latest},
                     )
+                    for key in manifest.get("missingLatestKeys", []):
+                        self.assertNotIn(key, latest_dict)
                     self.assertEqual(
                         EXPECTED_LATEST_CLASSIFICATIONS[source][case_name],
                         latest_dict["update_type"],

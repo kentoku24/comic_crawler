@@ -19,6 +19,8 @@ from manga_watch.storage import (
     evaluate_notification_policy,
     latest_runtime_to_storage,
     latest_storage_to_runtime,
+    load_watchlist,
+    save_watchlist,
     validate_state,
     validate_watchlist,
 )
@@ -58,8 +60,9 @@ def watchlist_entry(
     seed_url="https://example.com/work",
     enabled=True,
     notification_policy=None,
+    health_policy=None,
 ):
-    return {
+    entry = {
         "id": work_id,
         "source": source,
         "seed_url": seed_url,
@@ -70,6 +73,9 @@ def watchlist_entry(
             "allowed_update_types": None,
         },
     }
+    if health_policy is not None:
+        entry["health_policy"] = health_policy
+    return entry
 
 
 def write_watchlist(path: Path, works):
@@ -272,6 +278,12 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("kakuyomu:123", entry["id"])
         self.assertEqual("https://kakuyomu.jp/works/123", entry["seed_url"])
 
+    def test_build_watchlist_entry_preserves_kakuyomu_trailing_slash(self):
+        entry = check.build_watchlist_entry("https://kakuyomu.jp/works/123/")
+
+        self.assertEqual("kakuyomu:123", entry["id"])
+        self.assertEqual("https://kakuyomu.jp/works/123/", entry["seed_url"])
+
     def test_build_watchlist_entry_uses_stable_comic_action_work_id(self):
         fake_client = mock.Mock()
         fake_client.get_text.return_value = (
@@ -292,6 +304,31 @@ class CheckTests(unittest.TestCase):
 
         self.assertEqual("comic-action:13933686331663374228", entry["id"])
         self.assertEqual("comic-action", entry["source"])
+
+    def test_build_watchlist_entry_uses_stable_champion_cross_work_id(self):
+        fake_client = mock.Mock()
+        fake_client.get_text.return_value = """
+        <html>
+          <body>
+            <a href="https://championcross.jp/series/4756324e1c1b1/rss">RSS</a>
+          </body>
+        </html>
+        """
+        with mock.patch(
+            "manga_watch.check.normalize_item",
+            return_value={
+                "source": "champion-cross",
+                "workId": "https://championcross.jp/episodes/f35108c56e75d",
+                "seedUrl": "https://championcross.jp/episodes/f35108c56e75d",
+            },
+        ):
+            entry = check.build_watchlist_entry(
+                "https://championcross.jp/episodes/f35108c56e75d",
+                http_client=fake_client,
+            )
+
+        self.assertEqual("champion-cross:4756324e1c1b1", entry["id"])
+        self.assertEqual("champion-cross", entry["source"])
 
     def test_validate_watchlist_rejects_unknown_notification_policy_mode(self):
         with self.assertRaisesRegex(ValueError, "notification_policy.mode must be one of"):
@@ -327,6 +364,66 @@ class CheckTests(unittest.TestCase):
                     ],
                 }
             )
+
+    def test_validate_watchlist_rejects_non_integer_health_policy_expected_interval_seconds(self):
+        with self.assertRaisesRegex(
+            ValueError,
+            "health_policy.expected_interval_seconds must be an integer",
+        ):
+            validate_watchlist(
+                {
+                    "version": 2,
+                    "works": [
+                        watchlist_entry(
+                            notification_policy={
+                                "mode": "all",
+                                "allowed_update_types": None,
+                            },
+                            health_policy={"expected_interval_seconds": "oops"},
+                        )
+                    ],
+                }
+            )
+
+    def test_load_watchlist_rejects_invalid_health_policy_expected_interval_seconds(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(
+                watchlist_path,
+                [
+                    {
+                        **watchlist_entry(),
+                        "health_policy": {"expected_interval_seconds": "oops"},
+                    }
+                ],
+            )
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "health_policy.expected_interval_seconds must be an integer",
+            ):
+                load_watchlist(str(watchlist_path))
+
+    def test_save_watchlist_rejects_invalid_health_policy_expected_interval_seconds(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+
+            with self.assertRaisesRegex(
+                ValueError,
+                "health_policy.expected_interval_seconds must be an integer",
+            ):
+                save_watchlist(
+                    {
+                        "version": 2,
+                        "works": [
+                            {
+                                **watchlist_entry(),
+                                "health_policy": {"expected_interval_seconds": "oops"},
+                            }
+                        ],
+                    },
+                    str(watchlist_path),
+                )
 
     def test_evaluate_notification_policy_rejects_unknown_allowed_update_type(self):
         with self.assertRaisesRegex(
@@ -753,6 +850,7 @@ class CheckTests(unittest.TestCase):
                 "source": "fake",
                 "work_id": "work-1",
                 "latest_key": "ep-1",
+                "next_update_label": "次回更新前",
                 "series_title": "旧タイトル",
                 "episode_title": "旧サブタイトル",
                 "page_title": "",
@@ -774,6 +872,7 @@ class CheckTests(unittest.TestCase):
             "source": "fake",
             "workId": "work-1",
             "latestKey": "ep-1",
+            "nextUpdateLabel": "次回更新後",
             "seriesTitle": "新タイトル",
             "episodeTitle": "新サブタイトル",
             "pageTitle": "作品A 第1話",
@@ -797,6 +896,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("新タイトル", runtime_latest["seriesTitle"])
         self.assertEqual("新サブタイトル", runtime_latest["episodeTitle"])
         self.assertEqual("作品A 第1話", runtime_latest["pageTitle"])
+        self.assertEqual("次回更新後", runtime_latest["nextUpdateLabel"])
         self.assertEqual("補足", runtime_latest["summary"])
         self.assertEqual("https://example.com/work/1", runtime_latest["url"])
         self.assertEqual([], next_entry["unread"]["event_ids"])
@@ -807,6 +907,79 @@ class CheckTests(unittest.TestCase):
         )
         self.assertTrue(runtime_latest["default_notify"])
         self.assertEqual(20, next_entry["health"]["last_checked_at"])
+        self.assertEqual([], next_entry["history"])
+
+    def test_validate_state_normalizes_next_update_label_in_latest_snapshot(self):
+        state = validate_state(
+            {
+                "version": 2,
+                "works": {
+                    "work-1": {
+                        "latest": {
+                            "workId": "work-1",
+                            "latestKey": "ep-2",
+                            "episodeTitle": "第2話",
+                            "nextUpdateLabel": "次回更新予定 3/15",
+                        },
+                        "history": [],
+                        "health": {
+                            "last_checked_at": 20,
+                            "last_success_at": 20,
+                            "consecutive_failures": 0,
+                        },
+                    }
+                },
+                "last_run_at": 20,
+            }
+        )
+
+        self.assertEqual(
+            "次回更新予定 3/15",
+            state["works"]["work-1"]["latest"]["next_update_label"],
+        )
+        self.assertEqual(
+            "次回更新予定 3/15",
+            latest_storage_to_runtime(state["works"]["work-1"]["latest"])["nextUpdateLabel"],
+        )
+
+    def test_apply_item_transition_silently_clears_next_update_label_when_latest_key_is_stable(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-1",
+                "next_update_label": "次回更新前",
+                "episode_title": "第1話",
+                "url": "https://example.com/work/1",
+            },
+            "history": [],
+            "unread": {"event_ids": []},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-1",
+            "episodeTitle": "第1話",
+            "url": "https://example.com/work/1",
+        }
+
+        next_entry, update = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertIsNone(update)
+        runtime_latest = latest_storage_to_runtime(next_entry["latest"])
+        self.assertNotIn("nextUpdateLabel", runtime_latest)
+        self.assertNotIn("next_update_label", next_entry["latest"])
 
     def test_validate_state_backfills_unread_and_normalizes_history_events(self):
         state = validate_state(

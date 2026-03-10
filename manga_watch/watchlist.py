@@ -38,6 +38,16 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="champion-cross",
+        domains=("championcross.jp",),
+        input_labels=("episode URL", "series URL", "series RSS URL"),
+        examples=(
+            "https://championcross.jp/episodes/0123456789ab",
+            "https://championcross.jp/series/0123456789ab",
+            "https://championcross.jp/series/0123456789ab/rss",
+        ),
+    ),
+    SourceCapability(
         source="kakuyomu",
         domains=("kakuyomu.jp",),
         input_labels=("work URL", "episode URL"),

@@ -24,6 +24,7 @@ SUPPORTED_NOTIFICATION_POLICY_UPDATE_TYPES = tuple(SUPPORTED_UPDATE_TYPES)
 _LATEST_RUNTIME_TO_STORAGE = {
     "workId": "work_id",
     "latestKey": "latest_key",
+    "nextUpdateLabel": "next_update_label",
     "seriesTitle": "series_title",
     "episodeCode": "episode_code",
     "episodeTitle": "episode_title",
@@ -56,6 +57,12 @@ def default_state() -> Dict[str, object]:
         "works": {},
         "last_run_at": None,
         "notification_outbox": [],
+        "discord_delivery": {
+            "daily_notification": {
+                "delivered_latest_keys": {},
+                "pending_messages": [],
+            }
+        },
     }
 
 
@@ -140,6 +147,7 @@ def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
         entry.get("history_retention"),
         field_name=f"watchlist entry {work_id} history_retention",
     )
+    health_policy = normalize_health_policy(entry.get("health_policy"), work_id)
     normalized = {
         "id": work_id,
         "source": source,
@@ -149,6 +157,8 @@ def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
     }
     if history_retention is not None:
         normalized["history_retention"] = history_retention
+    if health_policy is not None:
+        normalized["health_policy"] = health_policy
     for key, value in entry.items():
         if key in normalized or value is None:
             continue
@@ -175,6 +185,33 @@ def normalize_notification_policy(policy: object, work_id: str) -> Dict[str, obj
         "mode": mode,
         "allowed_update_types": allowed_update_types,
     }
+
+
+def normalize_health_policy(
+    policy: object,
+    work_id: str,
+) -> Optional[Dict[str, object]]:
+    if policy is None:
+        return None
+    if not isinstance(policy, Mapping):
+        raise ValueError(f"watchlist entry {work_id} health_policy must be an object")
+
+    normalized: Dict[str, object] = dict(policy)
+    expected_interval = policy.get("expected_interval_seconds")
+    if expected_interval is not None:
+        try:
+            expected_interval = int(expected_interval)
+        except (TypeError, ValueError) as exc:
+            raise ValueError(
+                f"watchlist entry {work_id} health_policy.expected_interval_seconds must be an integer"
+            ) from exc
+        if expected_interval <= 0:
+            raise ValueError(
+                f"watchlist entry {work_id} health_policy.expected_interval_seconds must be > 0"
+            )
+        normalized["expected_interval_seconds"] = expected_interval
+
+    return normalized
 
 
 def normalize_allowed_update_types(
@@ -283,6 +320,9 @@ def validate_state(payload: Mapping[str, object]) -> Dict[str, object]:
         "works": normalized_works,
         "last_run_at": normalize_optional_int(payload.get("last_run_at")),
         "notification_outbox": normalize_notification_outbox(payload.get("notification_outbox")),
+        "discord_delivery": normalize_discord_delivery(
+            payload.get("discord_delivery", payload.get("discordDelivery"))
+        ),
     }
     for key, value in payload.items():
         if key in state or value is None:
@@ -380,6 +420,179 @@ def normalize_notification_outbox_entry(entry: object, *, index: int) -> Dict[st
             "event",
             "pending_backends",
             "pendingBackends",
+            "attempt_count",
+            "attemptCount",
+            "last_attempted_at",
+            "lastAttemptedAt",
+            "last_error",
+            "lastError",
+        } or value is None:
+            continue
+        normalized[camel_to_snake(str(key))] = value
+    return normalized
+
+
+def normalize_discord_delivery(payload: object) -> Dict[str, object]:
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, Mapping):
+        raise ValueError("state.discord_delivery must be an object")
+
+    normalized = {
+        "daily_notification": normalize_daily_notification_delivery_state(
+            payload.get("daily_notification", payload.get("dailyNotification"))
+        ),
+    }
+    for key, value in payload.items():
+        if key in {"daily_notification", "dailyNotification"} or value is None:
+            continue
+        normalized[camel_to_snake(str(key))] = value
+    return normalized
+
+
+def normalize_daily_notification_delivery_state(payload: object) -> Dict[str, object]:
+    if payload is None:
+        payload = {}
+    if not isinstance(payload, Mapping):
+        raise ValueError("state.discord_delivery.daily_notification must be an object")
+
+    normalized = {
+        "delivered_latest_keys": normalize_delivered_latest_keys(
+            payload.get("delivered_latest_keys", payload.get("deliveredLatestKeys"))
+        ),
+        "pending_messages": normalize_daily_notification_pending_messages(
+            payload.get("pending_messages", payload.get("pendingMessages"))
+        ),
+    }
+    for key, value in payload.items():
+        if key in {
+            "delivered_latest_keys",
+            "deliveredLatestKeys",
+            "pending_messages",
+            "pendingMessages",
+        } or value is None:
+            continue
+        normalized[camel_to_snake(str(key))] = value
+    return normalized
+
+
+def normalize_delivered_latest_keys(payload: object) -> Dict[str, Dict[str, Optional[str]]]:
+    if payload is None:
+        return {}
+    if not isinstance(payload, Mapping):
+        raise ValueError("state.discord_delivery.daily_notification.delivered_latest_keys must be an object")
+
+    normalized: Dict[str, Dict[str, Optional[str]]] = {}
+    for work_id, entry in payload.items():
+        latest_key = None
+        delivered_at = None
+        if isinstance(entry, Mapping):
+            latest_key = normalize_optional_text(entry.get("latest_key", entry.get("latestKey")))
+            delivered_at = normalize_optional_text(entry.get("delivered_at", entry.get("deliveredAt")))
+        else:
+            latest_key = normalize_optional_text(entry)
+        if latest_key is None:
+            raise ValueError(
+                f"state.discord_delivery.daily_notification.delivered_latest_keys[{work_id}] "
+                "must include latest_key"
+            )
+        normalized[str(work_id)] = {
+            "latest_key": latest_key,
+            "delivered_at": delivered_at,
+        }
+    return normalized
+
+
+def normalize_daily_notification_pending_messages(payload: object) -> List[Dict[str, object]]:
+    if payload is None:
+        return []
+    if not isinstance(payload, list):
+        raise ValueError("state.discord_delivery.daily_notification.pending_messages must be a list")
+
+    normalized_entries: List[Dict[str, object]] = []
+    for index, entry in enumerate(payload):
+        normalized_entries.append(normalize_daily_notification_pending_message(entry, index=index))
+    return normalized_entries
+
+
+def normalize_daily_notification_pending_message(entry: object, *, index: int) -> Dict[str, object]:
+    if not isinstance(entry, Mapping):
+        raise ValueError(
+            f"state.discord_delivery.daily_notification.pending_messages[{index}] must be an object"
+        )
+
+    channel_id = normalize_optional_text(entry.get("channel_id", entry.get("channelId")))
+    if channel_id is None:
+        raise ValueError(
+            f"state.discord_delivery.daily_notification.pending_messages[{index}].channel_id is required"
+        )
+
+    content = normalize_optional_text(entry.get("content"))
+    if content is None:
+        raise ValueError(
+            f"state.discord_delivery.daily_notification.pending_messages[{index}].content is required"
+        )
+
+    message_keys = entry.get("message_keys", entry.get("messageKeys", []))
+    if message_keys is None:
+        message_keys = []
+    if not isinstance(message_keys, list):
+        raise ValueError(
+            f"state.discord_delivery.daily_notification.pending_messages[{index}].message_keys must be a list"
+        )
+
+    normalized_message_keys: List[Dict[str, str]] = []
+    seen_keys = set()
+    for key_index, message_key in enumerate(message_keys):
+        if not isinstance(message_key, Mapping):
+            raise ValueError(
+                "state.discord_delivery.daily_notification.pending_messages"
+                f"[{index}].message_keys[{key_index}] must be an object"
+            )
+        work_id = normalize_optional_text(message_key.get("work_id", message_key.get("workId")))
+        latest_key = normalize_optional_text(message_key.get("latest_key", message_key.get("latestKey")))
+        if work_id is None or latest_key is None:
+            raise ValueError(
+                "state.discord_delivery.daily_notification.pending_messages"
+                f"[{index}].message_keys[{key_index}] must include work_id and latest_key"
+            )
+        stable_key = (work_id, latest_key)
+        if stable_key in seen_keys:
+            continue
+        seen_keys.add(stable_key)
+        normalized_message_keys.append(
+            {
+                "work_id": work_id,
+                "latest_key": latest_key,
+            }
+        )
+
+    attempt_count = int(entry.get("attempt_count", entry.get("attemptCount", 0)) or 0)
+    if attempt_count < 0:
+        raise ValueError(
+            f"state.discord_delivery.daily_notification.pending_messages[{index}].attempt_count must be >= 0"
+        )
+
+    normalized = {
+        "channel_id": channel_id,
+        "content": content,
+        "message_keys": normalized_message_keys,
+        "created_at": normalize_optional_text(entry.get("created_at", entry.get("createdAt"))),
+        "attempt_count": attempt_count,
+        "last_attempted_at": normalize_optional_text(
+            entry.get("last_attempted_at", entry.get("lastAttemptedAt"))
+        ),
+        "last_error": normalize_optional_text(entry.get("last_error", entry.get("lastError"))),
+    }
+    for key, value in entry.items():
+        if key in {
+            "channel_id",
+            "channelId",
+            "content",
+            "message_keys",
+            "messageKeys",
+            "created_at",
+            "createdAt",
             "attempt_count",
             "attemptCount",
             "last_attempted_at",

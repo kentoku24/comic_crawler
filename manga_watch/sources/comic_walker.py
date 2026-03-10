@@ -15,6 +15,16 @@ def parse_comic_walker_title(page_title: str) -> Tuple[Optional[str], Optional[s
     return left or None, None
 
 
+def extract_comic_walker_next_update_label(html: str) -> Optional[str]:
+    if not html:
+        return None
+    match = re.search(r"次回更新予定日[:：]\s*([^<]+)", html)
+    if not match:
+        return None
+    label = re.sub(r"\s+", " ", match.group(1)).strip()
+    return label or None
+
+
 class ComicWalkerAdapter(SourceAdapter):
     source = "comic-walker"
     _SUPPORTED_URL = re.compile(
@@ -47,10 +57,12 @@ class ComicWalkerAdapter(SourceAdapter):
 
         series_title = None
         episode_title = None
+        next_update_label = None
         try:
             episode_html = self._fetch_episode_page(latest_url, http_client)
             title = html_title(episode_html)
             series_title, episode_title = parse_comic_walker_title(title or "")
+            next_update_label = extract_comic_walker_next_update_label(episode_html)
         except Exception:
             title = html_title(html)
             series_title, _ = parse_comic_walker_title(title or "")
@@ -64,6 +76,7 @@ class ComicWalkerAdapter(SourceAdapter):
             series_title=series_title,
             episode_code=latest_code,
             episode_title=episode_title,
+            extra={"nextUpdateLabel": next_update_label} if next_update_label else {},
         )
 
     def _fetch_series_page(self, work: WorkDescriptor, http_client: HttpClient) -> str:
@@ -73,7 +86,11 @@ class ComicWalkerAdapter(SourceAdapter):
         return http_client.get_text(episode_url)
 
     def _parse_latest_episode_code(self, work: WorkDescriptor, html: str) -> str:
-        match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
+        match = re.search(
+            r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+            html,
+            re.S,
+        )
         if not match:
             raise SourceParseError("comic-walker: __NEXT_DATA__ not found")
 

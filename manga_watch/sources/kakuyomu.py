@@ -1,3 +1,4 @@
+import json
 import re
 from typing import Optional, Tuple
 
@@ -31,7 +32,7 @@ class KakuyomuAdapter(SourceAdapter):
         return WorkDescriptor(
             source=self.source,
             work_id=work_id,
-            seed_url=seed_url.rstrip("/"),
+            seed_url=seed_url,
             metadata=metadata,
         )
 
@@ -42,7 +43,9 @@ class KakuyomuAdapter(SourceAdapter):
 
         work_url = f"https://kakuyomu.jp/works/{numeric_work_id}"
         html = self._fetch_work_page(work_url, http_client)
-        latest_id, latest_title = self._parse_latest_episode(html)
+        next_data_raw = self._extract_next_data_raw(html)
+        latest_id, latest_title = self._parse_latest_episode_from_next_data(next_data_raw)
+        next_update_label = self._parse_next_update_label(next_data_raw, numeric_work_id)
         latest_url = f"{work_url}/episodes/{latest_id}"
 
         episode_html = self._fetch_episode_page(latest_url, http_client)
@@ -66,6 +69,7 @@ class KakuyomuAdapter(SourceAdapter):
             episode_code=str(latest_id),
             episode_title=episode_title,
             page_title=page_title,
+            extra={"nextUpdateLabel": next_update_label} if next_update_label else {},
         )
 
     def _fetch_work_page(self, work_url: str, http_client: HttpClient) -> str:
@@ -74,12 +78,20 @@ class KakuyomuAdapter(SourceAdapter):
     def _fetch_episode_page(self, episode_url: str, http_client: HttpClient) -> str:
         return http_client.get_text(episode_url)
 
-    def _parse_latest_episode(self, html: str) -> Tuple[str, str]:
-        match = re.search(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', html)
+    def _extract_next_data_raw(self, html: str) -> str:
+        match = re.search(
+            r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>',
+            html,
+            re.S,
+        )
         if not match:
             raise SourceParseError("kakuyomu: __NEXT_DATA__ not found")
+        return match.group(1)
 
-        raw = match.group(1)
+    def _parse_latest_episode(self, html: str) -> Tuple[str, str]:
+        return self._parse_latest_episode_from_next_data(self._extract_next_data_raw(html))
+
+    def _parse_latest_episode_from_next_data(self, raw: str) -> Tuple[str, str]:
         episodes = []
         for episode_match in re.finditer(
             r'"Episode:(\d+)"\s*:\s*\{[^\}]*?"id"\s*:\s*"(\d+)"[^\}]*?"title"\s*:\s*"([^"]+)"[^\}]*?"publishedAt"\s*:\s*"([^"]+)"',
@@ -95,3 +107,32 @@ class KakuyomuAdapter(SourceAdapter):
 
         _, latest_id, latest_title = max(episodes, key=lambda episode: episode[0])
         return latest_id, latest_title
+
+    def _parse_next_update_label(self, raw: str, numeric_work_id: str) -> Optional[str]:
+        try:
+            payload = json.loads(raw)
+        except json.JSONDecodeError:
+            return None
+
+        apollo_state = payload.get("props", {}).get("pageProps", {}).get("__APOLLO_STATE__")
+        if not isinstance(apollo_state, dict):
+            return None
+
+        schedule = apollo_state.get(f"WorkSchedule:{numeric_work_id}")
+        if not isinstance(schedule, dict):
+            work_data = apollo_state.get(f"Work:{numeric_work_id}")
+            if not isinstance(work_data, dict):
+                return None
+            schedule_ref = work_data.get("schedule")
+            if not isinstance(schedule_ref, dict):
+                return None
+            schedule = apollo_state.get(schedule_ref.get("__ref"))
+            if not isinstance(schedule, dict):
+                return None
+
+        description = schedule.get("description")
+        if not isinstance(description, str):
+            return None
+
+        label = re.sub(r"\s+", " ", description).strip()
+        return label or None

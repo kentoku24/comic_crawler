@@ -8,7 +8,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from croniter import croniter
 
-from manga_watch.storage import load_state, load_watchlist
+from manga_watch.discord_text import latest_display_label_for_snapshot, series_label_for_snapshot
+from manga_watch.storage import load_state, load_watchlist, normalize_health_policy
 
 DEFAULT_CRAWL_SCHEDULE = "0 19 * * *"
 DEFAULT_STALE_TOLERANCE = 2.0
@@ -95,38 +96,15 @@ def default_expected_interval_seconds(*, now: int, timezone_name: str) -> int:
 
 
 def health_policy_for_entry(entry: Mapping[str, object], work_id: str) -> Dict[str, object]:
-    policy = entry.get("health_policy")
-    if policy is None:
-        return {}
-    if not isinstance(policy, Mapping):
-        raise ValueError(f"watchlist entry {work_id} health_policy must be an object")
-
-    normalized: Dict[str, object] = {}
-    expected_interval = policy.get("expected_interval_seconds")
-    if expected_interval is not None:
-        expected_interval = int(expected_interval)
-        if expected_interval <= 0:
-            raise ValueError(
-                f"watchlist entry {work_id} health_policy.expected_interval_seconds must be > 0"
-            )
-        normalized["expected_interval_seconds"] = expected_interval
-
-    return normalized
+    return normalize_health_policy(entry.get("health_policy"), work_id) or {}
 
 
 def latest_label(latest: Mapping[str, object]) -> str:
-    return str(
-        latest.get("episode_title")
-        or latest.get("episodeTitle")
-        or latest.get("episode_code")
-        or latest.get("episodeCode")
-        or latest.get("url")
-        or "未取得"
-    )
+    return latest_display_label_for_snapshot(latest)
 
 
 def series_label(work_id: str, latest: Mapping[str, object]) -> str:
-    return str(latest.get("series_title") or latest.get("seriesTitle") or latest.get("series") or work_id)
+    return series_label_for_snapshot(work_id, latest)
 
 
 def derive_health_status(
