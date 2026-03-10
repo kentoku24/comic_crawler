@@ -592,6 +592,18 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn("work-1: update event work-1 is missing latest_key", errors[0])
 
+    def test_build_update_event_requires_explicit_latest_key_without_fallback(self):
+        invalid_update = self.make_update()
+        invalid_update["to"] = {
+            "series_title": "作品A",
+            "episode_title": "第2話",
+            "episode_code": "episode-2",
+            "url": "https://example.com/2",
+        }
+
+        with self.assertRaisesRegex(ValueError, "update event work-1 is missing latest_key"):
+            build_update_event(invalid_update, detected_at="2023-11-14T22:13:20Z")
+
     def test_run_once_persists_only_failed_backends_in_notification_outbox(self):
         stdout_notifier = FakeNotifier()
         webhook_notifier = FakeNotifier(fail_on_index=0)
