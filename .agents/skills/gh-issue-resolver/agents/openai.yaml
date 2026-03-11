@@ -1,4 +1,4 @@
 interface:
   display_name: "Issue Loop"
   short_description: "Issue-driven maker loop with gh-pr-reviewer approval and merger final-gate validation."
-  default_prompt: "Use $gh-issue-resolver on this reviewed GitHub issue and drive it through implementation, PR update, gh-pr-reviewer follow-up, and merger approval. In orchestrated-child mode, report structured checkpoints for worktree, PR, review, and merger status, and do not stop at PR creation or gh-pr-reviewer approval alone. Do not merge the PR unless merge:true is explicitly requested for the merger step."
+  default_prompt: "Use $gh-issue-resolver on this reviewed GitHub issue and drive it through implementation, PR update, gh-pr-reviewer follow-up, and merger approval. In orchestrated-child mode, report structured checkpoints for worktree, PR, review, and merger status, and do not stop at PR creation or gh-pr-reviewer approval alone. Do not merge the PR unless a merge target branch is explicitly requested for the merger step."
