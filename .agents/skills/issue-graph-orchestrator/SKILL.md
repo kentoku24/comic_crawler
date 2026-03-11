@@ -21,6 +21,11 @@ orchestrator 専用の integration branch に固定することにある。
 この skill は child を integration branch へ自動マージしてよいが、
 parent PR の自動マージは行わない。
 
+integration branch は parent issue の番号と title から自動生成する。
+title は kebab-case に正規化し、branch 名は `codex/orch/<issue-number>-<title-slug>` を既定とする。
+例として parent issue #83 の title が `Issue Graph Orchestrator` なら、
+integration branch は `codex/orch/83-issue-graph-orchestrator` になる。
+
 ## Invocation Contract
 
 基本形は次の 1 行だけでよい。
@@ -31,7 +36,7 @@ $issue-graph-orchestrator https://github.com/org/repo/issues/83
 
 この skill は次を暗黙に固定する。
 
-- integration branch 名は `codex/orch/<parent-issue-number>` を既定とする
+- integration branch 名は parent issue の番号と title から自動生成する
 - child lane は `gh-issue-resolver` を `merge:<integration-branch>` 付きで呼ぶ
 - child は integration branch に入った時点で close してよい
 - parent は integration branch から default branch 向け PR を作るが、自動 merge しない
@@ -78,7 +83,7 @@ graph の source priority は次の順とする。
 
 ### 2. Integration branch を準備する
 
-- `codex/orch/<parent-issue-number>` を作成または再利用する
+- parent issue の title を slug 化し、`codex/orch/<issue-number>-<title-slug>` を作成または再利用する
 - 以後、child lane の merge target はこの branch に固定する
 - integration branch の履歴は rewrite しない
 
@@ -88,7 +93,7 @@ graph の source priority は次の順とする。
 - ready child には次の形式で lane を渡す
 
 ```text
-/gh-issue-resolver <child-issue-number> merge:codex/orch/<parent-issue-number>
+/gh-issue-resolver <child-issue-number> merge:<integration-branch>
 ```
 
 - lane は reviewer / merger / self-merge まで自走させる
