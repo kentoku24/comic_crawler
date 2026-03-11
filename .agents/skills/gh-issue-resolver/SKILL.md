@@ -24,7 +24,7 @@ description: >
 
 Issue を`maker` が実装し、親セッションが結果を統合して PR を作成または更新し、その PR を `$gh-pr-reviewer` が PR Reviewer gate として判定し、`$merger` が final gate として「人が今マージしてよい状態か」を判定する。`gh-pr-reviewer` または merger が `NG` を返した場合は、その指摘を次 cycle の maker packet に変換して再実装または PR 状態の修正を行う。
 
-この skill は **PR を作って終わらず、`gh-pr-reviewer` `APPROVE` で終わらない**。デフォルトの完了条件は、PR が更新済みで、`$gh-pr-reviewer` と `$merger` の両方から PR 上に `APPROVE` コメントが残り、PR が merge-ready と説明できる状態に到達することだ。`merge:<branch>` を明示した packet だけは、`$merger` が `APPROVE` 後にその branch を merge target とする PR を実際に merge してよい。`merge:false` または merge 指定なしのときは merge しない。
+この skill は **PR を作って終わらず、`gh-pr-reviewer` `APPROVE` で終わらない**。デフォルトの完了条件は、PR が更新済みで、`$gh-pr-reviewer` と `$merger` の両方から PR 上に `APPROVE` コメントが残り、PR が merge-ready と説明できる状態に到達することだ。`merge:<branch>` を明示した packet だけは、`$merger` が `APPROVE` 後にその branch を merge target とする PR を実際に merge してよい。merge 指定がないときは merge しない。
 
 `orchestrated-child` では、PR 作成や `gh-pr-reviewer` `APPROVE` は途中 checkpoint にすぎない。親 orchestrator が lane を追跡できるよう、child は `worktree_ready`, `pr_opened`, `review_state_changed`, `merger_state_changed` を structured に報告し、requested terminal state を満たすまで走り切るか、未達なら pending state を返す。
 
@@ -76,17 +76,12 @@ Issue を`maker` が実装し、親セッションが結果を統合して PR �
 
 上のような短い指定を受けたら、workflow の詳細を user に確認し直さず、この skill の標準 loop を採用する。
 
-merge 設定は次のどちらかだけを受け付ける。
+merge 設定は任意で、明示する場合は `merge:<branch>` だけを受け付ける。
 
-- `merge:false`
-- `merge:<branch>`
-
-意味は次のとおり。
-
-- `merge:false`: merger gate までは進めてよいが、self-merge はしてはいけない
 - `merge:<branch>`: PR の merge target は `<branch>` でなければならず、merger `APPROVE` 後にだけ self-merge してよい
+- merge 指定なし: merger gate までは進めてよいが、self-merge はしてはいけない
 
-`merge:true` のような真偽値指定は legacy 扱いとし、新しい packet や prompt では使わない。
+`merge:true` / `merge:false` のような真偽値指定は legacy 扱いとし、新しい packet や prompt では使わない。
 
 親 orchestrator から渡される packet では、次の追加情報が入ってよい。
 
@@ -230,7 +225,7 @@ merger への packet には次を含める。
 - GitHub 上の merge-ready 性も確認対象であること
 - unresolved review thread は blocker であること
 - merger comment の期待形式
-- `merge:false | <branch>` の指定
+- merge target の指定有無
 - 今回求める final gate 判定
 
 別 agent merger を起動できない場合:

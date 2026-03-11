@@ -13,7 +13,7 @@
 
 - `Existing PR`: 既存 PR を引き継ぐとき
 - `Existing branch / worktree`: 既存 branch や worktree を再利用するとき
-- `merge:false | <branch>`: merger step で self-merge と merge target を指定するとき
+- `merge:<branch>`: merger step で self-merge と merge target を指定するとき
 
 ### orchestrated-child のときだけ使う入力
 
@@ -23,7 +23,7 @@
 - `Requested terminal state`
 - `Reporting checkpoints`
 
-`merge:<branch>` は merger step まで進んだときだけ意味を持つ。指定された `<branch>` は PR base と self-merge target を兼ねる。指定がなければ merge は実行しない。`merge:true` は legacy 表現として扱い、新しい prompt では使わない。
+`merge:<branch>` は merger step まで進んだときだけ意味を持つ。指定された `<branch>` は PR base と self-merge target を兼ねる。指定がなければ merge は実行しない。`merge:true` / `merge:false` は legacy 表現として扱い、新しい prompt では使わない。
 
 ## 2. 基本形
 
