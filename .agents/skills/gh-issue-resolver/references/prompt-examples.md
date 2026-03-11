@@ -13,7 +13,7 @@
 
 - `Existing PR`: 既存 PR を引き継ぐとき
 - `Existing branch / worktree`: 既存 branch や worktree を再利用するとき
-- `merge:true | false`: merger step で self-merge まで求めるとき
+- `merge:false | <branch>`: merger step で self-merge と merge target を指定するとき
 
 ### orchestrated-child のときだけ使う入力
 
@@ -23,7 +23,7 @@
 - `Requested terminal state`
 - `Reporting checkpoints`
 
-`merge:true` は merger step まで進んだときだけ意味を持つ。指定がなければ merge は実行しない。
+`merge:<branch>` は merger step まで進んだときだけ意味を持つ。指定された `<branch>` は PR base と self-merge target を兼ねる。指定がなければ merge は実行しない。`merge:true` は legacy 表現として扱い、新しい prompt では使わない。
 
 ## 2. 基本形
 
@@ -55,7 +55,7 @@ Existing PR:
 Existing branch / worktree:
 <branch name>, <worktree path>
 
-merge:true
+merge:main
 ```
 
 ## 5. orchestrated-child で渡す形
@@ -71,5 +71,5 @@ Existing PR: <PR URL or owner/repo#number>
 Existing branch / worktree: <branch name>, <worktree path>
 Requested terminal state: ready_to_merge | merged | done
 Reporting checkpoints: worktree_ready, pr_opened, review_state_changed, merger_state_changed
-merge:false
+merge:codex/orch/83
 ```

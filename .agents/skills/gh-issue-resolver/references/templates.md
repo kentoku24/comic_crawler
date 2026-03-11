@@ -39,6 +39,7 @@ Maker Packet
 - Branch (if parallel maker):
 - Worktree (if parallel maker):
 - Existing PR (if orchestrated-child):
+- Merge target: `false` | `<branch>`
 - Requested terminal state (if orchestrated-child):
 - Reporting checkpoints (if orchestrated-child):
   - `worktree_ready`
@@ -98,7 +99,7 @@ Merger Packet
 - PR:
 - Merger execution mode: `spawn_agent` (independent context)
 - PR Reviewer prerequisite:
-- Merge: `true` | `false`
+- Merge target: `false` | `<branch>`
 - Verification evidence:
   - ...
 - Known gaps:
@@ -112,6 +113,7 @@ Merger Packet
 Merger Gate
 - Merger agent:
 - Decision: APPROVE | NG
+- Merge target:
 - Merge executed: yes | no
 - Blocking issues:
   - ...

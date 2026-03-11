@@ -24,7 +24,7 @@ description: >
 
 Issue を`maker` が実装し、親セッションが結果を統合して PR を作成または更新し、その PR を `$gh-pr-reviewer` が PR Reviewer gate として判定し、`$merger` が final gate として「人が今マージしてよい状態か」を判定する。`gh-pr-reviewer` または merger が `NG` を返した場合は、その指摘を次 cycle の maker packet に変換して再実装または PR 状態の修正を行う。
 
-この skill は **PR を作って終わらず、`gh-pr-reviewer` `APPROVE` で終わらない**。デフォルトの完了条件は、PR が更新済みで、`$gh-pr-reviewer` と `$merger` の両方から PR 上に `APPROVE` コメントが残り、PR が merge-ready と説明できる状態に到達することだ。`merge:true` を明示した packet だけは、`$merger` が `APPROVE` 後に実際の merge を行ってよい。
+この skill は **PR を作って終わらず、`gh-pr-reviewer` `APPROVE` で終わらない**。デフォルトの完了条件は、PR が更新済みで、`$gh-pr-reviewer` と `$merger` の両方から PR 上に `APPROVE` コメントが残り、PR が merge-ready と説明できる状態に到達することだ。`merge:<branch>` を明示した packet だけは、`$merger` が `APPROVE` 後にその branch を merge target とする PR を実際に merge してよい。`merge:false` または merge 指定なしのときは merge しない。
 
 `orchestrated-child` では、PR 作成や `gh-pr-reviewer` `APPROVE` は途中 checkpoint にすぎない。親 orchestrator が lane を追跡できるよう、child は `worktree_ready`, `pr_opened`, `review_state_changed`, `merger_state_changed` を structured に報告し、requested terminal state を満たすまで走り切るか、未達なら pending state を返す。
 
@@ -76,6 +76,18 @@ Issue を`maker` が実装し、親セッションが結果を統合して PR �
 
 上のような短い指定を受けたら、workflow の詳細を user に確認し直さず、この skill の標準 loop を採用する。
 
+merge 設定は次のどちらかだけを受け付ける。
+
+- `merge:false`
+- `merge:<branch>`
+
+意味は次のとおり。
+
+- `merge:false`: merger gate までは進めてよいが、self-merge はしてはいけない
+- `merge:<branch>`: PR の merge target は `<branch>` でなければならず、merger `APPROVE` 後にだけ self-merge してよい
+
+`merge:true` のような真偽値指定は legacy 扱いとし、新しい packet や prompt では使わない。
+
 親 orchestrator から渡される packet では、次の追加情報が入ってよい。
 
 - `Execution mode: orchestrated-child`
@@ -86,6 +98,8 @@ Issue を`maker` が実装し、親セッションが結果を統合して PR �
 - `Requested terminal state`
 
 これらがある場合は、standalone ではなく orchestrated-child として扱う。
+
+parent orchestrator が integration branch を持つ場合、child lane に `merge:<integration-branch>` を渡してよい。このとき child lane は、その branch を merge target とする PR を作るか、既存 PR の base をその branch と一致させてから reviewer / merger gate に進む。
 
 ## Orchestrated Child Reporting Contract
 
@@ -205,7 +219,8 @@ PR Reviewer への packet には次を含める。
 - `mergeStateStatus == CLEAN` が確認できる
 - merger は条件を満たさない、または確認不能な場合、PR に merger の `NG` コメントを残して `NG` を返す。
 - merger は条件を満たした場合、PR に merger の `APPROVE` コメントを残して返す。
-- merger はデフォルトでは merge しない。`merge:true` が packet に明示され、かつ merger 自身が `APPROVE` した場合にだけ `gh pr merge` を実行してよい。
+- merger はデフォルトでは merge しない。`merge:<branch>` が packet に明示され、かつ PR base がその branch と一致し、さらに merger 自身が `APPROVE` した場合にだけ `gh pr merge` を実行してよい。
+- `merge:<branch>` が明示されているのに PR base が別 branch を向いている場合、merger は `NG` を返し、base mismatch を blocker として PR comment に残さなければならない。
 - 親セッションや `gh-pr-reviewer` が merger の手順を自己適用しても、それは merger gate ではない。
 
 merger への packet には次を含める。
@@ -215,7 +230,7 @@ merger への packet には次を含める。
 - GitHub 上の merge-ready 性も確認対象であること
 - unresolved review thread は blocker であること
 - merger comment の期待形式
-- `merge:true | false` の指定
+- `merge:false | <branch>` の指定
 - 今回求める final gate 判定
 
 別 agent merger を起動できない場合:
@@ -238,7 +253,7 @@ merger への packet には次を含める。
 `APPROVE` の意味は execution mode で変わる。
 
 - `standalone`: この step の条件を満たせば完了してよい
-- `orchestrated-child`: `APPROVE` は `ready_to_merge` を返すための terminal condition である。`merge:true` のときだけ `merged` を返してよい
+- `orchestrated-child`: `APPROVE` は `ready_to_merge` を返すための terminal condition である。`merge:<branch>` のときだけ `merged` を返してよい
 
 次をすべて満たしたときだけ完了とする。
 
@@ -250,7 +265,7 @@ merger への packet には次を含める。
 - main regression risk と test gaps が明示されている。
 - 親セッションが、Issue のどの約束をどの変更で満たしたか説明できる。
 
-`orchestrated-child` の場合、`gh-pr-reviewer` `APPROVE` だけでは `success` と言わず、merger が未完了なら `merger_pending` を返す。merger `APPROVE` が得られたら `ready_to_merge` を返す。`merge:true` が明示され、merger が実際に merge を完了した場合だけ `merged` を返す。
+`orchestrated-child` の場合、`gh-pr-reviewer` `APPROVE` だけでは `success` と言わず、merger が未完了なら `merger_pending` を返す。merger `APPROVE` が得られたら `ready_to_merge` を返す。`merge:<branch>` が明示され、merger が実際に merge を完了した場合だけ `merged` を返す。
 
 ## Tooling Guidance
 
@@ -285,7 +300,7 @@ rg <pattern>
 - parent session は maker output を統合し、evidence を確認し、PR の ownership を持つ。
 - PR gate は `$gh-pr-reviewer` が実コードと検証結果を見て判定する。
 - merger gate は PR 上の `$gh-pr-reviewer` comment、resolved review threads、GitHub の merge-ready signal を満たしたときにだけ通す。
-- merge 実行は `$merger` が `merge:true` を受けたときだけ行う。
+- merge 実行は `$merger` が `merge:<branch>` を受け、PR base がその branch と一致したときだけ行う。
 - gate 判定は実装 agent と別 context の agent result を evidence とする。
 - gate を起動できない場合は pending または degraded として返す。
 - `orchestrated-child` は requested terminal state を満たしたときだけ `done`、`ready_to_merge`、`merged` を返す。
