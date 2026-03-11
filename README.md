@@ -280,6 +280,22 @@ docker compose logs -f
 
 compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は volume `crawler-data` に保存します。
 
+### Updating an existing deployment
+
+`main` にデプロイ済み環境を `origin/main` の最新へ更新するときは、repo root で次を実行します。
+
+```bash
+git pull --ff-only origin main
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail 80 comic-crawler
+```
+
+- `git pull --ff-only origin main`: ローカル `main` を `origin/main` に fast-forward する
+- `docker compose up -d --build`: 新しい image を build してコンテナを再作成する
+- `docker compose ps`: `comic-crawler` が `Up` になっていることを確認する
+- `docker compose logs --tail 80 comic-crawler`: startup run に configuration / state / delivery failure が出ていないことを確認する
+
 ### Environment variables
 
 - `MANGA_WATCH_NOTIFIER_BACKENDS`: required。comma-separated backend list。現在値は `stdout`, `webhook`
