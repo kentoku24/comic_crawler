@@ -151,6 +151,7 @@ ACCEPTANCE_TRACEABILITY = {
             "tests.test_discord_fetch.DiscordFetchTests.test_handle_fetch_trigger_accepts_whitespace_trimmed_fetch",
             "tests.test_discord_inbound.DiscordInboundTests.test_listener_handles_fetch_trigger",
             "tests.test_discord_inbound.DiscordInboundTests.test_listener_logs_reaction_failure_but_still_starts_fetch",
+            "tests.test_discord_inbound.DiscordInboundTests.test_listener_starts_fetch_after_reaction_attempt_begins_without_waiting_for_delivery",
             "tests.test_discord_outbound.DiscordOutboundTests.test_discord_channel_client_add_reaction_uses_reactions_endpoint",
         ],
     },

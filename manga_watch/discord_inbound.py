@@ -156,7 +156,10 @@ class DiscordCommandListener:
                 self.client.send_message(self.channel_id, chunk)
 
     def _send_ack_reaction(self, message_id: str) -> None:
+        started = threading.Event()
+
         def deliver_reaction() -> None:
+            started.set()
             try:
                 self.client.add_reaction(self.channel_id, message_id, COMMAND_ACK_EMOJI)
             except Exception as exc:
@@ -169,7 +172,13 @@ class DiscordCommandListener:
             daemon=True,
             name=f"{COMMAND_ACK_THREAD_NAME}-{message_id}",
         )
-        thread.start()
+        try:
+            thread.start()
+            started.wait()
+        except Exception as exc:
+            self.error_logger(
+                f"[discord] ack reaction thread failed: channel={self.channel_id} message_id={message_id} error={exc}"
+            )
 
     def _handle_message(self, message: Mapping[str, object]) -> Optional[str]:
         if self._should_ignore_message(message):

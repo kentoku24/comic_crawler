@@ -1,4 +1,5 @@
 import unittest
+import threading
 
 from manga_watch.discord_inbound import DiscordCommandListener, split_discord_message
 
@@ -51,6 +52,25 @@ class FakeDiscordClient:
         self.operations.append(("add_reaction", channel_id, message_id, emoji))
         if self.reaction_error is not None:
             raise self.reaction_error
+        self.reactions.append(
+            {
+                "channel_id": channel_id,
+                "message_id": message_id,
+                "emoji": emoji,
+            }
+        )
+
+
+class BlockingReactionClient(FakeDiscordClient):
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self.reaction_started = threading.Event()
+        self.allow_reaction_finish = threading.Event()
+
+    def add_reaction(self, channel_id, message_id, emoji):
+        self.operations.append(("add_reaction", channel_id, message_id, emoji))
+        self.reaction_started.set()
+        self.allow_reaction_finish.wait(1.0)
         self.reactions.append(
             {
                 "channel_id": channel_id,
@@ -224,6 +244,40 @@ class DiscordInboundTests(unittest.TestCase):
         self.assertEqual([], client.sent_messages)
         self.assertEqual(1, len(logged_errors))
         self.assertIn("ack reaction failed", logged_errors[0])
+
+    def test_listener_starts_fetch_after_reaction_attempt_begins_without_waiting_for_delivery(self):
+        handler_calls = []
+        client = BlockingReactionClient(
+            polls=[
+                [{"id": "60", "content": "old", "author": {"id": "user-1"}}],
+                [{"id": "61", "content": "fetch", "author": {"id": "user-2"}}],
+            ]
+        )
+        listener = DiscordCommandListener(
+            client=client,
+            channel_id="main-channel",
+            coordinator=object(),
+            timezone_name="Asia/Tokyo",
+            latest_handler=lambda content, **_: None,
+            fetch_handler=lambda content, **_: (
+                self.assertTrue(client.reaction_started.is_set()),
+                handler_calls.append(str(content).strip()),
+                {"message": "ignored"},
+            )[-1],
+            report_logger=lambda _: None,
+            error_logger=lambda _: None,
+        )
+
+        listener.poll_once()
+        responses = listener.poll_once()
+
+        self.assertEqual([], responses)
+        self.assertEqual(["fetch"], handler_calls)
+        self.assertEqual([], client.sent_messages)
+        self.assertEqual([], client.reactions)
+
+        client.allow_reaction_finish.set()
+        self.assertTrue(client.reaction_started.wait(0.5))
 
     def test_listener_ignores_bot_messages(self):
         client = FakeDiscordClient(
