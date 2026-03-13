@@ -4,6 +4,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
+from urllib.parse import quote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
@@ -104,6 +105,50 @@ class DiscordChannelClient:
         except requests.RequestException as exc:
             raise RuntimeError(
                 f"Discord delivery failed: {redact_secret_text(exc, secrets=(self.config.bot_token,))}"
+            ) from exc
+
+        if 200 <= response.status_code < 300:
+            return
+
+        detail = redact_secret_text(
+            response.text.strip().replace("\n", " "),
+            secrets=(self.config.bot_token,),
+        )
+        raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
+
+    def add_reaction(
+        self,
+        channel_id: str,
+        message_id: str,
+        emoji: str,
+        *,
+        started_signal=None,
+    ) -> None:
+        if started_signal is not None:
+            started_signal.set()
+        normalized_channel_id = _coerce_text(channel_id)
+        if not normalized_channel_id:
+            raise RuntimeError("Discord channel_id is required")
+        normalized_message_id = _coerce_text(message_id)
+        if not normalized_message_id:
+            raise RuntimeError("Discord message_id is required")
+        normalized_emoji = _coerce_text(emoji)
+        if not normalized_emoji:
+            raise RuntimeError("Discord emoji is required")
+
+        try:
+            response = self.session.put(
+                f"{self.config.api_base_url}/channels/{normalized_channel_id}/messages/"
+                f"{normalized_message_id}/reactions/{quote(normalized_emoji, safe='')}/@me",
+                headers={
+                    "Authorization": f"Bot {self.config.bot_token}",
+                },
+                timeout=self.config.timeout,
+                allow_redirects=False,
+            )
+        except requests.RequestException as exc:
+            raise RuntimeError(
+                f"Discord reaction failed: {redact_secret_text(exc, secrets=(self.config.bot_token,))}"
             ) from exc
 
         if 200 <= response.status_code < 300:

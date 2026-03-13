@@ -80,11 +80,20 @@
 
 ---
 
-## 6. External surfaces
+## 6. Discord interface
 
-### 6.1 Discord `latest` query
+### 6.1 Initial acknowledgment
 
-#### 6.1.1 Input contract
+- Discord inbound command は、初期応答と本応答の 2 段階で扱ってよい
+- 初期応答として、認識した元メッセージにチェックマークのスタンプ送信を試行する
+- スタンプ送信の試行は command ごとの本処理開始前に行う
+- スタンプ送信は受領確認のための best-effort とし、送信保証や再試行を要求しない
+- スタンプ送信失敗は command 本処理の失敗理由にしてはならない
+- スタンプ送信結果待ちによって command 本処理を不必要に遅延させてはならない
+
+### 6.2 Discord `latest` query
+
+#### 6.2.1 Input contract
 
 - trim 後に本文がちょうど `latest` であるメッセージを `latest` query と解釈する
 - `latest` query は read-only である
@@ -92,7 +101,7 @@
 - `latest` query は watchlist/state を変更してはならない
 - `latest` query 実行失敗は、定期 run や `fetch` run の契約に影響してはならない
 
-#### 6.1.2 Source of truth and ordering
+#### 6.2.2 Source of truth and ordering
 
 - source of truth は watchlist v2 + state v2 とする
 - 一覧順は watchlist の入力順を正とする
@@ -101,7 +110,7 @@
 - 各行は該当作品の保存済み最新状態から生成する
 - 全体の最終巡回表示は保存済み run 時刻から生成する
 
-#### 6.1.3 Response contract
+#### 6.2.3 Response contract
 
 正常系の本文は、以下の意味構造を持たなければならない。
 
@@ -131,7 +140,7 @@
 - URL が無い場合は plain text で成立する
 - latest 未取得作品は未取得であることが分かる表現にする
 
-#### 6.1.4 Label fallback rules
+#### 6.2.4 Label fallback rules
 
 作品名は、以下の優先順で選ぶ。
 
@@ -149,7 +158,7 @@
 URL が存在し、`episode_title` が無い場合でも、link label には `episode_code` を優先してよい。
 `episode_title` と `episode_code` が無いときのみ URL 自体を label にしてよい。
 
-#### 6.1.5 Episode label truncation rules
+#### 6.2.5 Episode label truncation rules
 
 latest query の一覧は、携帯端末で縦に比較しやすいことを優先する。
 そのため、長い最新話ラベルは省略してよい。
@@ -174,7 +183,7 @@ latest query の一覧は、携帯端末で縦に比較しやすいことを優�
 - `abcdefghijklmnopqrstu` → `abcdefghijklmnopqrs…`
 - `第55話後編` → `第55話後編`
 
-#### 6.1.6 Empty / stale / partial-failure semantics
+#### 6.2.6 Empty / stale / partial-failure semantics
 
 一覧対象作品が 0 件、または全作品が未取得の場合は、保存済み結果がまだ無いことを示す本文を返す。
 
@@ -197,32 +206,31 @@ latest query の一覧は、携帯端末で縦に比較しやすいことを優�
 
 ---
 
-### 6.2 Discord `fetch` trigger
+### 6.3 Discord `fetch` trigger
 
-#### 6.2.1 Input contract
+#### 6.3.1 Input contract
 
 - trim 後に本文がちょうど `fetch` であるメッセージを fetch trigger と解釈する
 - fetch trigger は write path である
 - fetch trigger はその時点で 1 回の run を開始するための手動トリガーである
 
-#### 6.2.2 Execution contract
+#### 6.3.2 Execution contract
 
 - `fetch` で開始された run は、定期 run と同じ更新検知・state 更新・Daily notification・run report 契約に従う
 - `fetch` と定期 run の違いは trigger source のみとする
 - `fetch` 同時実行は受け入れ上は許容する
 - ただし、同時実行が起きても state 破損は許容しない
 
-#### 6.2.3 Response contract
+#### 6.3.3 Response contract
 
-- 初期応答として、手動 fetch を受理したことが利用者に分かる反応を返せること
 - 利用者は Daily notification または run report で結果確認すべきであることを理解できること
 - `fetch` の結果確認は主として後続通知 surface に委ねてよい
 
 ---
 
-### 6.3 Daily notification
+### 6.4 Daily notification
 
-#### 6.3.1 Send condition
+#### 6.4.1 Send condition
 
 - 更新があった run のみ送る
 - 更新 0 件の run では送らない
@@ -230,13 +238,13 @@ latest query の一覧は、携帯端末で縦に比較しやすいことを優�
 - metadata の改善のみは通知対象にしない
 - 更新通知の並び順は watchlist 順を正とする
 
-#### 6.3.2 Deduplication contract
+#### 6.4.2 Deduplication contract
 
 - 同一話の再通知防止は `work_id + latest_key` を基準とする
 - 同じ `work_id + latest_key` の組み合わせに対する Daily notification は重複送信してはならない
 - `fetch`、定期 run、再送処理のいずれにおいても同じ基準を適用する
 
-#### 6.3.3 Response contract
+#### 6.4.3 Response contract
 
 更新通知本文は、以下の意味構造を持たなければならない。
 
@@ -263,7 +271,7 @@ latest query の一覧は、携帯端末で縦に比較しやすいことを優�
 - URL がある場合は Discord Markdown link 形式を使う
 - URL が無い場合は plain text に degrade してよい
 
-#### 6.3.4 Label fallback rules
+#### 6.4.4 Label fallback rules
 
 作品名は、以下の優先順で選ぶ。
 
@@ -289,7 +297,7 @@ latest query の一覧は、携帯端末で縦に比較しやすいことを優�
 5. `from.url`
 6. 未取得相当の固定表現
 
-#### 6.3.5 Notification label normalization
+#### 6.4.5 Notification label normalization
 
 - 新しい最新話には latest query と同じ truncate ルールを適用してよい
 - 前回話にも同じ truncate ルールを適用してよい
@@ -298,13 +306,13 @@ latest query の一覧は、携帯端末で縦に比較しやすいことを優�
 
 ---
 
-### 6.4 Run report
+### 6.5 Run report
 
-#### 6.4.1 Send condition
+#### 6.5.1 Send condition
 
 - run report は更新有無にかかわらず毎 run 送る
 
-#### 6.4.2 Meaning contract
+#### 6.5.2 Meaning contract
 
 run report は少なくとも、以下を区別可能でなければならない。
 
@@ -312,7 +320,7 @@ run report は少なくとも、以下を区別可能でなければならない
 - run が失敗した
 - 更新はあったが delivery に失敗した
 
-#### 6.4.3 Minimum contents
+#### 6.5.3 Minimum contents
 
 run report は少なくとも以下を含まなければならない。
 
@@ -323,7 +331,7 @@ run report は少なくとも以下を含まなければならない。
 - source failure / run-level failure の要約
 - 現在状態または最新状態の要約
 
-#### 6.4.4 Format policy
+#### 6.5.4 Format policy
 
 - run report の文面細部は固定しない
 - 受け入れ判定では意味が伝わることを重視する
@@ -402,6 +410,8 @@ run report は少なくとも以下を含まなければならない。
 自動テストで少なくとも以下を検証する。
 
 - `latest` が read-only であり live crawl を起動しないこと
+- 認識した `latest` message に対して、本文応答前にチェックマークの初期応答スタンプ送信を試行できること
+- 初期応答スタンプ送信の失敗が `latest` 本文応答の失敗や不要な遅延を起こさないこと
 - `latest` が watchlist 順で返ること
 - orphaned state entry を表示しないこと
 - `enabled=false` の作品を既定で表示しないこと
@@ -432,7 +442,7 @@ run report は少なくとも以下を含まなければならない。
 自動テストで少なくとも以下を検証する。
 
 - `fetch` が write path として run を起動すること
-- 初期応答が返ること
+- 初期応答スタンプ送信の失敗が `fetch` run 起動の失敗や不要な遅延を起こさないこと
 - trigger source 以外の契約が定期 run と整合すること
 - 同時実行時にも state が JSON として壊れないこと
 - 同時実行時にも reader が読めない状態を作らないこと

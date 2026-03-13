@@ -24,9 +24,10 @@ class FakeResponse:
 
 
 class FakeSession:
-    def __init__(self, responses=None, get_responses=None, error=None):
+    def __init__(self, responses=None, get_responses=None, put_responses=None, error=None):
         self.responses = list(responses or [])
         self.get_responses = list(get_responses or [])
+        self.put_responses = list(put_responses or [])
         self.error = error
         self.calls = []
 
@@ -61,6 +62,21 @@ class FakeSession:
         if not self.get_responses:
             raise AssertionError("unexpected discord read request")
         return self.get_responses.pop(0)
+
+    def put(self, url, headers=None, timeout=None, allow_redirects=None):
+        self.calls.append(
+            {
+                "url": url,
+                "headers": headers,
+                "timeout": timeout,
+                "allow_redirects": allow_redirects,
+            }
+        )
+        if self.error is not None:
+            raise self.error
+        if not self.put_responses:
+            raise AssertionError("unexpected discord reaction request")
+        return self.put_responses.pop(0)
 
 
 class DiscordOutboundTests(unittest.TestCase):
@@ -220,6 +236,25 @@ class DiscordOutboundTests(unittest.TestCase):
         )
         self.assertEqual({"limit": 100, "after": "10"}, session.calls[1]["params"])
         self.assertEqual("latest", messages[0]["content"])
+
+    def test_discord_channel_client_add_reaction_uses_reactions_endpoint(self):
+        session = FakeSession(put_responses=[FakeResponse(204)])
+        client = DiscordChannelClient(
+            DiscordOutboundConfig(
+                bot_token="discord-bot-token",
+                main_channel_id="main-channel",
+                run_report_channel_id="run-report-channel",
+            ),
+            session=session,
+        )
+
+        client.add_reaction("main-channel", "123", "✅")
+
+        self.assertEqual(
+            "https://discord.com/api/v10/channels/main-channel/messages/123/reactions/%E2%9C%85/@me",
+            session.calls[0]["url"],
+        )
+        self.assertEqual("Bot discord-bot-token", session.calls[0]["headers"]["Authorization"])
 
     def test_discord_channel_client_masks_bot_token_in_transport_error(self):
         token = "discord-bot-token"
