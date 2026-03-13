@@ -32,7 +32,14 @@ class DiscordCommandTransport(Protocol):
     def send_message(self, channel_id: str, content: str) -> None:
         ...
 
-    def add_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
+    def add_reaction(
+        self,
+        channel_id: str,
+        message_id: str,
+        emoji: str,
+        *,
+        started_signal: Optional[threading.Event] = None,
+    ) -> None:
         ...
 
 
@@ -159,9 +166,13 @@ class DiscordCommandListener:
         started = threading.Event()
 
         def deliver_reaction() -> None:
-            started.set()
             try:
-                self.client.add_reaction(self.channel_id, message_id, COMMAND_ACK_EMOJI)
+                self.client.add_reaction(
+                    self.channel_id,
+                    message_id,
+                    COMMAND_ACK_EMOJI,
+                    started_signal=started,
+                )
             except Exception as exc:
                 self.error_logger(
                     f"[discord] ack reaction failed: channel={self.channel_id} message_id={message_id} error={exc}"

@@ -48,8 +48,10 @@ class FakeDiscordClient:
             }
         )
 
-    def add_reaction(self, channel_id, message_id, emoji):
+    def add_reaction(self, channel_id, message_id, emoji, *, started_signal=None):
         self.operations.append(("add_reaction", channel_id, message_id, emoji))
+        if started_signal is not None:
+            started_signal.set()
         if self.reaction_error is not None:
             raise self.reaction_error
         self.reactions.append(
@@ -67,8 +69,10 @@ class BlockingReactionClient(FakeDiscordClient):
         self.reaction_started = threading.Event()
         self.allow_reaction_finish = threading.Event()
 
-    def add_reaction(self, channel_id, message_id, emoji):
+    def add_reaction(self, channel_id, message_id, emoji, *, started_signal=None):
         self.operations.append(("add_reaction", channel_id, message_id, emoji))
+        if started_signal is not None:
+            started_signal.set()
         self.reaction_started.set()
         self.allow_reaction_finish.wait(1.0)
         self.reactions.append(

@@ -116,7 +116,16 @@ class DiscordChannelClient:
         )
         raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
 
-    def add_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
+    def add_reaction(
+        self,
+        channel_id: str,
+        message_id: str,
+        emoji: str,
+        *,
+        started_signal=None,
+    ) -> None:
+        if started_signal is not None:
+            started_signal.set()
         normalized_channel_id = _coerce_text(channel_id)
         if not normalized_channel_id:
             raise RuntimeError("Discord channel_id is required")
