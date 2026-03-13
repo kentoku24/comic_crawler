@@ -6,12 +6,14 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence
 
-from manga_watch.discord_fetch import handle_fetch_trigger
-from manga_watch.discord_latest import handle_latest_query
+from manga_watch.discord_fetch import FETCH_COMMAND, handle_fetch_trigger
+from manga_watch.discord_latest import LATEST_COMMAND, handle_latest_query
 
 DEFAULT_COMMAND_POLL_INTERVAL = 5.0
 DISCORD_MESSAGE_LIMIT = 2000
 COMMAND_LISTENER_THREAD_NAME = "manga-watch-discord-inbound"
+COMMAND_ACK_THREAD_NAME = "manga-watch-discord-ack"
+COMMAND_ACK_EMOJI = "✅"
 
 
 class DiscordCommandTransport(Protocol):
@@ -28,6 +30,9 @@ class DiscordCommandTransport(Protocol):
         ...
 
     def send_message(self, channel_id: str, content: str) -> None:
+        ...
+
+    def add_reaction(self, channel_id: str, message_id: str, emoji: str) -> None:
         ...
 
 
@@ -150,11 +155,31 @@ class DiscordCommandListener:
             if chunk:
                 self.client.send_message(self.channel_id, chunk)
 
+    def _send_ack_reaction(self, message_id: str) -> None:
+        def deliver_reaction() -> None:
+            try:
+                self.client.add_reaction(self.channel_id, message_id, COMMAND_ACK_EMOJI)
+            except Exception as exc:
+                self.error_logger(
+                    f"[discord] ack reaction failed: channel={self.channel_id} message_id={message_id} error={exc}"
+                )
+
+        thread = self.thread_factory(
+            target=deliver_reaction,
+            daemon=True,
+            name=f"{COMMAND_ACK_THREAD_NAME}-{message_id}",
+        )
+        thread.start()
+
     def _handle_message(self, message: Mapping[str, object]) -> Optional[str]:
         if self._should_ignore_message(message):
             return None
 
+        message_id = _message_id(message)
         content = _message_content(message)
+        normalized = content.strip()
+        if normalized == LATEST_COMMAND and message_id is not None:
+            self._send_ack_reaction(message_id)
         latest_response = self.latest_handler(
             content,
             watchlist_path=self.watchlist_path,
@@ -165,14 +190,13 @@ class DiscordCommandListener:
             self._send_response(latest_response)
             return latest_response
 
+        if normalized == FETCH_COMMAND and message_id is not None:
+            self._send_ack_reaction(message_id)
         fetch_response = self.fetch_handler(content, coordinator=self.coordinator)
         if fetch_response is None:
             return None
 
-        response_message = str(fetch_response.get("message") or "").strip()
-        if response_message:
-            self._send_response(response_message)
-        return response_message or ""
+        return ""
 
     def poll_once(self) -> List[str]:
         if not self._cursor_primed:
