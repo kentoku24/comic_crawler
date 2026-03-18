@@ -434,3 +434,7 @@ drift を検知したら、次の順で進めます。
 - 未読の確認や既読化を手動で行いたいときは `.venv/bin/python -m manga_watch.backlog --unread-only` または `.venv/bin/python -m manga_watch.backlog --mark-read <work_id>` を使う
 - run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_backlog` で runner まで確認する
 - 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` と `manga_watch/source_drift.py` の canary contract を更新して fixture / source tests を更新する
+
+## Deployment automation
+
+単一ホスト Docker Compose 向けの build/push/deploy 自動化（OSS webhook receiverベース）の詳細は `doc/compose_cicd_single_host.md` を参照してください。

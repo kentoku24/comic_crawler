@@ -1,0 +1,106 @@
+name: build-push-deploy
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "Dockerfile"
+      - "requirements.txt"
+      - "manga_watch/**"
+      - "scripts/**"
+      - ".github/workflows/build-push-deploy.yml"
+  workflow_dispatch:
+
+env:
+  REGISTRY_IMAGE: ghcr.io/example/myapp
+
+jobs:
+  build-and-push:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image_ref: ${{ steps.meta.outputs.image_ref }}
+      image_digest: ${{ steps.push.outputs.digest }}
+      version: ${{ steps.meta.outputs.version }}
+      commit_sha: ${{ steps.meta.outputs.commit_sha }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          SHORT_SHA="${GITHUB_SHA::12}"
+          VERSION="${GITHUB_REF_NAME}-${SHORT_SHA}"
+          IMAGE_REF="${REGISTRY_IMAGE}:${VERSION}"
+          echo "version=${VERSION}" >> "$GITHUB_OUTPUT"
+          echo "image_ref=${IMAGE_REF}" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${GITHUB_SHA}" >> "$GITHUB_OUTPUT"
+
+      - name: Login to GHCR
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push
+        id: push
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          push: true
+          tags: |
+            ${{ steps.meta.outputs.image_ref }}
+            ${{ env.REGISTRY_IMAGE }}:sha-${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+
+      - name: Emit build summary
+        run: |
+          {
+            echo "### Build result"
+            echo "- image: \`${{ steps.meta.outputs.image_ref }}\`"
+            echo "- digest: \`${{ steps.push.outputs.digest }}\`"
+            echo "- commit: \`${{ steps.meta.outputs.commit_sha }}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  notify-deploy-webhook:
+    needs: build-and-push
+    runs-on: ubuntu-latest
+    if: ${{ github.ref == 'refs/heads/main' }}
+    steps:
+      - name: Trigger OSS webhook receiver on deploy host
+        env:
+          DEPLOY_WEBHOOK_URL: ${{ secrets.DEPLOY_WEBHOOK_URL }}
+          DEPLOY_WEBHOOK_TOKEN: ${{ secrets.DEPLOY_WEBHOOK_TOKEN }}
+          IMAGE_REF: ${{ needs.build-and-push.outputs.image_ref }}
+          IMAGE_DIGEST: ${{ needs.build-and-push.outputs.image_digest }}
+          VERSION: ${{ needs.build-and-push.outputs.version }}
+          COMMIT_SHA: ${{ needs.build-and-push.outputs.commit_sha }}
+          REF: ${{ github.ref }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DEPLOY_WEBHOOK_URL:-}" ] || [ -z "${DEPLOY_WEBHOOK_TOKEN:-}" ]; then
+            echo "DEPLOY_WEBHOOK_URL and DEPLOY_WEBHOOK_TOKEN are required" >&2
+            exit 1
+          fi
+
+          BODY="$(jq -nc \
+            --arg image_ref "$IMAGE_REF" \
+            --arg image_digest "$IMAGE_DIGEST" \
+            --arg version "$VERSION" \
+            --arg commit_sha "$COMMIT_SHA" \
+            --arg ref "$REF" \
+            '{image_ref:$image_ref,image_digest:$image_digest,version:$version,commit_sha:$commit_sha,ref:$ref}')"
+
+          curl -fsS -X POST "$DEPLOY_WEBHOOK_URL" \
+            -H "content-type: application/json" \
+            -H "x-deploy-token: ${DEPLOY_WEBHOOK_TOKEN}" \
+            -d "$BODY"

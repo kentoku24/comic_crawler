@@ -1,0 +1,39 @@
+[
+  {
+    "id": "deploy-app",
+    "execute-command": "/opt/myapp/bin/deploy.sh",
+    "command-working-directory": "/opt/myapp",
+    "response-message": "deployment started",
+    "include-command-output-in-response": true,
+    "pass-arguments-to-command": [
+      { "source": "payload", "name": "image_ref" },
+      { "source": "payload", "name": "version" },
+      { "source": "payload", "name": "commit_sha" },
+      { "source": "payload", "name": "image_digest" }
+    ],
+    "trigger-rule": {
+      "and": [
+        {
+          "match": {
+            "type": "value",
+            "parameter": {
+              "source": "header",
+              "name": "X-Deploy-Token"
+            },
+            "value": "__REPLACE_WITH_DEPLOY_WEBHOOK_TOKEN__"
+          }
+        },
+        {
+          "match": {
+            "type": "value",
+            "parameter": {
+              "source": "payload",
+              "name": "ref"
+            },
+            "value": "refs/heads/main"
+          }
+        }
+      ]
+    }
+  }
+]
