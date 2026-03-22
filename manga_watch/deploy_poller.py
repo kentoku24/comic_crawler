@@ -1,4 +1,10 @@
+from __future__ import annotations
+
 from pathlib import Path
+
+import requests
+
+from manga_watch.ghcr_registry import resolve_public_tag_digest
 
 
 def load_deploy_env(path: Path) -> dict[str, str]:
@@ -31,3 +37,11 @@ def render_updated_deploy_env(existing_text: str, image_ref: str) -> str:
         rendered.append(f"COMIC_CRAWLER_IMAGE_REF={image_ref}")
 
     return "\n".join(rendered) + "\n"
+
+
+def resolve_deploy_image_digest(
+    image_ref: str,
+    *,
+    session: requests.Session | None = None,
+) -> str:
+    return resolve_public_tag_digest(image_ref, session=session)
