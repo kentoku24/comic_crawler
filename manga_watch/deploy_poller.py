@@ -207,21 +207,22 @@ def run_once(
 
     with advisory_file_lock(str(resolved_lock_path)):
         resolved_digest = resolve_digest(tracked_image_ref)
-        if dry_run:
-            return {
-                "result": "dry_run",
-                "tracked_image_ref": tracked_image_ref,
-                "target_digest": resolved_digest,
-            }
-
         state = load_poller_state(state_path)
         state["tracked_tag"] = tracked_tag
-        state["last_seen_digest"] = resolved_digest
         plan = plan_poll_result(
             tracked_tag=tracked_tag,
             resolved_digest=resolved_digest,
             state=state,
         )
+        if dry_run:
+            return {
+                "result": "dry_run",
+                "planned_action": plan.action,
+                "tracked_image_ref": tracked_image_ref,
+                "target_digest": resolved_digest,
+            }
+
+        state["last_seen_digest"] = resolved_digest
 
         if plan.action == "noop":
             saved_state = save_poller_state(state_path, state)
@@ -239,15 +240,17 @@ def run_once(
         state["last_attempted_digest"] = resolved_digest
         state["last_attempt_started_at"] = _utcnow_isoformat()
         saved_state = save_poller_state(state_path, state)
-        _send_notification(
-            resolved_notifier,
-            event="detected",
-            tracked_tag=tracked_tag,
-            previous_digest=prior_deployed_digest,
-            target_digest=resolved_digest,
-            timestamp=state["last_attempt_started_at"],
-            next_action="run deploy and smoke check",
-            redaction_secrets=redaction_secrets,
+        _emit_warning(
+            _send_notification(
+                resolved_notifier,
+                event="detected",
+                tracked_tag=tracked_tag,
+                previous_digest=prior_deployed_digest,
+                target_digest=resolved_digest,
+                timestamp=state["last_attempt_started_at"],
+                next_action="run deploy and smoke check",
+                redaction_secrets=redaction_secrets,
+            )
         )
 
         target_image_ref = build_digest_image_ref(tracked_image, resolved_digest)
@@ -264,20 +267,22 @@ def run_once(
             failure_message = _redact_error(exc, redaction_secrets)
             state["last_error"] = failure_message
             saved_state = save_poller_state(state_path, state)
-            _send_notification(
-                resolved_notifier,
-                event="failed",
-                tracked_tag=tracked_tag,
-                previous_digest=rollback_digest,
-                target_digest=resolved_digest,
-                timestamp=failure_timestamp,
-                next_action=(
-                    "attempt automatic rollback"
-                    if rollback_digest
-                    else "manual intervention required"
-                ),
-                error=failure_message,
-                redaction_secrets=redaction_secrets,
+            _emit_warning(
+                _send_notification(
+                    resolved_notifier,
+                    event="failed",
+                    tracked_tag=tracked_tag,
+                    previous_digest=rollback_digest,
+                    target_digest=resolved_digest,
+                    timestamp=failure_timestamp,
+                    next_action=(
+                        "attempt automatic rollback"
+                        if rollback_digest
+                        else "manual intervention required"
+                    ),
+                    error=failure_message,
+                    redaction_secrets=redaction_secrets,
+                )
             )
             if rollback_digest:
                 rollback_image_ref = build_digest_image_ref(tracked_image, rollback_digest)
@@ -295,16 +300,18 @@ def run_once(
                         f"{failure_message}; rollback_failed: {rollback_message}"
                     )
                     saved_state = save_poller_state(state_path, state)
-                    _send_notification(
-                        resolved_notifier,
-                        event="rollback_failed",
-                        tracked_tag=tracked_tag,
-                        previous_digest=rollback_digest,
-                        target_digest=resolved_digest,
-                        timestamp=_utcnow_isoformat(),
-                        next_action="manual rollback required",
-                        error=state["last_error"],
-                        redaction_secrets=redaction_secrets,
+                    _emit_warning(
+                        _send_notification(
+                            resolved_notifier,
+                            event="rollback_failed",
+                            tracked_tag=tracked_tag,
+                            previous_digest=rollback_digest,
+                            target_digest=resolved_digest,
+                            timestamp=_utcnow_isoformat(),
+                            next_action="manual rollback required",
+                            error=state["last_error"],
+                            redaction_secrets=redaction_secrets,
+                        )
                     )
                     raise RuntimeError(state["last_error"]) from rollback_exc
 
@@ -312,16 +319,18 @@ def run_once(
                     f"{failure_message}; rollback_succeeded: restored {rollback_digest}"
                 )
                 saved_state = save_poller_state(state_path, state)
-                _send_notification(
-                    resolved_notifier,
-                    event="rollback_succeeded",
-                    tracked_tag=tracked_tag,
-                    previous_digest=rollback_digest,
-                    target_digest=resolved_digest,
-                    timestamp=_utcnow_isoformat(),
-                    next_action="investigate failed digest before retrying deploy",
-                    error=state["last_error"],
-                    redaction_secrets=redaction_secrets,
+                _emit_warning(
+                    _send_notification(
+                        resolved_notifier,
+                        event="rollback_succeeded",
+                        tracked_tag=tracked_tag,
+                        previous_digest=rollback_digest,
+                        target_digest=resolved_digest,
+                        timestamp=_utcnow_isoformat(),
+                        next_action="investigate failed digest before retrying deploy",
+                        error=state["last_error"],
+                        redaction_secrets=redaction_secrets,
+                    )
                 )
                 raise RuntimeError(state["last_error"]) from exc
 
@@ -332,15 +341,17 @@ def run_once(
         state["last_success_at"] = _utcnow_isoformat()
         state["last_error"] = None
         saved_state = save_poller_state(state_path, state)
-        _send_notification(
-            resolved_notifier,
-            event="deployed",
-            tracked_tag=tracked_tag,
-            previous_digest=prior_deployed_digest,
-            target_digest=resolved_digest,
-            timestamp=state["last_success_at"],
-            next_action="wait for the next digest poll",
-            redaction_secrets=redaction_secrets,
+        _emit_warning(
+            _send_notification(
+                resolved_notifier,
+                event="deployed",
+                tracked_tag=tracked_tag,
+                previous_digest=prior_deployed_digest,
+                target_digest=resolved_digest,
+                timestamp=state["last_success_at"],
+                next_action="wait for the next digest poll",
+                redaction_secrets=redaction_secrets,
+            )
         )
         return {
             "result": "deployed",
@@ -607,7 +618,16 @@ def _build_default_notifier(config: Mapping[str, str]) -> DiscordWebhookNotifier
     timeout_text = _coerce_optional_text(config.get("MANGA_WATCH_WEBHOOK_TIMEOUT"))
     timeout = DEFAULT_DISCORD_WEBHOOK_TIMEOUT
     if timeout_text is not None:
-        timeout = int(timeout_text)
+        try:
+            timeout = int(timeout_text)
+            if timeout <= 0:
+                raise ValueError("timeout must be > 0")
+        except ValueError:
+            _emit_warning(
+                "invalid MANGA_WATCH_WEBHOOK_TIMEOUT; "
+                f"using default timeout {DEFAULT_DISCORD_WEBHOOK_TIMEOUT}s"
+            )
+            timeout = DEFAULT_DISCORD_WEBHOOK_TIMEOUT
     return DiscordWebhookNotifier(webhook_url, timeout=timeout)
 
 
@@ -648,6 +668,12 @@ def _send_notification(
     except Exception as exc:
         return _redact_error(exc, redaction_secrets)
     return None
+
+
+def _emit_warning(message: str | None) -> None:
+    if not message:
+        return
+    print(f"[deploy-poller] notification warning: {message}", file=sys.stderr)
 
 
 def _coerce_optional_text(value: object) -> str | None:

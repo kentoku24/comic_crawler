@@ -1,4 +1,4 @@
-from contextlib import contextmanager, redirect_stdout
+from contextlib import contextmanager, redirect_stderr, redirect_stdout
 from dataclasses import dataclass
 import io
 import json
@@ -174,10 +174,49 @@ class PollerStateTests(unittest.TestCase):
 
             self.assertEqual([], runner.commands)
             self.assertEqual("dry_run", result["result"])
+            self.assertEqual("deploy", result["planned_action"])
             self.assertEqual("sha256:new", result["target_digest"])
             self.assertEqual(env_before, env_path.read_text(encoding="utf-8"))
             self.assertEqual(state_before, state_path.read_text(encoding="utf-8"))
             self.assertEqual([], notifier.sent)
+
+    def test_run_once_dry_run_reports_noop_when_digest_matches_last_deployed(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / "deploy.env"
+            state_path = Path(tmpdir) / "poller-state.json"
+            compose_file = Path(tmpdir) / "docker-compose.deploy.yml"
+            env_path.write_text(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:old\n",
+                encoding="utf-8",
+            )
+            compose_file.write_text("services:\n  comic-crawler:\n    image: ignored\n", encoding="utf-8")
+            deploy_poller.save_poller_state(
+                state_path,
+                {
+                    "tracked_tag": "latest",
+                    "last_seen_digest": "sha256:old",
+                    "last_attempted_digest": None,
+                    "last_deployed_digest": "sha256:same",
+                    "previous_deployed_digest": None,
+                    "last_attempt_started_at": None,
+                    "last_success_at": None,
+                    "last_error": None,
+                },
+            )
+
+            result = deploy_poller.run_once(
+                tracked_image="ghcr.io/kentoku24/comic_crawler",
+                tracked_tag="latest",
+                compose_file=compose_file,
+                deploy_env_path=env_path,
+                state_path=state_path,
+                dry_run=True,
+                resolve_digest=lambda image_ref: "sha256:same",
+            )
+
+            self.assertEqual("dry_run", result["result"])
+            self.assertEqual("noop", result["planned_action"])
+            self.assertEqual("sha256:same", result["target_digest"])
 
     def test_run_once_noop_persists_tracked_tag_and_last_seen_without_attempt_fields(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -685,26 +724,98 @@ class DeployExecutionTests(unittest.TestCase):
                 ]
             )
             notifier = FakeFailingNotifier(f"notify failed: {webhook_url}")
+            stderr = io.StringIO()
 
             with mock.patch(
                 "manga_watch.deploy_poller._utcnow_isoformat",
                 return_value="2026-03-22T00:00:00Z",
             ):
-                result = deploy_poller.run_once(
-                    tracked_image="ghcr.io/kentoku24/comic_crawler",
-                    tracked_tag="latest",
-                    compose_file=compose_file,
-                    deploy_env_path=env_path,
-                    state_path=state_path,
-                    resolve_digest=lambda image_ref: "sha256:new",
-                    command_runner=runner,
-                    notifier=notifier,
-                )
+                with redirect_stderr(stderr):
+                    result = deploy_poller.run_once(
+                        tracked_image="ghcr.io/kentoku24/comic_crawler",
+                        tracked_tag="latest",
+                        compose_file=compose_file,
+                        deploy_env_path=env_path,
+                        state_path=state_path,
+                        resolve_digest=lambda image_ref: "sha256:new",
+                        command_runner=runner,
+                        notifier=notifier,
+                    )
 
             self.assertEqual("deployed", result["result"])
             self.assertEqual(["detected", "deployed"], [payload["event"] for payload in notifier.sent])
             for payload in notifier.sent:
                 self.assertNotIn(webhook_url, payload["content"])
+            self.assertIn("notification warning", stderr.getvalue())
+            self.assertNotIn(webhook_url, stderr.getvalue())
+
+    def test_run_once_invalid_webhook_timeout_falls_back_to_default_without_blocking_deploy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            webhook_url = "https://discord.com/api/webhooks/123/secret"
+            env_path = Path(tmpdir) / "deploy.env"
+            state_path = Path(tmpdir) / "poller-state.json"
+            compose_file = Path(tmpdir) / "docker-compose.deploy.yml"
+            env_path.write_text(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:old\n"
+                f"MANGA_WATCH_WEBHOOK_URL={webhook_url}\n"
+                "MANGA_WATCH_WEBHOOK_TIMEOUT=not-a-number\n",
+                encoding="utf-8",
+            )
+            compose_file.write_text("services:\n  comic-crawler:\n    image: ignored\n", encoding="utf-8")
+            deploy_poller.save_poller_state(
+                state_path,
+                {
+                    "tracked_tag": "latest",
+                    "last_seen_digest": "sha256:old",
+                    "last_attempted_digest": None,
+                    "last_deployed_digest": "sha256:old",
+                    "previous_deployed_digest": None,
+                    "last_attempt_started_at": None,
+                    "last_success_at": None,
+                    "last_error": None,
+                },
+            )
+            runner = FakeCommandRunner(
+                results=[
+                    CommandResult(0, "", ""),
+                    CommandResult(0, "", ""),
+                    CommandResult(
+                        0,
+                        json.dumps([{"Service": "comic-crawler", "State": "running"}]),
+                        "",
+                    ),
+                    CommandResult(0, '{"summary": {"monitored_work_count": 1}}', ""),
+                ]
+            )
+            notifier = FakeDiscordNotifier()
+            stderr = io.StringIO()
+
+            with mock.patch(
+                "manga_watch.deploy_poller._utcnow_isoformat",
+                return_value="2026-03-22T00:00:00Z",
+            ):
+                with mock.patch(
+                    "manga_watch.deploy_poller.DiscordWebhookNotifier",
+                    return_value=notifier,
+                ) as notifier_class:
+                    with redirect_stderr(stderr):
+                        result = deploy_poller.run_once(
+                            tracked_image="ghcr.io/kentoku24/comic_crawler",
+                            tracked_tag="latest",
+                            compose_file=compose_file,
+                            deploy_env_path=env_path,
+                            state_path=state_path,
+                            resolve_digest=lambda image_ref: "sha256:new",
+                            command_runner=runner,
+                        )
+
+            self.assertEqual("deployed", result["result"])
+            notifier_class.assert_called_once_with(
+                webhook_url,
+                timeout=deploy_poller.DEFAULT_DISCORD_WEBHOOK_TIMEOUT,
+            )
+            self.assertIn("invalid MANGA_WATCH_WEBHOOK_TIMEOUT", stderr.getvalue())
+            self.assertNotIn(webhook_url, stderr.getvalue())
 
     def test_run_once_notification_failures_do_not_block_rollback(self):
         with tempfile.TemporaryDirectory() as tmpdir:
