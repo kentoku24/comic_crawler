@@ -1,4 +1,6 @@
 from contextlib import contextmanager
+from dataclasses import dataclass
+import json
 import tempfile
 import unittest
 from unittest import mock
@@ -7,13 +9,23 @@ from pathlib import Path
 from manga_watch import deploy_poller
 
 
+@dataclass(frozen=True)
+class CommandResult:
+    returncode: int
+    stdout: str = ""
+    stderr: str = ""
+
+
 class FakeCommandRunner:
-    def __init__(self):
+    def __init__(self, *, results=None):
         self.commands = []
+        self.results = list(results or [])
 
     def __call__(self, command):
         self.commands.append(list(command))
-        raise AssertionError("command runner should not be called")
+        if not self.results:
+            raise AssertionError("unexpected command")
+        return self.results.pop(0)
 
 
 class FakeDiscordNotifier:
@@ -22,6 +34,16 @@ class FakeDiscordNotifier:
 
     def send(self, payload):
         self.sent.append(payload)
+
+
+class FakeFailingNotifier:
+    def __init__(self, message):
+        self.message = message
+        self.sent = []
+
+    def send(self, payload):
+        self.sent.append(payload)
+        raise RuntimeError(self.message)
 
 
 class DeployEnvTests(unittest.TestCase):
@@ -196,7 +218,7 @@ class PollerStateTests(unittest.TestCase):
             self.assertIsNone(persisted_state["last_attempted_digest"])
             self.assertIsNone(persisted_state["last_attempt_started_at"])
 
-    def test_run_once_deploy_pending_persists_attempt_digest_and_timestamp(self):
+    def test_run_once_deployed_persists_attempt_digest_and_timestamp(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             env_path = Path(tmpdir) / "deploy.env"
             state_path = Path(tmpdir) / "poller-state.json"
@@ -219,6 +241,18 @@ class PollerStateTests(unittest.TestCase):
                     "last_error": None,
                 },
             )
+            runner = FakeCommandRunner(
+                results=[
+                    CommandResult(0, "", ""),
+                    CommandResult(0, "", ""),
+                    CommandResult(
+                        0,
+                        json.dumps([{"Service": "comic-crawler", "State": "running"}]),
+                        "",
+                    ),
+                    CommandResult(0, '{"summary": {"monitored_work_count": 1}}', ""),
+                ]
+            )
 
             with mock.patch(
                 "manga_watch.deploy_poller._utcnow_isoformat",
@@ -231,10 +265,11 @@ class PollerStateTests(unittest.TestCase):
                     deploy_env_path=env_path,
                     state_path=state_path,
                     resolve_digest=lambda image_ref: "sha256:new",
+                    command_runner=runner,
                 )
 
             persisted_state = deploy_poller.load_poller_state(state_path)
-            self.assertEqual("deploy_pending", result["result"])
+            self.assertEqual("deployed", result["result"])
             self.assertEqual("sha256:new", persisted_state["last_attempted_digest"])
             self.assertEqual("2026-03-22T00:00:00Z", persisted_state["last_attempt_started_at"])
 
@@ -269,3 +304,503 @@ class PollerStateTests(unittest.TestCase):
             expected_lock_path = state_path.with_name(f"{state_path.name}.run")
             self.assertEqual("dry_run", result["result"])
             self.assertEqual([str(expected_lock_path)], observed_lock_paths)
+
+
+class DeployExecutionTests(unittest.TestCase):
+    def test_run_once_updates_env_then_runs_pull_up_ps_and_smoke_check(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / "deploy.env"
+            state_path = Path(tmpdir) / "poller-state.json"
+            compose_file = Path(tmpdir) / "docker-compose.deploy.yml"
+            lock_path = Path(tmpdir) / "poller.lock"
+            env_path.write_text(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:old\n"
+                "TZ=Asia/Tokyo\n",
+                encoding="utf-8",
+            )
+            compose_file.write_text("services:\n  comic-crawler:\n    image: ignored\n", encoding="utf-8")
+            deploy_poller.save_poller_state(
+                state_path,
+                {
+                    "tracked_tag": "latest",
+                    "last_seen_digest": "sha256:old",
+                    "last_attempted_digest": None,
+                    "last_deployed_digest": "sha256:old",
+                    "previous_deployed_digest": None,
+                    "last_attempt_started_at": None,
+                    "last_success_at": None,
+                    "last_error": "stale error",
+                },
+            )
+            runner = FakeCommandRunner(
+                results=[
+                    CommandResult(0, "", ""),
+                    CommandResult(0, "", ""),
+                    CommandResult(
+                        0,
+                        json.dumps([{"Service": "comic-crawler", "State": "running"}]),
+                        "",
+                    ),
+                    CommandResult(0, '{"summary": {"monitored_work_count": 1}}', ""),
+                ]
+            )
+            notifier = FakeDiscordNotifier()
+
+            with mock.patch(
+                "manga_watch.deploy_poller._utcnow_isoformat",
+                return_value="2026-03-22T00:00:00Z",
+            ):
+                result = deploy_poller.run_once(
+                    tracked_image="ghcr.io/kentoku24/comic_crawler",
+                    tracked_tag="latest",
+                    compose_file=compose_file,
+                    deploy_env_path=env_path,
+                    state_path=state_path,
+                    lock_path=lock_path,
+                    resolve_digest=lambda image_ref: "sha256:new",
+                    command_runner=runner,
+                    notifier=notifier,
+                )
+
+            self.assertEqual(
+                [
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "pull",
+                        "comic-crawler",
+                    ],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "up",
+                        "-d",
+                        "comic-crawler",
+                    ],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "ps",
+                        "--format",
+                        "json",
+                        "comic-crawler",
+                    ],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "exec",
+                        "-T",
+                        "comic-crawler",
+                        "python",
+                        "-m",
+                        "manga_watch.check",
+                        "--status",
+                        "--format",
+                        "json",
+                        "--watchlist",
+                        "/app/manga_watch/watchlist.json",
+                        "--state",
+                        "/data/state.json",
+                    ],
+                ],
+                runner.commands,
+            )
+            self.assertEqual("deployed", result["result"])
+            self.assertIn(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:new\n",
+                env_path.read_text(encoding="utf-8"),
+            )
+            persisted_state = deploy_poller.load_poller_state(state_path)
+            self.assertEqual("sha256:new", persisted_state["last_deployed_digest"])
+            self.assertEqual("sha256:old", persisted_state["previous_deployed_digest"])
+            self.assertEqual("2026-03-22T00:00:00Z", persisted_state["last_success_at"])
+            self.assertIsNone(persisted_state["last_error"])
+            self.assertEqual(
+                ["detected", "deployed"],
+                [payload["event"] for payload in notifier.sent],
+            )
+
+    def test_run_once_rolls_back_once_when_smoke_check_fails(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / "deploy.env"
+            state_path = Path(tmpdir) / "poller-state.json"
+            compose_file = Path(tmpdir) / "docker-compose.deploy.yml"
+            env_path.write_text(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:old\n",
+                encoding="utf-8",
+            )
+            compose_file.write_text("services:\n  comic-crawler:\n    image: ignored\n", encoding="utf-8")
+            deploy_poller.save_poller_state(
+                state_path,
+                {
+                    "tracked_tag": "latest",
+                    "last_seen_digest": "sha256:old",
+                    "last_attempted_digest": None,
+                    "last_deployed_digest": "sha256:old",
+                    "previous_deployed_digest": "sha256:prev",
+                    "last_attempt_started_at": None,
+                    "last_success_at": "2026-03-21T00:00:00Z",
+                    "last_error": None,
+                },
+            )
+            runner = FakeCommandRunner(
+                results=[
+                    CommandResult(0, "", ""),
+                    CommandResult(0, "", ""),
+                    CommandResult(
+                        0,
+                        json.dumps([{"Service": "comic-crawler", "State": "running"}]),
+                        "",
+                    ),
+                    CommandResult(1, "", "smoke failed"),
+                    CommandResult(0, "", ""),
+                    CommandResult(
+                        0,
+                        json.dumps([{"Service": "comic-crawler", "State": "running"}]),
+                        "",
+                    ),
+                    CommandResult(0, '{"summary": {"monitored_work_count": 1}}', ""),
+                ]
+            )
+            notifier = FakeDiscordNotifier()
+
+            with mock.patch(
+                "manga_watch.deploy_poller._utcnow_isoformat",
+                return_value="2026-03-22T00:00:00Z",
+            ):
+                with self.assertRaisesRegex(RuntimeError, "rollback_succeeded"):
+                    deploy_poller.run_once(
+                        tracked_image="ghcr.io/kentoku24/comic_crawler",
+                        tracked_tag="latest",
+                        compose_file=compose_file,
+                        deploy_env_path=env_path,
+                        state_path=state_path,
+                        resolve_digest=lambda image_ref: "sha256:new",
+                        command_runner=runner,
+                        notifier=notifier,
+                    )
+
+            self.assertEqual(
+                [
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "pull",
+                        "comic-crawler",
+                    ],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "up",
+                        "-d",
+                        "comic-crawler",
+                    ],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "ps",
+                        "--format",
+                        "json",
+                        "comic-crawler",
+                    ],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "exec",
+                        "-T",
+                        "comic-crawler",
+                        "python",
+                        "-m",
+                        "manga_watch.check",
+                        "--status",
+                        "--format",
+                        "json",
+                        "--watchlist",
+                        "/app/manga_watch/watchlist.json",
+                        "--state",
+                        "/data/state.json",
+                    ],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "up",
+                        "-d",
+                        "comic-crawler",
+                    ],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "ps",
+                        "--format",
+                        "json",
+                        "comic-crawler",
+                    ],
+                    [
+                        "docker",
+                        "compose",
+                        "-f",
+                        str(compose_file),
+                        "--env-file",
+                        str(env_path),
+                        "exec",
+                        "-T",
+                        "comic-crawler",
+                        "python",
+                        "-m",
+                        "manga_watch.check",
+                        "--status",
+                        "--format",
+                        "json",
+                        "--watchlist",
+                        "/app/manga_watch/watchlist.json",
+                        "--state",
+                        "/data/state.json",
+                    ],
+                ],
+                runner.commands,
+            )
+            self.assertIn(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:old\n",
+                env_path.read_text(encoding="utf-8"),
+            )
+            persisted_state = deploy_poller.load_poller_state(state_path)
+            self.assertEqual("sha256:new", persisted_state["last_attempted_digest"])
+            self.assertEqual("sha256:old", persisted_state["last_deployed_digest"])
+            self.assertEqual("sha256:prev", persisted_state["previous_deployed_digest"])
+            self.assertIn("smoke failed", persisted_state["last_error"])
+            self.assertEqual(
+                ["detected", "failed", "rollback_succeeded"],
+                [payload["event"] for payload in notifier.sent],
+            )
+
+    def test_run_once_notification_failures_do_not_block_successful_deploy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            webhook_url = "https://discord.com/api/webhooks/123/secret"
+            env_path = Path(tmpdir) / "deploy.env"
+            state_path = Path(tmpdir) / "poller-state.json"
+            compose_file = Path(tmpdir) / "docker-compose.deploy.yml"
+            env_path.write_text(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:old\n"
+                f"MANGA_WATCH_WEBHOOK_URL={webhook_url}\n",
+                encoding="utf-8",
+            )
+            compose_file.write_text("services:\n  comic-crawler:\n    image: ignored\n", encoding="utf-8")
+            deploy_poller.save_poller_state(
+                state_path,
+                {
+                    "tracked_tag": "latest",
+                    "last_seen_digest": "sha256:old",
+                    "last_attempted_digest": None,
+                    "last_deployed_digest": "sha256:old",
+                    "previous_deployed_digest": None,
+                    "last_attempt_started_at": None,
+                    "last_success_at": None,
+                    "last_error": None,
+                },
+            )
+            runner = FakeCommandRunner(
+                results=[
+                    CommandResult(0, "", ""),
+                    CommandResult(0, "", ""),
+                    CommandResult(
+                        0,
+                        json.dumps([{"Service": "comic-crawler", "State": "running"}]),
+                        "",
+                    ),
+                    CommandResult(0, '{"summary": {"monitored_work_count": 1}}', ""),
+                ]
+            )
+            notifier = FakeFailingNotifier(f"notify failed: {webhook_url}")
+
+            with mock.patch(
+                "manga_watch.deploy_poller._utcnow_isoformat",
+                return_value="2026-03-22T00:00:00Z",
+            ):
+                result = deploy_poller.run_once(
+                    tracked_image="ghcr.io/kentoku24/comic_crawler",
+                    tracked_tag="latest",
+                    compose_file=compose_file,
+                    deploy_env_path=env_path,
+                    state_path=state_path,
+                    resolve_digest=lambda image_ref: "sha256:new",
+                    command_runner=runner,
+                    notifier=notifier,
+                )
+
+            self.assertEqual("deployed", result["result"])
+            self.assertEqual(["detected", "deployed"], [payload["event"] for payload in notifier.sent])
+            for payload in notifier.sent:
+                self.assertNotIn(webhook_url, payload["content"])
+
+    def test_run_once_notification_failures_do_not_block_rollback(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            webhook_url = "https://discord.com/api/webhooks/123/secret"
+            env_path = Path(tmpdir) / "deploy.env"
+            state_path = Path(tmpdir) / "poller-state.json"
+            compose_file = Path(tmpdir) / "docker-compose.deploy.yml"
+            env_path.write_text(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:old\n"
+                f"MANGA_WATCH_WEBHOOK_URL={webhook_url}\n",
+                encoding="utf-8",
+            )
+            compose_file.write_text("services:\n  comic-crawler:\n    image: ignored\n", encoding="utf-8")
+            deploy_poller.save_poller_state(
+                state_path,
+                {
+                    "tracked_tag": "latest",
+                    "last_seen_digest": "sha256:old",
+                    "last_attempted_digest": None,
+                    "last_deployed_digest": "sha256:old",
+                    "previous_deployed_digest": "sha256:prev",
+                    "last_attempt_started_at": None,
+                    "last_success_at": None,
+                    "last_error": None,
+                },
+            )
+            runner = FakeCommandRunner(
+                results=[
+                    CommandResult(0, "", ""),
+                    CommandResult(0, "", ""),
+                    CommandResult(
+                        0,
+                        json.dumps([{"Service": "comic-crawler", "State": "running"}]),
+                        "",
+                    ),
+                    CommandResult(1, "", "smoke failed"),
+                    CommandResult(0, "", ""),
+                    CommandResult(
+                        0,
+                        json.dumps([{"Service": "comic-crawler", "State": "running"}]),
+                        "",
+                    ),
+                    CommandResult(0, '{"summary": {"monitored_work_count": 1}}', ""),
+                ]
+            )
+            notifier = FakeFailingNotifier(f"notify failed: {webhook_url}")
+
+            with mock.patch(
+                "manga_watch.deploy_poller._utcnow_isoformat",
+                return_value="2026-03-22T00:00:00Z",
+            ):
+                with self.assertRaisesRegex(RuntimeError, "rollback_succeeded"):
+                    deploy_poller.run_once(
+                        tracked_image="ghcr.io/kentoku24/comic_crawler",
+                        tracked_tag="latest",
+                        compose_file=compose_file,
+                        deploy_env_path=env_path,
+                        state_path=state_path,
+                        resolve_digest=lambda image_ref: "sha256:new",
+                        command_runner=runner,
+                        notifier=notifier,
+                    )
+
+            self.assertEqual(
+                ["detected", "failed", "rollback_succeeded"],
+                [payload["event"] for payload in notifier.sent],
+            )
+
+    def test_run_once_redacts_webhook_url_in_failure_state_exception_and_notifications(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            webhook_url = "https://discord.com/api/webhooks/123/secret"
+            env_path = Path(tmpdir) / "deploy.env"
+            state_path = Path(tmpdir) / "poller-state.json"
+            compose_file = Path(tmpdir) / "docker-compose.deploy.yml"
+            env_path.write_text(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:old\n"
+                f"MANGA_WATCH_WEBHOOK_URL={webhook_url}\n",
+                encoding="utf-8",
+            )
+            compose_file.write_text("services:\n  comic-crawler:\n    image: ignored\n", encoding="utf-8")
+            deploy_poller.save_poller_state(
+                state_path,
+                {
+                    "tracked_tag": "latest",
+                    "last_seen_digest": "sha256:old",
+                    "last_attempted_digest": None,
+                    "last_deployed_digest": "sha256:old",
+                    "previous_deployed_digest": "sha256:prev",
+                    "last_attempt_started_at": None,
+                    "last_success_at": None,
+                    "last_error": None,
+                },
+            )
+            runner = FakeCommandRunner(
+                results=[
+                    CommandResult(0, "", ""),
+                    CommandResult(0, "", ""),
+                    CommandResult(
+                        0,
+                        json.dumps([{"Service": "comic-crawler", "State": "running"}]),
+                        "",
+                    ),
+                    CommandResult(1, "", f"smoke failed: {webhook_url}"),
+                    CommandResult(1, "", f"rollback failed: {webhook_url}"),
+                ]
+            )
+            notifier = FakeDiscordNotifier()
+
+            with mock.patch(
+                "manga_watch.deploy_poller._utcnow_isoformat",
+                return_value="2026-03-22T00:00:00Z",
+            ):
+                with self.assertRaises(RuntimeError) as exc_info:
+                    deploy_poller.run_once(
+                        tracked_image="ghcr.io/kentoku24/comic_crawler",
+                        tracked_tag="latest",
+                        compose_file=compose_file,
+                        deploy_env_path=env_path,
+                        state_path=state_path,
+                        resolve_digest=lambda image_ref: "sha256:new",
+                        command_runner=runner,
+                        notifier=notifier,
+                    )
+
+            persisted_state = deploy_poller.load_poller_state(state_path)
+            self.assertNotIn(webhook_url, persisted_state["last_error"])
+            self.assertIn("[REDACTED_WEBHOOK_URL]", persisted_state["last_error"])
+            self.assertNotIn(webhook_url, str(exc_info.exception))
+            self.assertIn("[REDACTED_WEBHOOK_URL]", str(exc_info.exception))
+            self.assertTrue(notifier.sent)
+            for payload in notifier.sent:
+                self.assertNotIn(webhook_url, payload["content"])
+            self.assertEqual("rollback_failed", notifier.sent[-1]["event"])
