@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.kentoku.comic-crawler.ghcr-poller</string>
+
+  <key>WorkingDirectory</key>
+  <string>/opt/comic_crawler</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/comic_crawler/.venv/bin/python</string>
+    <string>-m</string>
+    <string>manga_watch.deploy_poller</string>
+    <string>--once</string>
+    <string>--tracked-image</string>
+    <string>ghcr.io/kentoku24/comic_crawler</string>
+    <string>--tracked-tag</string>
+    <string>latest</string>
+    <string>--compose-file</string>
+    <string>/opt/comic_crawler/docker-compose.deploy.yml</string>
+    <string>--deploy-env</string>
+    <string>/opt/comic_crawler/.env.deploy</string>
+    <string>--state-path</string>
+    <string>/opt/comic_crawler/var/ghcr-poller-state.json</string>
+  </array>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PYTHONUNBUFFERED</key>
+    <string>1</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>StartInterval</key>
+  <integer>900</integer>
+
+  <key>StandardOutPath</key>
+  <string>/opt/comic_crawler/logs/comic-crawler-ghcr-poller.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/opt/comic_crawler/logs/comic-crawler-ghcr-poller.error.log</string>
+</dict>
+</plist>
