@@ -1,0 +1,25 @@
+services:
+  comic-crawler:
+    image: ${COMIC_CRAWLER_IMAGE_REF:?required}
+    restart: unless-stopped
+    environment:
+      MANGA_WATCH_NOTIFIER_BACKENDS: ${MANGA_WATCH_NOTIFIER_BACKENDS:-stdout}
+      MANGA_WATCH_WEBHOOK_URL: ${MANGA_WATCH_WEBHOOK_URL:-}
+      MANGA_WATCH_WEBHOOK_TIMEOUT: ${MANGA_WATCH_WEBHOOK_TIMEOUT:-10}
+      DISCORD_BOT_TOKEN: ${DISCORD_BOT_TOKEN:-}
+      DISCORD_MAIN_CHANNEL_ID: ${DISCORD_MAIN_CHANNEL_ID:-}
+      DISCORD_RUN_REPORT_CHANNEL_ID: ${DISCORD_RUN_REPORT_CHANNEL_ID:-}
+      DISCORD_INBOUND_ENABLED: ${DISCORD_INBOUND_ENABLED:-true}
+      DISCORD_COMMAND_POLL_INTERVAL: ${DISCORD_COMMAND_POLL_INTERVAL:-5}
+      CRAWL_SCHEDULE: ${CRAWL_SCHEDULE:-}
+      CRAWL_INTERVAL: ${CRAWL_INTERVAL:-}
+      RUN_ON_STARTUP: ${RUN_ON_STARTUP:-true}
+      TZ: ${TZ:-Asia/Tokyo}
+      MANGA_WATCH_WATCHLIST: /app/manga_watch/watchlist.json
+      MANGA_WATCH_STATE: /data/state.json
+    volumes:
+      - crawler-data:/data
+      - ./manga_watch/watchlist.json:/app/manga_watch/watchlist.json:ro
+
+volumes:
+  crawler-data:
