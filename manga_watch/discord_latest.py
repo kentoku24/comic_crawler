@@ -4,14 +4,18 @@ import os
 import time
 from datetime import datetime
 from typing import Callable, Dict, List, Mapping, Optional
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 from manga_watch.discord_text import (
     format_discord_link,
     latest_display_label_for_snapshot,
     series_label_for_snapshot,
 )
-from manga_watch.status import default_expected_interval_seconds, derive_health_status
+from manga_watch.status import (
+    default_expected_interval_seconds,
+    derive_health_status,
+    validated_timezone_name,
+)
 from manga_watch.storage import load_state, load_watchlist
 
 DEFAULT_TIMEZONE = "Asia/Tokyo"
@@ -20,14 +24,6 @@ HEADER_LINE = "保存済みの最新話一覧です"
 LIST_HEADER_LINE = "現在のリスト:"
 EMPTY_LINE = "- まだ保存済みの監視結果がありません"
 PARTIAL_FAILURE_WARNING = "注意: 一部作品は直近巡回で失敗しており、表示内容は保存済みデータです"
-
-
-def validated_timezone_name(timezone_name: str) -> str:
-    try:
-        ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError as exc:
-        raise ValueError(f"Unknown TZ value: {timezone_name}") from exc
-    return timezone_name
 
 
 def format_last_run(last_run_at: object, timezone_name: str) -> str:

@@ -9,16 +9,10 @@ from typing import Dict, List, Mapping, Optional, Protocol, Sequence, TextIO, Tu
 import requests
 
 from manga_watch.secret_redaction import redact_secret_text
+from manga_watch.storage import normalize_optional_text as _coerce_text
 
 DEFAULT_WEBHOOK_TIMEOUT = 10
 SUPPORTED_NOTIFIER_BACKENDS = {"stdout", "webhook"}
-
-
-def _coerce_text(value: object) -> Optional[str]:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
 
 
 def _snapshot_latest_key(snapshot: Mapping[str, object]) -> Optional[str]:
