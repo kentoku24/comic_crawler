@@ -2,6 +2,18 @@
 
 Docker コンテナ 1 つで定期クロールし、generic notifier backend (`stdout` / webhook) に update event を送れる漫画更新監視アプリです。Discord surface は別契約で、daily notification を main channel、run report を run-report channel へ送ります。stdout/stderr はローカル運用ログとして引き続き使います。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
 
+## Canonical docs
+
+この repo の source of truth は次の 5 文書です。
+
+- `doc/要件定義書.md`
+- `doc/設計書.md`
+- `spec.md` (document title: `SPEC.md`)
+- `doc/運用手順書.md`
+- `doc/受け入れテスト計画書.md`
+
+root の受け入れ仕様書は Git 上の実ファイル名を `spec.md` にしていますが、文書名と cross-document 参照では `SPEC.md` と表記します。これは macOS などの case-insensitive filesystem で path 衝突を避けるためです。canonical docs や新しい issue / PR で `SPEC.md` と書かれている場合は、この `spec.md` を指します。旧 single-file spec への過去の言及は reference 扱いで、source of truth ではありません。
+
 ## Python 3.12 baseline
 
 Docker / ローカル開発 / 将来の CI はすべて Python `3.12` を単一の runtime baseline とします。Docker image policy は `python:3.12-slim` に合わせ、ローカルツール向けには `.python-version` でも `3.12` を宣言します。Python `3.10` / `3.11` compatibility は要求しません。
@@ -105,7 +117,7 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 - `health`: `last_checked_at`, `last_success_at`, `consecutive_failures`
 - root `discord_delivery.daily_notification`: Discord main channel 向け daily notification の durable dedupe / pending state
 
-履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と migration contract は [spec.md](spec.md) を source of truth とします。
+履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と state contract は [root 受け入れ仕様書 (`spec.md`, 文書名: `SPEC.md`)](spec.md) を source of truth とします。
 
 ### backlog CLI
 
@@ -122,10 +134,6 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 - `--mark-read <work_id>`: その作品の現在未読を既読化し、保持ルールに従って履歴を trim
 
 複数話進行の推定は source 固有 id ではなく title から行います。`第N話` / `Episode N` / `Ep.N` / `#N` のような番号が両端で取れるときだけ `estimated_new_episode_count` を出し、取れない source や title では `from_latest` だけを残す fallback にします。
-
-### legacy v1 input
-
-`manga_watch/urls.txt` は migration 入力と rollback 用の参考データです。runtime はこのファイルを読みません。
 
 更新分類の既定値は次の通りです。
 
@@ -271,6 +279,22 @@ docker compose logs -f
 ```
 
 compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は volume `crawler-data` に保存します。
+
+### Updating an existing deployment
+
+`main` にデプロイ済み環境を `origin/main` の最新へ更新するときは、repo root で次を実行します。
+
+```bash
+git pull --ff-only origin main
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail 80 comic-crawler
+```
+
+- `git pull --ff-only origin main`: ローカル `main` を `origin/main` に fast-forward する
+- `docker compose up -d --build`: 新しい image を build してコンテナを再作成する
+- `docker compose ps`: `comic-crawler` が `Up` になっていることを確認する
+- `docker compose logs --tail 80 comic-crawler`: startup run に configuration / state / delivery failure が出ていないことを確認する
 
 ### Environment variables
 
@@ -440,7 +464,9 @@ python3.12 -m venv .venv
 .venv/bin/python -m manga_watch.check --status --format json
 .venv/bin/python -m manga_watch.source_drift
 .venv/bin/python -m manga_watch.source_drift --format json
-.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
+.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_backlog
+.venv/bin/python -m manga_watch.run_mocked_acceptance
+.venv/bin/python -m manga_watch.discord_real_e2e --case all --json
 ```
 
 runner をローカル起動する場合は notifier 環境変数と Discord outbound 環境変数を入れてから実行します。
@@ -455,6 +481,7 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 ```
 
 Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。
+Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 
 ## Status CLI
 
@@ -505,53 +532,14 @@ drift を検知したら、次の順で進めます。
 2. `manga_watch/sources/registry.py` の `REGISTERED_ADAPTERS` に adapter instance を追加する
 3. `manga_watch/source_drift.py` に live canary target URL と monitored signal contract を追加する
 4. fixture / state contract に影響がある場合は `tests/fixtures/` や関連 test を更新する
-5. `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2` を実行する
+5. `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check tests.test_runner` を実行する
 
 2 を忘れると `tests.test_sources.SourceAdapterTests.test_registry_covers_every_concrete_adapter_module` が失敗します。
-
-## One-time migration from v1
-
-migration も `python3.12` で作った `.venv` から実行します。
-
-```bash
-docker compose images comic-crawler
-
-.venv/bin/python -m manga_watch.migrate_v2 \
-  --watchlist-v1 manga_watch/urls.txt \
-  --state-v1 /data/state.json \
-  --watchlist-v2 manga_watch/watchlist.json \
-  --state-v2 /data/state.json \
-  --backup-dir /data/migration-backups/20260308T080000Z \
-  --pre-cutover-image-ref sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-```
-
-- migration は v1 入力の backup を先に取り、`--backup-dir/rollback-manifest.json` を書きます
-- `rollback-manifest.json` が rollback の source of truth です。戻すべき `urls.txt` / `state.json` backup と、差し戻すべき pre-cutover image / git commit をここで特定します
-- `--pre-cutover-image-ref` には immutable な image digest (`repo@sha256:...`) または local image ID (`sha256:...`) を渡します。`latest` は受け付けません
-- `rollback-manifest.json` には current git `HEAD` から解決した `git_commit` も併記されます。別 commit を記録したいときは `--pre-cutover-git-commit` を明示してください
-- migration 後は runtime 設定を `MANGA_WATCH_WATCHLIST` に切り替えます
-- rollback には manifest に書かれた backup の復元と pre-cutover image / commit への差し戻しが必要です
-
-### Rollback checklist
-
-Prechecks:
-
-- rollback 対象の cutover で作られた `--backup-dir/rollback-manifest.json` を開き、`data_backups[*].backup_path` と `pre_cutover_runtime.image_ref` / `pre_cutover_runtime.git_commit` が今回戻す対象と一致していることを確認する
-- `data_backups[*].backup_path` が実在し、`restore_to_path` が元の v1 `urls.txt` / `state.json` を指していることを確認する
-- v2 runner を停止し、rollback 判断の根拠になった source error / state corruption / update spam の証跡を残す
-
-Post-rollback smoke checks:
-
-- manifest に書かれた backup と pre-cutover image / commit を戻したあと、復元した pre-cutover runtime 上で `python3 -m manga_watch.check manga_watch/urls.txt` を実行し、v1 data を正常に読めることを確認する
-- `docker compose up -d comic-crawler` で pre-cutover runner を再起動し、初回 run のログに想定外の parser/state error や notification burst が無いことを確認する
-
-詳細な mapping / cutover / rollback 条件は [spec.md](spec.md) を参照してください。
 
 ## Repository layout
 
 - `manga_watch/check.py`: watchlist/state v2 を読む checker
 - `manga_watch/backlog.py`: 更新履歴 / 未読確認と既読化の最小 CLI
-- `manga_watch/migrate_v2.py`: v1 から v2 への one-time migration CLI
 - `manga_watch/source_drift.py`: live source drift canary と fixture refresh 導線
 - `manga_watch/status.py`: status CLI 向けの health 集約と text / JSON 表示
 - `manga_watch/storage.py`: watchlist/state v2 validation と atomic write
@@ -563,7 +551,6 @@ Post-rollback smoke checks:
 - `manga_watch/update_classification.py`: 更新種別と既定通知対象の分類ロジック
 - `manga_watch/watchlist.json`: watchlist v2 sample
 - `manga_watch/state.json`: state v2 sample
-- `manga_watch/urls.txt`: legacy v1 migration input sample
 - `tests/fixtures/<source>/<case>/`: raw response bundle + `manifest.json`
 
 分類テストでは source ごとの代表例に加えて、main/bonus の曖昧ケースと bonus/announcement の suppress 維持ケースを確認します。
@@ -574,7 +561,8 @@ Post-rollback smoke checks:
 - サイトの HTML が変わって検知が止まったら `.venv/bin/python -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
 - upstream drift が silent に見えるときは `.venv/bin/python -m manga_watch.source_drift` を先に回して、source ごとの canary signal がまだ生きているか確認する
 - silent failure が疑わしいときは `.venv/bin/python -m manga_watch.check --status` で stale / degraded / broken な作品を先に確認する
-- migration や state contract を更新したら `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
+- state contract を更新したら `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_backlog` を回す
+- canonical docs の mocked acceptance 契約をまとめて確認したいときは `.venv/bin/python -m manga_watch.run_mocked_acceptance` を使う
 - 未読の確認や既読化を手動で行いたいときは `.venv/bin/python -m manga_watch.backlog --unread-only` または `.venv/bin/python -m manga_watch.backlog --mark-read <work_id>` を使う
-- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` で runner まで確認する
+- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_backlog` で runner まで確認する
 - 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` と `manga_watch/source_drift.py` の canary contract を更新して fixture / source tests を更新する
