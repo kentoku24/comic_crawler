@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from zoneinfo import ZoneInfo
 
 import requests
 
@@ -14,6 +14,8 @@ from manga_watch.discord_text import (
     series_label_for_snapshot,
     truncate_episode_label,
 )
+from manga_watch.status import validated_timezone_name
+from manga_watch.storage import normalize_optional_text as _coerce_text
 
 DEFAULT_DISCORD_API_BASE_URL = "https://discord.com/api/v10"
 DEFAULT_DISCORD_TIMEOUT = 10
@@ -21,21 +23,6 @@ DEFAULT_TIMEZONE = "Asia/Tokyo"
 DISCORD_DELIVERY_STATE_KEY = "discord_delivery"
 DAILY_NOTIFICATION_STATE_KEY = "daily_notification"
 RUN_REPORT_FAILURE_HEADLINE = "run report 自体の送信に失敗しました"
-
-
-def _coerce_text(value: object) -> Optional[str]:
-    if value is None:
-        return None
-    text = str(value).strip()
-    return text or None
-
-
-def validated_timezone_name(timezone_name: str) -> str:
-    try:
-        ZoneInfo(timezone_name)
-    except ZoneInfoNotFoundError as exc:
-        raise ValueError(f"Unknown TZ value: {timezone_name}") from exc
-    return timezone_name
 
 
 class DiscordTransport(Protocol):
