@@ -1,5 +1,6 @@
-from contextlib import contextmanager
+from contextlib import contextmanager, redirect_stdout
 from dataclasses import dataclass
+import io
 import json
 import tempfile
 import unittest
@@ -304,6 +305,39 @@ class PollerStateTests(unittest.TestCase):
             expected_lock_path = state_path.with_name(f"{state_path.name}.run")
             self.assertEqual("dry_run", result["result"])
             self.assertEqual([str(expected_lock_path)], observed_lock_paths)
+
+    def test_run_once_uses_explicit_lock_path_verbatim(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / "deploy.env"
+            state_path = Path(tmpdir) / "poller-state.json"
+            compose_file = Path(tmpdir) / "docker-compose.deploy.yml"
+            explicit_lock_path = Path(tmpdir) / "custom.lock"
+            env_path.write_text(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:old\n",
+                encoding="utf-8",
+            )
+            compose_file.write_text("services:\n  comic-crawler:\n    image: ignored\n", encoding="utf-8")
+            observed_lock_paths = []
+
+            @contextmanager
+            def recording_lock(path):
+                observed_lock_paths.append(path)
+                yield
+
+            with mock.patch("manga_watch.deploy_poller.advisory_file_lock", side_effect=recording_lock):
+                result = deploy_poller.run_once(
+                    tracked_image="ghcr.io/kentoku24/comic_crawler",
+                    tracked_tag="latest",
+                    compose_file=compose_file,
+                    deploy_env_path=env_path,
+                    state_path=state_path,
+                    lock_path=explicit_lock_path,
+                    dry_run=True,
+                    resolve_digest=lambda image_ref: "sha256:new",
+                )
+
+            self.assertEqual("dry_run", result["result"])
+            self.assertEqual([str(explicit_lock_path)], observed_lock_paths)
 
 
 class DeployExecutionTests(unittest.TestCase):
@@ -804,3 +838,66 @@ class DeployExecutionTests(unittest.TestCase):
             for payload in notifier.sent:
                 self.assertNotIn(webhook_url, payload["content"])
             self.assertEqual("rollback_failed", notifier.sent[-1]["event"])
+
+
+class DeployPollerCliTests(unittest.TestCase):
+    def test_main_help_lists_once_and_dry_run(self):
+        stdout = io.StringIO()
+
+        with redirect_stdout(stdout):
+            with self.assertRaises(SystemExit) as exc_info:
+                deploy_poller.main(["--help"])
+
+        self.assertEqual(0, exc_info.exception.code)
+        help_text = stdout.getvalue()
+        normalized_help_text = " ".join(help_text.split())
+        normalized_help_text = normalized_help_text.replace("<state- path>", "<state-path>")
+        self.assertIn("--once", help_text)
+        self.assertIn("--dry-run", help_text)
+        self.assertIn("advisory lock path prefix", normalized_help_text)
+        self.assertIn("appends .lock", normalized_help_text)
+        self.assertIn("defaults to <state-path>.run", normalized_help_text.lower())
+
+    def test_main_with_once_and_dry_run_calls_run_once_with_cli_arguments(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            compose_file = Path(tmpdir) / "docker-compose.deploy.yml"
+            deploy_env_path = Path(tmpdir) / ".env.deploy"
+            state_path = Path(tmpdir) / "ghcr-poller-state.json"
+            lock_path = Path(tmpdir) / "ghcr-poller.lock"
+            stdout = io.StringIO()
+
+            with mock.patch(
+                "manga_watch.deploy_poller.run_once",
+                return_value={"result": "dry_run", "target_digest": "sha256:new"},
+            ) as run_once_mock:
+                with redirect_stdout(stdout):
+                    exit_code = deploy_poller.main(
+                        [
+                            "--once",
+                            "--dry-run",
+                            "--tracked-image",
+                            "ghcr.io/example/comic_crawler",
+                            "--tracked-tag",
+                            "stable",
+                            "--compose-file",
+                            str(compose_file),
+                            "--deploy-env",
+                            str(deploy_env_path),
+                            "--state-path",
+                            str(state_path),
+                            "--lock-path",
+                            str(lock_path),
+                        ]
+                    )
+
+        self.assertEqual(0, exit_code)
+        self.assertIn('"result": "dry_run"', stdout.getvalue())
+        run_once_mock.assert_called_once_with(
+            tracked_image="ghcr.io/example/comic_crawler",
+            tracked_tag="stable",
+            compose_file=compose_file,
+            deploy_env_path=deploy_env_path,
+            state_path=state_path,
+            lock_path=lock_path,
+            dry_run=True,
+        )

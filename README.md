@@ -294,6 +294,113 @@ compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は 
 - `MANGA_WATCH_HTTP_WORKERS`: watchlist を並列処理する worker 数。既定値は `4`
 - `MANGA_WATCH_HTTP_WORKERS_PER_HOST`: 同一 host に同時接続する上限。既定値は `2`
 
+## Production deploy with GHCR digest polling
+
+本番 deploy は `docker-compose.deploy.yml` と `.env.deploy` を使います。ローカル開発の `docker-compose.yml` は引き続き `build: .` 前提で、開発中のソース確認やローカル notifier 動作確認用です。production host では immutable digest を `.env.deploy` の `COMIC_CRAWLER_IMAGE_REF` に書き込み、`manga_watch.deploy_poller` が `pull -> up -d -> smoke check` を実行します。
+
+### Deploy env setup
+
+`/opt/comic_crawler` に repo を配置する前提の sample です。別 path で運用する場合は、以下の command と `deploy/systemd/*.service` 内の path を合わせて変更してください。
+
+```bash
+cp .env.deploy.example .env.deploy
+$EDITOR .env.deploy
+```
+
+`.env.deploy` では少なくとも以下を確認します。
+
+- `COMIC_CRAWLER_IMAGE_REF`: 初回は placeholder のままでよく、初回 `--once` 実行時に最新 digest へ更新される
+- `MANGA_WATCH_NOTIFIER_BACKENDS`, `MANGA_WATCH_WEBHOOK_URL`: generic notifier backend 用
+- `DISCORD_BOT_TOKEN`, `DISCORD_MAIN_CHANNEL_ID`, `DISCORD_RUN_REPORT_CHANNEL_ID`: Discord outbound 用
+- `DISCORD_INBOUND_ENABLED`, `DISCORD_COMMAND_POLL_INTERVAL`, `TZ`, `RUN_ON_STARTUP`: runtime 挙動
+
+### First deploy
+
+初回 deploy も manual poller 実行で行います。state file が無ければ、poller が `latest` digest を解決して `.env.deploy` を更新し、その digest で compose deploy を実行します。以下の command は service-managed state file (`/var/lib/comic-crawler/ghcr-poller-state.json`) と `.env.deploy` を書き換えるため、その両方へ書き込める user で実行してください。sample systemd service のまま使う host では通常 `sudo` か、事前に deploy user へ ownership を付けた状態が必要です。
+
+```bash
+.venv/bin/python -m manga_watch.deploy_poller \
+  --once \
+  --compose-file docker-compose.deploy.yml \
+  --deploy-env .env.deploy \
+  --state-path /var/lib/comic-crawler/ghcr-poller-state.json
+```
+
+成功すると stdout に JSON が出力され、`.env.deploy` と `/var/lib/comic-crawler/ghcr-poller-state.json` が更新されます。
+
+### Manual poller commands
+
+最新 digest だけ確認したいとき:
+
+```bash
+.venv/bin/python -m manga_watch.deploy_poller \
+  --once \
+  --dry-run \
+  --compose-file docker-compose.deploy.yml \
+  --deploy-env .env.deploy \
+  --state-path /var/lib/comic-crawler/ghcr-poller-state.json
+```
+
+`--lock-path` は advisory lock の path prefix を受け取ります。実際の lock file は storage helper が `<value>.lock` として作ります。省略時は `--state-path` と同じ directory に `<state-path>.run.lock` を使います。
+
+timer を待たずに手動で 1 回流したいとき:
+
+```bash
+.venv/bin/python -m manga_watch.deploy_poller \
+  --once \
+  --compose-file docker-compose.deploy.yml \
+  --deploy-env .env.deploy \
+  --state-path /var/lib/comic-crawler/ghcr-poller-state.json
+```
+
+`--help` で CLI surface を確認できます。
+
+```bash
+.venv/bin/python -m manga_watch.deploy_poller --help
+```
+
+### systemd timer enablement
+
+sample unit は `deploy/systemd/comic-crawler-ghcr-poller.service` / `deploy/systemd/comic-crawler-ghcr-poller.timer` にあります。sample は repo root を `/opt/comic_crawler`、state file を `/var/lib/comic-crawler/ghcr-poller-state.json` と仮定します。
+
+```bash
+sudo install -D -m 0644 deploy/systemd/comic-crawler-ghcr-poller.service /etc/systemd/system/comic-crawler-ghcr-poller.service
+sudo install -D -m 0644 deploy/systemd/comic-crawler-ghcr-poller.timer /etc/systemd/system/comic-crawler-ghcr-poller.timer
+sudo systemctl daemon-reload
+sudo systemctl enable --now comic-crawler-ghcr-poller.timer
+sudo systemctl start comic-crawler-ghcr-poller.service
+```
+
+15 分ごとの timer 状態は次で確認します。
+
+```bash
+sudo systemctl list-timers comic-crawler-ghcr-poller.timer
+sudo systemctl status comic-crawler-ghcr-poller.service
+```
+
+### Rollback and troubleshooting
+
+deploy 後の smoke check が失敗すると、poller は失敗直前に deploy 済みだった `last_deployed_digest` がある場合に 1 回だけ自動 rollback します。自動 rollback の結果は state file の `last_error` と journal に残ります。
+
+手動 rollback が必要なときは、state file から `last_deployed_digest` と `previous_deployed_digest` を確認し、戻したい digest を `.env.deploy` の `COMIC_CRAWLER_IMAGE_REF` に設定して compose を再実行します。通常は「直前に正常だった digest」として `last_deployed_digest` を優先します。
+
+```bash
+jq . /var/lib/comic-crawler/ghcr-poller-state.json
+$EDITOR .env.deploy
+docker compose -f docker-compose.deploy.yml --env-file .env.deploy pull comic-crawler
+docker compose -f docker-compose.deploy.yml --env-file .env.deploy up -d comic-crawler
+docker compose -f docker-compose.deploy.yml --env-file .env.deploy ps
+```
+
+manual rollback 後は `ghcr-poller-state.json` も実 deploy と揃えてください。最低限、戻した digest を `last_deployed_digest` に反映し、rollback 前に外した digest を `previous_deployed_digest` に残します。`last_attempted_digest` は失敗原因の digest としてそのまま残して構いません。bad digest がまだ tracked tag (`latest`) を指している間に timer を動かすと poller は再度その digest を deploy しようとするため、state を「嘘の deployed digest」に書き換えて回避せず、原因調査または新 digest の publish まで timer を停止してください。
+
+調査の入口:
+
+- poller 自体の状態を見る: `sudo journalctl -u comic-crawler-ghcr-poller.service -n 100 --no-pager`
+- timer の取りこぼしを見る: `sudo systemctl status comic-crawler-ghcr-poller.timer`
+- compose service の状態を見る: `docker compose -f docker-compose.deploy.yml --env-file .env.deploy ps`
+- container 側の smoke check をやり直す: `docker compose -f docker-compose.deploy.yml --env-file .env.deploy exec -T comic-crawler python -m manga_watch.check --status --format json --watchlist /app/manga_watch/watchlist.json --state /data/state.json`
+
 ## Local run
 
 ローカル実行は `python3.12` で作った `.venv` を前提にします。Python `3.10` / `3.11` での互換確認は不要です。

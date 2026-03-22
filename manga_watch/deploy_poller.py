@@ -1,11 +1,13 @@
 from __future__ import annotations
 
+import argparse
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
 import os
 from pathlib import Path
 import subprocess
+import sys
 import tempfile
 from typing import Callable, Mapping, Sequence
 
@@ -27,6 +29,11 @@ DEFAULT_POLLER_STATE = {
 }
 DEFAULT_DISCORD_WEBHOOK_TIMEOUT = 10
 COMPOSE_SERVICE_NAME = "comic-crawler"
+DEFAULT_TRACKED_IMAGE = "ghcr.io/kentoku24/comic_crawler"
+DEFAULT_TRACKED_TAG = "latest"
+DEFAULT_COMPOSE_FILE = Path("docker-compose.deploy.yml")
+DEFAULT_DEPLOY_ENV_PATH = Path(".env.deploy")
+DEFAULT_POLLER_STATE_PATH = Path("/var/lib/comic-crawler/ghcr-poller-state.json")
 SMOKE_CHECK_COMMAND = (
     "python",
     "-m",
@@ -652,3 +659,82 @@ def _coerce_optional_text(value: object) -> str | None:
 
 def _redact_error(exc: Exception, secrets: Sequence[object]) -> str:
     return redact_secret_text(exc, secrets=secrets)
+
+
+def build_arg_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        description="Resolve the tracked GHCR image digest and run one deploy poll cycle."
+    )
+    parser.add_argument(
+        "--once",
+        action="store_true",
+        help="run a single poll cycle and exit",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="resolve the current digest and print the planned result without editing files",
+    )
+    parser.add_argument(
+        "--tracked-image",
+        default=DEFAULT_TRACKED_IMAGE,
+        help="tracked container image repository without tag or digest",
+    )
+    parser.add_argument(
+        "--tracked-tag",
+        default=DEFAULT_TRACKED_TAG,
+        help="tracked image tag to resolve",
+    )
+    parser.add_argument(
+        "--compose-file",
+        type=Path,
+        default=DEFAULT_COMPOSE_FILE,
+        help="deploy compose file used for pull/up/smoke-check commands",
+    )
+    parser.add_argument(
+        "--deploy-env",
+        type=Path,
+        default=DEFAULT_DEPLOY_ENV_PATH,
+        help="deploy env file containing COMIC_CRAWLER_IMAGE_REF and runtime config",
+    )
+    parser.add_argument(
+        "--state-path",
+        type=Path,
+        default=DEFAULT_POLLER_STATE_PATH,
+        help="poller state file path",
+    )
+    parser.add_argument(
+        "--lock-path",
+        type=Path,
+        help="advisory lock path prefix; storage helper appends .lock. Defaults to <state-path>.run",
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = build_arg_parser()
+    args = parser.parse_args(argv)
+
+    if not args.once:
+        parser.error("only --once is supported")
+
+    try:
+        outcome = run_once(
+            tracked_image=args.tracked_image,
+            tracked_tag=args.tracked_tag,
+            compose_file=args.compose_file,
+            deploy_env_path=args.deploy_env,
+            state_path=args.state_path,
+            lock_path=args.lock_path,
+            dry_run=args.dry_run,
+        )
+    except Exception as exc:
+        print(f"[deploy-poller] error: {_redact_error(exc, ())}", file=sys.stderr)
+        return 1
+
+    print(json.dumps(outcome, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
