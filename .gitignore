@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .env
 .worktrees/
+.claude/
 .web_admin.sqlite3
 
 # Local state (optional)
