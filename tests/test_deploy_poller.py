@@ -378,8 +378,51 @@ class PollerStateTests(unittest.TestCase):
             self.assertEqual("dry_run", result["result"])
             self.assertEqual([str(explicit_lock_path)], observed_lock_paths)
 
+    def test_run_once_rejects_lock_path_equal_to_state_path(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            env_path = Path(tmpdir) / "deploy.env"
+            state_path = Path(tmpdir) / "poller-state.json"
+            compose_file = Path(tmpdir) / "docker-compose.deploy.yml"
+            env_path.write_text(
+                "COMIC_CRAWLER_IMAGE_REF=ghcr.io/kentoku24/comic_crawler@sha256:old\n",
+                encoding="utf-8",
+            )
+            compose_file.write_text("services:\n  comic-crawler:\n    image: ignored\n", encoding="utf-8")
+
+            with self.assertRaisesRegex(ValueError, "lock_path must differ from state_path"):
+                deploy_poller.run_once(
+                    tracked_image="ghcr.io/kentoku24/comic_crawler",
+                    tracked_tag="latest",
+                    compose_file=compose_file,
+                    deploy_env_path=env_path,
+                    state_path=state_path,
+                    lock_path=state_path,
+                    dry_run=True,
+                    resolve_digest=lambda image_ref: "sha256:new",
+                )
+
 
 class DeployExecutionTests(unittest.TestCase):
+    def test_redaction_secrets_from_env_ignores_webhook_timeout_value(self):
+        webhook_url = "https://discord.com/api/webhooks/123/secret"
+        secrets = deploy_poller._redaction_secrets_from_env(
+            {
+                "MANGA_WATCH_WEBHOOK_URL": webhook_url,
+                "MANGA_WATCH_WEBHOOK_TIMEOUT": "10",
+                "DISCORD_BOT_TOKEN": "Bot abc123",
+            }
+        )
+
+        self.assertIn(webhook_url, secrets)
+        self.assertNotIn("10", secrets)
+        self.assertEqual(
+            "timestamp: 2026-03-22T10:00:00Z",
+            deploy_poller.redact_secret_text(
+                "timestamp: 2026-03-22T10:00:00Z",
+                secrets=secrets,
+            ),
+        )
+
     def test_run_once_updates_env_then_runs_pull_up_ps_and_smoke_check(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             env_path = Path(tmpdir) / "deploy.env"

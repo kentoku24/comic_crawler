@@ -204,6 +204,8 @@ def run_once(
 ) -> dict[str, object]:
     resolved_lock_path = lock_path or state_path.with_name(f"{state_path.name}.run")
     tracked_image_ref = build_tracked_image_ref(tracked_image, tracked_tag)
+    if resolved_lock_path.resolve(strict=False) == state_path.resolve(strict=False):
+        raise ValueError("lock_path must differ from state_path")
 
     with advisory_file_lock(str(resolved_lock_path)):
         resolved_digest = resolve_digest(tracked_image_ref)
@@ -604,7 +606,7 @@ def _redaction_secrets_from_env(config: Mapping[str, str]) -> tuple[str, ...]:
     secrets: list[str] = []
     for key, value in config.items():
         normalized_key = key.strip().upper()
-        if any(token in normalized_key for token in ("WEBHOOK", "TOKEN", "SECRET")):
+        if normalized_key.endswith(("WEBHOOK_URL", "TOKEN", "SECRET")):
             if value.strip():
                 secrets.append(value.strip())
     return tuple(secrets)
