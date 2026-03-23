@@ -296,11 +296,11 @@ compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は 
 
 ## Production deploy with GHCR digest polling
 
-本番 deploy は `docker-compose.deploy.yml` と `.env.deploy` を使います。ローカル開発の `docker-compose.yml` は引き続き `build: .` 前提で、開発中のソース確認やローカル notifier 動作確認用です。production host では immutable digest を `.env.deploy` の `COMIC_CRAWLER_IMAGE_REF` に書き込み、`manga_watch.deploy_poller` が `pull -> up -d -> smoke check` を実行します。
+本番 deploy は `docker-compose.deploy.yml` と `.env.deploy` を使います。ローカル開発の `docker-compose.yml` は引き続き `build: .` 前提で、開発中のソース確認やローカル notifier 動作確認用です。production host では immutable digest を `.env.deploy` の `COMIC_CRAWLER_IMAGE_REF` に書き込み、`manga_watch.deploy_poller` が `pull -> up -d -> smoke check` を実行します。poller の source of truth は `.env.deploy` だけです。
 
 ### Deploy env setup
 
-`/opt/comic_crawler` に repo を配置する前提の sample です。別 path で運用する場合は、以下の command と `deploy/systemd/*`, `deploy/launchd/*` 内の path を合わせて変更してください。`systemd` sample は Linux host 向け、`launchd` sample は macOS host 向けです。
+`/opt/comic_crawler` に repo を配置する Linux host 向け sample です。別 path で運用する場合は、以下の command と `deploy/systemd/*` 内の path を合わせて変更してください。
 
 ```bash
 cp .env.deploy.example .env.deploy
@@ -316,32 +316,20 @@ $EDITOR .env.deploy
 
 ### First deploy
 
-初回 deploy も manual poller 実行で行います。state file が無ければ、poller が `latest` digest を解決して `.env.deploy` を更新し、その digest で compose deploy を実行します。以下の command は service-managed state file と `.env.deploy` を書き換えるため、その両方へ書き込める user で実行してください。Linux の sample systemd service は `/var/lib/comic-crawler/ghcr-poller-state.json`、macOS の sample launchd plist は `/opt/comic_crawler/var/ghcr-poller-state.json` を前提にしています。
+初回 deploy も manual poller 実行で行います。poller は `latest` digest を解決して `.env.deploy` を更新し、その digest で compose deploy を実行します。以下の command は `.env.deploy` を書き換えるため、その file に書き込める user で実行してください。
 
 ```bash
 .venv/bin/python -m manga_watch.deploy_poller \
   --once \
   --compose-file docker-compose.deploy.yml \
-  --deploy-env .env.deploy \
-  --state-path /var/lib/comic-crawler/ghcr-poller-state.json
+  --deploy-env .env.deploy
 ```
 
-成功すると stdout に JSON が出力され、`.env.deploy` と service-managed state file が更新されます。
+成功すると stdout に JSON が出力され、`.env.deploy` が最新 digest に更新されます。
 
 ### Manual poller commands
 
-最新 digest だけ確認したいとき:
-
-```bash
-.venv/bin/python -m manga_watch.deploy_poller \
-  --once \
-  --dry-run \
-  --compose-file docker-compose.deploy.yml \
-  --deploy-env .env.deploy \
-  --state-path /var/lib/comic-crawler/ghcr-poller-state.json
-```
-
-`--lock-path` は advisory lock の path prefix を受け取ります。実際の lock file は storage helper が `<value>.lock` として作ります。省略時は `--state-path` と同じ directory に `<state-path>.run.lock` を使います。
+`--lock-path` は advisory lock path を受け取ります。省略時は deploy env path を lock key に使い、実際の lock file は storage helper が `<deploy-env>.lock` として作ります。
 
 timer を待たずに手動で 1 回流したいとき:
 
@@ -349,8 +337,7 @@ timer を待たずに手動で 1 回流したいとき:
 .venv/bin/python -m manga_watch.deploy_poller \
   --once \
   --compose-file docker-compose.deploy.yml \
-  --deploy-env .env.deploy \
-  --state-path /var/lib/comic-crawler/ghcr-poller-state.json
+  --deploy-env .env.deploy
 ```
 
 `--help` で CLI surface を確認できます。
@@ -361,7 +348,7 @@ timer を待たずに手動で 1 回流したいとき:
 
 ### Linux: systemd timer enablement
 
-sample unit は `deploy/systemd/comic-crawler-ghcr-poller.service` / `deploy/systemd/comic-crawler-ghcr-poller.timer` にあります。sample は repo root を `/opt/comic_crawler`、state file を `/var/lib/comic-crawler/ghcr-poller-state.json` と仮定します。
+sample unit は `deploy/systemd/comic-crawler-ghcr-poller.service` / `deploy/systemd/comic-crawler-ghcr-poller.timer` にあります。sample は repo root を `/opt/comic_crawler` と仮定します。
 
 ```bash
 sudo install -D -m 0644 deploy/systemd/comic-crawler-ghcr-poller.service /etc/systemd/system/comic-crawler-ghcr-poller.service
@@ -378,51 +365,25 @@ sudo systemctl list-timers comic-crawler-ghcr-poller.timer
 sudo systemctl status comic-crawler-ghcr-poller.service
 ```
 
-### macOS: launchd enablement
-
-Apple Silicon を含む macOS host では `systemctl` は使えません。sample plist は [com.kentoku.comic-crawler.ghcr-poller.plist](/tmp/comic_crawler-plan-132/deploy/launchd/com.kentoku.comic-crawler.ghcr-poller.plist) にあります。sample は repo root を `/opt/comic_crawler`、state file を `/opt/comic_crawler/var/ghcr-poller-state.json`、log file を `/opt/comic_crawler/logs/` 配下と仮定します。
-
-```bash
-sudo mkdir -p /opt/comic_crawler/var /opt/comic_crawler/logs
-sudo install -m 0644 deploy/launchd/com.kentoku.comic-crawler.ghcr-poller.plist /Library/LaunchDaemons/com.kentoku.comic-crawler.ghcr-poller.plist
-sudo chown root:wheel /Library/LaunchDaemons/com.kentoku.comic-crawler.ghcr-poller.plist
-sudo launchctl bootstrap system /Library/LaunchDaemons/com.kentoku.comic-crawler.ghcr-poller.plist
-sudo launchctl enable system/com.kentoku.comic-crawler.ghcr-poller
-sudo launchctl kickstart -k system/com.kentoku.comic-crawler.ghcr-poller
-```
-
-状態確認:
-
-```bash
-sudo launchctl print system/com.kentoku.comic-crawler.ghcr-poller
-tail -n 100 /opt/comic_crawler/logs/comic-crawler-ghcr-poller.log
-tail -n 100 /opt/comic_crawler/logs/comic-crawler-ghcr-poller.error.log
-```
-
 ### Rollback and troubleshooting
 
-deploy 後の smoke check が失敗すると、poller は失敗直前に deploy 済みだった `last_deployed_digest` がある場合に 1 回だけ自動 rollback します。自動 rollback の結果は state file の `last_error` と Linux では journal、macOS では poller error log に残ります。
+deploy 後の smoke check が失敗すると、poller は `.env.deploy` に入っていた直前 digest へ 1 回だけ自動 rollback します。結果は journal と stderr に残ります。
 
-手動 rollback が必要なときは、state file から `last_deployed_digest` と `previous_deployed_digest` を確認し、戻したい digest を `.env.deploy` の `COMIC_CRAWLER_IMAGE_REF` に設定して compose を再実行します。通常は「直前に正常だった digest」として `last_deployed_digest` を優先します。
+手動 rollback が必要なときは、戻したい digest を `.env.deploy` の `COMIC_CRAWLER_IMAGE_REF` に設定して compose を再実行します。通常は直前に正常だった digest を使います。
 
 ```bash
-jq . /var/lib/comic-crawler/ghcr-poller-state.json
-# macOS sample:
-jq . /opt/comic_crawler/var/ghcr-poller-state.json
 $EDITOR .env.deploy
 docker compose -f docker-compose.deploy.yml --env-file .env.deploy pull comic-crawler
 docker compose -f docker-compose.deploy.yml --env-file .env.deploy up -d comic-crawler
 docker compose -f docker-compose.deploy.yml --env-file .env.deploy ps
 ```
 
-manual rollback 後は `ghcr-poller-state.json` も実 deploy と揃えてください。最低限、戻した digest を `last_deployed_digest` に反映し、rollback 前に外した digest を `previous_deployed_digest` に残します。`last_attempted_digest` は失敗原因の digest としてそのまま残して構いません。bad digest がまだ tracked tag (`latest`) を指している間に timer を動かすと poller は再度その digest を deploy しようとするため、state を「嘘の deployed digest」に書き換えて回避せず、原因調査または新 digest の publish まで timer を停止してください。
+bad digest がまだ tracked tag (`latest`) を指している間に timer を動かすと poller は再度その digest を deploy しようとするため、原因調査または新 digest の publish まで timer を停止してください。
 
 調査の入口:
 
 - Linux で poller 自体の状態を見る: `sudo journalctl -u comic-crawler-ghcr-poller.service -n 100 --no-pager`
 - Linux で timer の取りこぼしを見る: `sudo systemctl status comic-crawler-ghcr-poller.timer`
-- macOS で poller 自体の状態を見る: `sudo launchctl print system/com.kentoku.comic-crawler.ghcr-poller`
-- macOS で error log を見る: `tail -n 100 /opt/comic_crawler/logs/comic-crawler-ghcr-poller.error.log`
 - compose service の状態を見る: `docker compose -f docker-compose.deploy.yml --env-file .env.deploy ps`
 - container 側の smoke check をやり直す: `docker compose -f docker-compose.deploy.yml --env-file .env.deploy exec -T comic-crawler python -m manga_watch.check --status --format json --watchlist /app/manga_watch/watchlist.json --state /data/state.json`
 

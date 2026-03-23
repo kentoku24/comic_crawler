@@ -7,8 +7,6 @@ After=network-online.target docker.service
 Type=oneshot
 WorkingDirectory=/opt/comic_crawler
 Environment=PYTHONUNBUFFERED=1
-StateDirectory=comic-crawler
-ExecStart=/opt/comic_crawler/.venv/bin/python -m manga_watch.deploy_poller --once --tracked-image ghcr.io/kentoku24/comic_crawler --tracked-tag latest --compose-file /opt/comic_crawler/docker-compose.deploy.yml --deploy-env /opt/comic_crawler/.env.deploy --state-path /var/lib/comic-crawler/ghcr-poller-state.json
+ExecStart=/opt/comic_crawler/.venv/bin/python -m manga_watch.deploy_poller --once --tracked-image ghcr.io/kentoku24/comic_crawler --tracked-tag latest --compose-file /opt/comic_crawler/docker-compose.deploy.yml --deploy-env /opt/comic_crawler/.env.deploy
 StandardOutput=journal
 StandardError=journal
-

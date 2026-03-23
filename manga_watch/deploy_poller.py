@@ -2,9 +2,8 @@ from __future__ import annotations
 
 import argparse
 import json
-from dataclasses import dataclass
-from datetime import datetime, timezone
 import os
+from dataclasses import dataclass
 from pathlib import Path
 import subprocess
 import sys
@@ -15,25 +14,14 @@ import requests
 
 from manga_watch.ghcr_registry import resolve_public_tag_digest
 from manga_watch.secret_redaction import redact_secret_text
-from manga_watch.storage import advisory_file_lock, atomic_write_json
+from manga_watch.storage import advisory_file_lock
 
-DEFAULT_POLLER_STATE = {
-    "tracked_tag": "latest",
-    "last_seen_digest": None,
-    "last_attempted_digest": None,
-    "last_deployed_digest": None,
-    "previous_deployed_digest": None,
-    "last_attempt_started_at": None,
-    "last_success_at": None,
-    "last_error": None,
-}
 DEFAULT_DISCORD_WEBHOOK_TIMEOUT = 10
 COMPOSE_SERVICE_NAME = "comic-crawler"
 DEFAULT_TRACKED_IMAGE = "ghcr.io/kentoku24/comic_crawler"
 DEFAULT_TRACKED_TAG = "latest"
 DEFAULT_COMPOSE_FILE = Path("docker-compose.deploy.yml")
 DEFAULT_DEPLOY_ENV_PATH = Path(".env.deploy")
-DEFAULT_POLLER_STATE_PATH = Path("/var/lib/comic-crawler/ghcr-poller-state.json")
 SMOKE_CHECK_COMMAND = (
     "python",
     "-m",
@@ -46,12 +34,6 @@ SMOKE_CHECK_COMMAND = (
     "--state",
     "/data/state.json",
 )
-
-
-@dataclass(frozen=True)
-class PollPlan:
-    action: str
-    target_digest: str
 
 
 @dataclass(frozen=True)
@@ -74,11 +56,10 @@ class DiscordWebhookNotifier:
         self.session = session or requests.Session()
 
     def send(self, payload: Mapping[str, object]) -> None:
-        content = str(payload.get("content", "") or "")
         try:
             response = self.session.post(
                 self.webhook_url,
-                json={"content": content},
+                json={"content": str(payload.get("content", "") or "")},
                 timeout=self.timeout,
                 allow_redirects=False,
             )
@@ -107,8 +88,11 @@ def load_deploy_env(path: Path) -> dict[str, str]:
         key, _, value = line.partition("=")
         values[key.strip()] = value.strip()
 
-    if not values.get("COMIC_CRAWLER_IMAGE_REF"):
+    image_ref = str(values.get("COMIC_CRAWLER_IMAGE_REF") or "").strip()
+    if not image_ref:
         raise ValueError("deploy env must define COMIC_CRAWLER_IMAGE_REF")
+    if "@" not in image_ref:
+        raise ValueError("COMIC_CRAWLER_IMAGE_REF must use an immutable digest reference")
     return values
 
 
@@ -130,47 +114,6 @@ def render_updated_deploy_env(existing_text: str, image_ref: str) -> str:
     return "\n".join(rendered) + "\n"
 
 
-def validate_poller_state(payload: Mapping[str, object]) -> dict[str, object]:
-    if not isinstance(payload, Mapping):
-        raise ValueError("poller state payload must be an object")
-
-    state = dict(DEFAULT_POLLER_STATE)
-    state.update(payload)
-
-    tracked_tag = str(state.get("tracked_tag") or "").strip()
-    state["tracked_tag"] = tracked_tag or DEFAULT_POLLER_STATE["tracked_tag"]
-
-    for field_name in DEFAULT_POLLER_STATE:
-        if field_name == "tracked_tag":
-            continue
-        value = state.get(field_name)
-        if value is not None and not isinstance(value, str):
-            raise ValueError(f"poller state {field_name} must be a string or null")
-
-    return {field_name: state[field_name] for field_name in DEFAULT_POLLER_STATE}
-
-
-def load_poller_state(path: Path) -> dict[str, object]:
-    if not path.exists():
-        return dict(DEFAULT_POLLER_STATE)
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    return validate_poller_state(payload)
-
-
-def save_poller_state(path: Path, state: Mapping[str, object]) -> dict[str, object]:
-    validated = validate_poller_state(state)
-    atomic_write_json(str(path), validated)
-    return validated
-
-
-def plan_poll_result(*, tracked_tag: str, resolved_digest: str, state: Mapping[str, object]) -> PollPlan:
-    if not tracked_tag.strip():
-        raise ValueError("tracked_tag is required")
-    if state.get("last_deployed_digest") == resolved_digest:
-        return PollPlan(action="noop", target_digest=resolved_digest)
-    return PollPlan(action="deploy", target_digest=resolved_digest)
-
-
 def build_tracked_image_ref(tracked_image: str, tracked_tag: str) -> str:
     image = tracked_image.strip()
     tag = tracked_tag.strip()
@@ -179,6 +122,23 @@ def build_tracked_image_ref(tracked_image: str, tracked_tag: str) -> str:
     if not tag:
         raise ValueError("tracked_tag is required")
     return f"{image}:{tag}"
+
+
+def build_digest_image_ref(tracked_image: str, digest: str) -> str:
+    image = tracked_image.strip()
+    normalized_digest = digest.strip()
+    if not image:
+        raise ValueError("tracked_image is required")
+    if not normalized_digest:
+        raise ValueError("digest is required")
+    return f"{image}@{normalized_digest}"
+
+
+def parse_digest_image_ref(image_ref: str) -> tuple[str, str]:
+    image, separator, digest = image_ref.strip().partition("@")
+    if not separator or not image or not digest:
+        raise ValueError(f"expected digest image reference, got: {image_ref}")
+    return image, digest
 
 
 def resolve_deploy_image_digest(
@@ -195,64 +155,24 @@ def run_once(
     tracked_tag: str,
     compose_file: Path,
     deploy_env_path: Path,
-    state_path: Path,
     lock_path: Path | None = None,
-    dry_run: bool = False,
     resolve_digest: Callable[[str], str] = resolve_deploy_image_digest,
     command_runner: object | None = None,
     notifier: object | None = None,
 ) -> dict[str, object]:
-    resolved_lock_path = lock_path or state_path.with_name(f"{state_path.name}.run")
     tracked_image_ref = build_tracked_image_ref(tracked_image, tracked_tag)
+    resolved_lock_path = lock_path or deploy_env_path
 
     with advisory_file_lock(str(resolved_lock_path)):
-        resolved_digest = resolve_digest(tracked_image_ref)
-        state = load_poller_state(state_path)
-        state["tracked_tag"] = tracked_tag
-        plan = plan_poll_result(
-            tracked_tag=tracked_tag,
-            resolved_digest=resolved_digest,
-            state=state,
-        )
-        if dry_run:
-            return {
-                "result": "dry_run",
-                "planned_action": plan.action,
-                "tracked_image_ref": tracked_image_ref,
-                "target_digest": resolved_digest,
-            }
-
-        state["last_seen_digest"] = resolved_digest
-
-        if plan.action == "noop":
-            saved_state = save_poller_state(state_path, state)
-            return {
-                "result": "noop",
-                "state": saved_state,
-                "target_digest": resolved_digest,
-            }
-
         deploy_env = load_deploy_env(deploy_env_path)
+        current_image_ref = deploy_env["COMIC_CRAWLER_IMAGE_REF"]
+        _, current_digest = parse_digest_image_ref(current_image_ref)
+        resolved_digest = resolve_digest(tracked_image_ref)
+        if current_digest == resolved_digest:
+            return {"result": "noop", "target_digest": resolved_digest}
+
         redaction_secrets = _redaction_secrets_from_env(deploy_env)
         resolved_notifier = notifier or _build_default_notifier(deploy_env)
-        prior_deployed_digest = _coerce_optional_text(state.get("last_deployed_digest"))
-        rollback_digest = prior_deployed_digest
-        state["last_attempted_digest"] = resolved_digest
-        state["last_attempt_started_at"] = _utcnow_isoformat()
-        saved_state = save_poller_state(state_path, state)
-        _emit_warning(
-            _send_notification(
-                resolved_notifier,
-                event="detected",
-                tracked_tag=tracked_tag,
-                previous_digest=prior_deployed_digest,
-                target_digest=resolved_digest,
-                timestamp=state["last_attempt_started_at"],
-                next_action="run deploy and smoke check",
-                redaction_secrets=redaction_secrets,
-            )
-        )
-
         target_image_ref = build_digest_image_ref(tracked_image, resolved_digest)
         try:
             smoke_result = deploy_digest(
@@ -263,106 +183,45 @@ def run_once(
                 redaction_secrets=redaction_secrets,
             )
         except Exception as exc:
-            failure_timestamp = _utcnow_isoformat()
             failure_message = _redact_error(exc, redaction_secrets)
-            state["last_error"] = failure_message
-            saved_state = save_poller_state(state_path, state)
             _emit_warning(
                 _send_notification(
                     resolved_notifier,
                     event="failed",
                     tracked_tag=tracked_tag,
-                    previous_digest=rollback_digest,
+                    previous_digest=current_digest,
                     target_digest=resolved_digest,
-                    timestamp=failure_timestamp,
-                    next_action=(
-                        "attempt automatic rollback"
-                        if rollback_digest
-                        else "manual intervention required"
-                    ),
+                    next_action="attempt automatic rollback",
                     error=failure_message,
                     redaction_secrets=redaction_secrets,
                 )
             )
-            if rollback_digest:
-                rollback_image_ref = build_digest_image_ref(tracked_image, rollback_digest)
-                try:
-                    rollback_once(
-                        compose_file=compose_file,
-                        deploy_env_path=deploy_env_path,
-                        previous_image_ref=rollback_image_ref,
-                        command_runner=command_runner,
-                        redaction_secrets=redaction_secrets,
-                    )
-                except Exception as rollback_exc:
-                    rollback_message = _redact_error(rollback_exc, redaction_secrets)
-                    state["last_error"] = (
-                        f"{failure_message}; rollback_failed: {rollback_message}"
-                    )
-                    saved_state = save_poller_state(state_path, state)
-                    _emit_warning(
-                        _send_notification(
-                            resolved_notifier,
-                            event="rollback_failed",
-                            tracked_tag=tracked_tag,
-                            previous_digest=rollback_digest,
-                            target_digest=resolved_digest,
-                            timestamp=_utcnow_isoformat(),
-                            next_action="manual rollback required",
-                            error=state["last_error"],
-                            redaction_secrets=redaction_secrets,
-                        )
-                    )
-                    raise RuntimeError(state["last_error"]) from rollback_exc
-
-                state["last_error"] = (
-                    f"{failure_message}; rollback_succeeded: restored {rollback_digest}"
-                )
-                saved_state = save_poller_state(state_path, state)
-                _emit_warning(
-                    _send_notification(
-                        resolved_notifier,
-                        event="rollback_succeeded",
-                        tracked_tag=tracked_tag,
-                        previous_digest=rollback_digest,
-                        target_digest=resolved_digest,
-                        timestamp=_utcnow_isoformat(),
-                        next_action="investigate failed digest before retrying deploy",
-                        error=state["last_error"],
-                        redaction_secrets=redaction_secrets,
-                    )
-                )
-                raise RuntimeError(state["last_error"]) from exc
-
-            raise RuntimeError(failure_message) from exc
-
-        state["previous_deployed_digest"] = prior_deployed_digest
-        state["last_deployed_digest"] = resolved_digest
-        state["last_success_at"] = _utcnow_isoformat()
-        state["last_error"] = None
-        saved_state = save_poller_state(state_path, state)
-        _emit_warning(
-            _send_notification(
-                resolved_notifier,
-                event="deployed",
-                tracked_tag=tracked_tag,
-                previous_digest=prior_deployed_digest,
-                target_digest=resolved_digest,
-                timestamp=state["last_success_at"],
-                next_action="wait for the next digest poll",
+            rollback_once(
+                compose_file=compose_file,
+                deploy_env_path=deploy_env_path,
+                previous_image_ref=current_image_ref,
+                command_runner=command_runner,
                 redaction_secrets=redaction_secrets,
             )
-        )
+            _emit_warning(
+                _send_notification(
+                    resolved_notifier,
+                    event="rollback_succeeded",
+                    tracked_tag=tracked_tag,
+                    previous_digest=current_digest,
+                    target_digest=resolved_digest,
+                    next_action="investigate failed digest before retrying deploy",
+                    error=failure_message,
+                    redaction_secrets=redaction_secrets,
+                )
+            )
+            raise RuntimeError(f"{failure_message}; rollback_succeeded: restored {current_digest}") from exc
+
         return {
             "result": "deployed",
-            "state": saved_state,
             "target_digest": resolved_digest,
             "smoke_check": smoke_result,
         }
-
-
-def _utcnow_isoformat() -> str:
-    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
 
 def deploy_digest(
@@ -502,8 +361,7 @@ def run_compose_command(
     if result.returncode == 0:
         return result
 
-    detail = _command_failure_detail(result)
-    detail = redact_secret_text(detail, secrets=redaction_secrets)
+    detail = redact_secret_text(_command_failure_detail(result), secrets=redaction_secrets)
     raise RuntimeError(f"command failed: {' '.join(command)}: {detail}")
 
 
@@ -529,7 +387,6 @@ def run_command(command: Sequence[str], *, command_runner: object | None) -> Com
     raw_result = runner(command)
     if isinstance(raw_result, CommandResult):
         return raw_result
-
     return CommandResult(
         returncode=int(getattr(raw_result, "returncode")),
         stdout=str(getattr(raw_result, "stdout", "") or ""),
@@ -549,16 +406,6 @@ def _default_command_runner(command: Sequence[str]) -> CommandResult:
         stdout=completed.stdout,
         stderr=completed.stderr,
     )
-
-
-def build_digest_image_ref(tracked_image: str, digest: str) -> str:
-    image = tracked_image.strip()
-    normalized_digest = digest.strip()
-    if not image:
-        raise ValueError("tracked_image is required")
-    if not normalized_digest:
-        raise ValueError("digest is required")
-    return f"{image}@{normalized_digest}"
 
 
 def write_deploy_env_image_ref(path: Path, image_ref: str) -> None:
@@ -623,10 +470,6 @@ def _build_default_notifier(config: Mapping[str, str]) -> DiscordWebhookNotifier
             if timeout <= 0:
                 raise ValueError("timeout must be > 0")
         except ValueError:
-            _emit_warning(
-                "invalid MANGA_WATCH_WEBHOOK_TIMEOUT; "
-                f"using default timeout {DEFAULT_DISCORD_WEBHOOK_TIMEOUT}s"
-            )
             timeout = DEFAULT_DISCORD_WEBHOOK_TIMEOUT
     return DiscordWebhookNotifier(webhook_url, timeout=timeout)
 
@@ -636,9 +479,8 @@ def _send_notification(
     *,
     event: str,
     tracked_tag: str,
-    previous_digest: str | None,
+    previous_digest: str,
     target_digest: str,
-    timestamp: str,
     next_action: str,
     redaction_secrets: Sequence[object],
     error: str | None = None,
@@ -652,10 +494,9 @@ def _send_notification(
             "\n".join(
                 [
                     f"tracked_tag: {tracked_tag}",
-                    f"previous_digest: {previous_digest or 'none'}",
+                    f"previous_digest: {previous_digest}",
                     f"target_digest: {target_digest}",
                     f"result: {event}",
-                    f"timestamp: {timestamp}",
                     f"next_action: {next_action}",
                     *([f"error: {error}"] if error else []),
                 ]
@@ -697,11 +538,6 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="run a single poll cycle and exit",
     )
     parser.add_argument(
-        "--dry-run",
-        action="store_true",
-        help="resolve the current digest and print the planned result without editing files",
-    )
-    parser.add_argument(
         "--tracked-image",
         default=DEFAULT_TRACKED_IMAGE,
         help="tracked container image repository without tag or digest",
@@ -724,15 +560,9 @@ def build_arg_parser() -> argparse.ArgumentParser:
         help="deploy env file containing COMIC_CRAWLER_IMAGE_REF and runtime config",
     )
     parser.add_argument(
-        "--state-path",
-        type=Path,
-        default=DEFAULT_POLLER_STATE_PATH,
-        help="poller state file path",
-    )
-    parser.add_argument(
         "--lock-path",
         type=Path,
-        help="advisory lock path prefix; storage helper appends .lock. Defaults to <state-path>.run",
+        help="advisory lock path; defaults to the deploy env path",
     )
     return parser
 
@@ -750,9 +580,7 @@ def main(argv: list[str] | None = None) -> int:
             tracked_tag=args.tracked_tag,
             compose_file=args.compose_file,
             deploy_env_path=args.deploy_env,
-            state_path=args.state_path,
             lock_path=args.lock_path,
-            dry_run=args.dry_run,
         )
     except Exception as exc:
         print(f"[deploy-poller] error: {_redact_error(exc, ())}", file=sys.stderr)
