@@ -192,9 +192,27 @@ class FirestoreStorageTests(unittest.TestCase):
                 "delivered_at": None,
                 "state_document_id": "runtime",
             },
-            client.store["notification_dedupe"]["work-1"],
+            client.store["notification_dedupe"]["runtime:work-1"],
         )
         self.assertEqual(2, len(client.store["delivery_backlog"]))
+
+    def test_shadow_docs_are_namespaced_by_state_document(self):
+        client = FakeFirestoreClient()
+        runtime_repository = FirestoreStorageRepository(
+            config=FirestoreStorageConfig(project="star-light-breaker", state_document="runtime"),
+            client=client,
+        )
+        preview_repository = FirestoreStorageRepository(
+            config=FirestoreStorageConfig(project="star-light-breaker", state_document="preview"),
+            client=client,
+        )
+
+        runtime_repository.save_state(make_state())
+        preview_repository.save_state(make_state())
+
+        self.assertIn("runtime:work-1", client.store["notification_dedupe"])
+        self.assertIn("preview:work-1", client.store["notification_dedupe"])
+        self.assertEqual(4, len(client.store["delivery_backlog"]))
 
     def test_record_run_summary_writes_runs_collection(self):
         repository = self.make_repository()

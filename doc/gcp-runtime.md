@@ -47,13 +47,14 @@ watchlist/state の canonical doc は次で固定する。
 runtime から導出される collection は次で固定する。
 
 - `runs/<run_id>`: `run_once` outcome の summary
-- `notification_dedupe/<work_id>`: `discord_delivery.daily_notification.delivered_latest_keys`
-- `delivery_backlog/<doc_id>`: `notification_outbox` と Discord daily pending message の pending delivery state
+- `notification_dedupe/<state_document_id>:<work_id>`: `discord_delivery.daily_notification.delivered_latest_keys`
+- `delivery_backlog/<state_document_id>:<doc_id>`: `notification_outbox` と Discord daily pending message の pending delivery state
 
 補足:
 
 - backlog / dedupe の primary source of truth は引き続き `states/runtime`
 - `notification_dedupe` と `delivery_backlog` は smoke test と運用確認のための shadow collection
+- shadow doc id は `state_document_id` namespace を含み、複数 environment が同一 collection 名を共有しても相互削除しない
 
 ## 4. Migration
 

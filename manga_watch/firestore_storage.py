@@ -158,6 +158,7 @@ class FirestoreStorageRepository:
                 state,
                 state_document_id=self.config.state_document,
             ),
+            state_document_id=self.config.state_document,
         )
         self._sync_named_documents(
             self.config.delivery_backlog_collection,
@@ -165,6 +166,7 @@ class FirestoreStorageRepository:
                 state,
                 state_document_id=self.config.state_document,
             ),
+            state_document_id=self.config.state_document,
         )
 
     def record_run_summary(self, summary: Mapping[str, object]) -> str:
@@ -200,9 +202,17 @@ class FirestoreStorageRepository:
         self,
         collection_name: str,
         docs_by_id: Mapping[str, Mapping[str, object]],
+        *,
+        state_document_id: str,
     ) -> None:
         collection = self.client.collection(collection_name)
-        existing_ids = {snapshot.id for snapshot in collection.stream()}
+        existing_ids = set()
+        for snapshot in collection.stream():
+            payload = snapshot.to_dict() or {}
+            if not isinstance(payload, Mapping):
+                continue
+            if payload.get("state_document_id") == state_document_id:
+                existing_ids.add(snapshot.id)
         for doc_id, payload in docs_by_id.items():
             collection.document(doc_id).set(dict(payload))
         for stale_id in existing_ids - set(docs_by_id.keys()):
@@ -244,7 +254,7 @@ def build_notification_dedupe_documents(
             latest_key = str(latest_keys.get("latest_key") or "").strip()
             if not latest_key:
                 continue
-            docs[sanitize_document_id(normalized_work_id)] = {
+            docs[build_shadow_document_id(state_document_id, normalized_work_id)] = {
                 "work_id": normalized_work_id,
                 "latest_key": latest_key,
                 "delivered_at": latest_keys.get("delivered_at"),
@@ -254,7 +264,7 @@ def build_notification_dedupe_documents(
         latest_key = str(latest_keys).strip()
         if not latest_key:
             continue
-        docs[sanitize_document_id(normalized_work_id)] = {
+        docs[build_shadow_document_id(state_document_id, normalized_work_id)] = {
             "work_id": normalized_work_id,
             "latest_key": latest_key,
             "delivered_at": None,
@@ -281,7 +291,7 @@ def build_delivery_backlog_documents(
             event_id = str(event.get("event_id") or "").strip()
             if not event_id:
                 continue
-            docs[sanitize_document_id(f"notification_outbox:{event_id}")] = {
+            docs[build_shadow_document_id(state_document_id, f"notification_outbox:{event_id}")] = {
                 "entry_type": "notification_outbox",
                 "state_document_id": state_document_id,
                 "event_id": event_id,
@@ -306,7 +316,7 @@ def build_delivery_backlog_documents(
             created_at = str(message.get("created_at") or "").strip()
             stable_key = "|".join([channel_id, created_at, content, *[str(item) for item in message_keys]])
             digest = hashlib.sha256(stable_key.encode("utf-8")).hexdigest()[:16]
-            docs[sanitize_document_id(f"discord_daily_notification:{digest}")] = {
+            docs[build_shadow_document_id(state_document_id, f"discord_daily_notification:{digest}")] = {
                 "entry_type": "discord_daily_notification",
                 "state_document_id": state_document_id,
                 "channel_id": channel_id,
@@ -333,6 +343,10 @@ def build_run_record_id(summary: Mapping[str, object]) -> str:
 def sanitize_document_id(value: str) -> str:
     sanitized = _INVALID_DOC_ID_RE.sub("_", str(value).strip())
     return sanitized or "runtime"
+
+
+def build_shadow_document_id(state_document_id: str, logical_id: str) -> str:
+    return sanitize_document_id(f"{state_document_id}:{logical_id}")
 
 
 def _normalize_optional_text(value: object) -> Optional[str]:

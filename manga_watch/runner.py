@@ -663,26 +663,6 @@ def run_once(
                 )
             )
 
-    if not errors["run"] and not delivery_failures and run_report_delivery_error is None:
-        report_logger(run_report)
-
-    if primary_failure is None and delivery_failures:
-        primary_failure = RuntimeError("notification delivery failed: " + "; ".join(delivery_failures))
-    if primary_failure is None and errors["run"]:
-        first_run_error = errors["run"][0]
-        primary_failure = RuntimeError(
-            f"{first_run_error.get('stage')}: {first_run_error.get('message')}"
-        )
-    if primary_failure is not None:
-        error_logger(
-            format_failure_report(
-                timestamp,
-                trigger_source,
-                primary_failure,
-                redaction_secrets=redaction_secrets,
-            )
-        )
-
     outcome = {
         "ok": error_count == 0 and not delivery_failures and run_report_delivery_error is None,
         "updateCount": update_count,
@@ -713,11 +693,40 @@ def run_once(
         errors["run"].append(
             runner_error_record("record_run_summary", exc, redaction_secrets=redaction_secrets)
         )
-        outcome["ok"] = False
-        outcome["errorCount"] = checker_error_count(errors)
+        error_count = checker_error_count(errors)
+
+    if primary_failure is None and delivery_failures:
+        primary_failure = RuntimeError("notification delivery failed: " + "; ".join(delivery_failures))
+    if primary_failure is None and errors["run"]:
+        first_run_error = errors["run"][0]
+        primary_failure = RuntimeError(
+            f"{first_run_error.get('stage')}: {first_run_error.get('message')}"
+        )
+
+    outcome["ok"] = error_count == 0 and not delivery_failures and run_report_delivery_error is None
+    outcome["errorCount"] = error_count
+    outcome.pop("error", None)
+    if primary_failure is not None:
         outcome["error"] = (
-            f"{exc.__class__.__name__}: "
-            f"{redact_secret_text(exc, secrets=redaction_secrets)}"
+            f"{primary_failure.__class__.__name__}: "
+            f"{redact_secret_text(primary_failure, secrets=redaction_secrets)}"
+        )
+    elif run_report_delivery_error is not None:
+        outcome["error"] = (
+            f"{run_report_delivery_error.__class__.__name__}: "
+            f"{redact_secret_text(run_report_delivery_error, secrets=redaction_secrets)}"
+        )
+
+    if not errors["run"] and not delivery_failures and run_report_delivery_error is None:
+        report_logger(run_report)
+    if primary_failure is not None:
+        error_logger(
+            format_failure_report(
+                timestamp,
+                trigger_source,
+                primary_failure,
+                redaction_secrets=redaction_secrets,
+            )
         )
     return outcome
 

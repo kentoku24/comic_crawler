@@ -465,6 +465,30 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(recorded))
         self.assertEqual(outcome, recorded[0])
 
+    def test_run_once_reports_failure_when_run_recorder_raises(self):
+        reports = []
+        errors = []
+
+        outcome = run_once(
+            self.make_config(),
+            notifier=FakeNotifier(),
+            checker=lambda _: {"updates": [self.make_update()]},
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            run_recorder=lambda _summary: (_ for _ in ()).throw(RuntimeError("firestore write failed")),
+            now_fn=lambda: 1_700_000_000,
+            report_logger=reports.append,
+            error_logger=errors.append,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual([], reports)
+        self.assertEqual(1, outcome["errorCount"])
+        self.assertIn("record_run_summary", outcome["error"])
+        self.assertEqual(1, len(errors))
+        self.assertIn("巡回実行に失敗しました", errors[0])
+        self.assertIn("record_run_summary", errors[0])
+
     def test_run_once_suppresses_bonus_updates_from_notifier_but_reports_them(self):
         notifier = FakeNotifier()
         reports = []
