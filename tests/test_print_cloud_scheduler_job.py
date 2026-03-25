@@ -117,6 +117,7 @@ class PrintCloudSchedulerJobTests(unittest.TestCase):
         self.assertIn("--project=star-light-breaker", result.stdout)
         self.assertIn("--location=asia-northeast1", result.stdout)
         self.assertIn("--http-method=POST", result.stdout)
+        self.assertIn("--update-headers=Content-Type=application/json", result.stdout)
         self.assertIn(
             "--uri=https://run.googleapis.com/v2/projects/star-light-breaker/locations/asia-northeast1/jobs/comic-crawler-job:run",
             result.stdout,
@@ -140,6 +141,25 @@ class PrintCloudSchedulerJobTests(unittest.TestCase):
         self.assertNotEqual(0, result.returncode)
         self.assertIn("--schedule must be a non-empty cron expression", result.stderr)
         self.assertNotIn("Traceback", result.stderr)
+
+    def test_build_gcloud_command_for_create_uses_create_headers_flag(self):
+        module = load_scheduler_helper_module()
+
+        command = module.build_gcloud_scheduler_http_command(
+            action="create",
+            schedule="0 * * * *",
+        )
+
+        self.assertIn("--headers=Content-Type=application/json", command)
+        self.assertNotIn("--update-headers=Content-Type=application/json", command)
+
+    def test_build_gcloud_command_for_update_uses_update_headers_flag(self):
+        module = load_scheduler_helper_module()
+
+        command = module.build_gcloud_scheduler_http_command(action="update")
+
+        self.assertIn("--update-headers=Content-Type=application/json", command)
+        self.assertNotIn("--headers=Content-Type=application/json", command)
 
     def test_script_create_requires_non_empty_schedule_without_traceback(self):
         repo_root = Path(__file__).resolve().parents[1]

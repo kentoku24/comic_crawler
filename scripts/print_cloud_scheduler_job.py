@@ -77,6 +77,10 @@ def build_gcloud_scheduler_http_command(
     ]
     if normalized_schedule:
         flags.append(f"--schedule={shlex.quote(normalized_schedule)}")
+    header_flag = "--headers=Content-Type=application/json"
+    if action == "update":
+        header_flag = "--update-headers=Content-Type=application/json"
+
     flags.extend(
         [
             f"--time-zone={time_zone}",
@@ -85,7 +89,7 @@ def build_gcloud_scheduler_http_command(
             f"--oauth-service-account-email={oauth_service_account_email}",
             f"--oauth-token-scope={oauth_token_scope}",
             f"--message-body={shlex.quote(message_body)}",
-            "--headers=Content-Type=application/json",
+            header_flag,
         ]
     )
     command = f"gcloud scheduler jobs {action} http {scheduler_job_name}"
