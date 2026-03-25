@@ -18,6 +18,7 @@ GCP 上の resource 名、artifact image、Scheduler 呼び出し契約、未解
 | Artifact image | `ghcr.io/kentoku24/comic_crawler:latest` |
 | Local Compose service | `comic-crawler` |
 | Current container entrypoint | `python -m manga_watch.runner` |
+| Cloud Run Job command override | `python -m manga_watch.run_job` |
 
 使い分けは次で固定する。
 
@@ -81,7 +82,7 @@ gcloud scheduler jobs describe comic-crawler-scheduled-run \
 
 ## 5. Cloud Run Job contract
 
-Cloud Run Job の canonical name は `comic-crawler-job`。artifact image は `ghcr.io/kentoku24/comic_crawler:latest` を使う。
+Cloud Run Job の canonical name は `comic-crawler-job`。artifact image は `ghcr.io/kentoku24/comic_crawler:latest` を使い、Job 側では one-shot 実行のため `python -m manga_watch.run_job` を command override する。
 
 作成:
 
@@ -90,9 +91,11 @@ gcloud run jobs create comic-crawler-job \
   --project=star-light-breaker \
   --region=asia-northeast1 \
   --image=ghcr.io/kentoku24/comic_crawler:latest \
+  --command=python \
+  --args=-m,manga_watch.run_job \
   --tasks=1 \
   --max-retries=0 \
-  --set-env-vars=TZ=Asia/Tokyo,MANGA_WATCH_NOTIFIER_BACKENDS=stdout
+  --set-env-vars=TZ=Asia/Tokyo,MANGA_WATCH_NOTIFIER_BACKENDS=stdout,DISCORD_MAIN_CHANNEL_ID=<main-channel-id>,DISCORD_RUN_REPORT_CHANNEL_ID=<run-report-channel-id>,DISCORD_BOT_TOKEN_SECRET_VERSION=projects/star-light-breaker/secrets/comic-crawler-discord-bot-token/versions/latest
 ```
 
 更新:
@@ -102,9 +105,11 @@ gcloud run jobs update comic-crawler-job \
   --project=star-light-breaker \
   --region=asia-northeast1 \
   --image=ghcr.io/kentoku24/comic_crawler:latest \
+  --command=python \
+  --args=-m,manga_watch.run_job \
   --tasks=1 \
   --max-retries=0 \
-  --update-env-vars=TZ=Asia/Tokyo,MANGA_WATCH_NOTIFIER_BACKENDS=stdout
+  --update-env-vars=TZ=Asia/Tokyo,MANGA_WATCH_NOTIFIER_BACKENDS=stdout,DISCORD_MAIN_CHANNEL_ID=<main-channel-id>,DISCORD_RUN_REPORT_CHANNEL_ID=<run-report-channel-id>,DISCORD_BOT_TOKEN_SECRET_VERSION=projects/star-light-breaker/secrets/comic-crawler-discord-bot-token/versions/latest
 ```
 
 手動実行:
@@ -119,7 +124,7 @@ gcloud run jobs execute comic-crawler-job \
 注意:
 
 - 上の `execute` command は API / CLI shape の source of truth として残す
-- 現在の image は long-running runner を起動するため、Job 実行成功をこの task では保証しない
+- default container entrypoint は long-running runner のままだが、Cloud Run Job では `python -m manga_watch.run_job` を command override して 1 execution で終了させる
 - Firestore / Secret Manager / migration contract は `doc/gcp-runtime.md` を参照する
 - production-ready な Job 実行経路の実環境確認は #139 と後続 runtime packet が入るまで未完了
 
