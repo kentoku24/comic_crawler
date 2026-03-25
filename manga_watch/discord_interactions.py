@@ -11,12 +11,13 @@ from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
 
 from manga_watch.discord_fetch import FETCH_COMMAND, handle_fetch_trigger
-from manga_watch.discord_latest import LATEST_COMMAND, handle_latest_query
+from manga_watch.discord_latest import LATEST_COMMAND, handle_latest_query, validated_timezone_name
 from manga_watch.discord_outbound import DiscordChannelClient
 from manga_watch.notifier import build_named_notifiers
 from manga_watch.runner import FETCH_ACCEPTED_MESSAGE, RunCoordinator, RunnerConfig, parse_bool
 from manga_watch.secret_redaction import redact_secret_text
 from manga_watch.secret_resolver import resolve_env_value
+from manga_watch.storage import DEFAULT_WATCHLIST_PATH
 
 INTERACTION_TYPE_PING = 1
 INTERACTION_TYPE_APPLICATION_COMMAND = 2
@@ -321,18 +322,40 @@ class DiscordInteractionService:
         return str(data.get("name") or "").strip().lower()
 
 
+def interaction_timezone_name_from_env() -> str:
+    return validated_timezone_name(os.environ.get("TZ", "Asia/Tokyo"))
+
+
+def interaction_watchlist_path_from_env() -> str:
+    return os.environ.get(
+        "MANGA_WATCH_WATCHLIST",
+        os.environ.get("MANGA_WATCH_URLS", DEFAULT_WATCHLIST_PATH),
+    )
+
+
 def build_interaction_service_from_env(
     *,
     runner_config: Optional[RunnerConfig] = None,
     interaction_path: Optional[str] = None,
     session_factory: Callable[[], AuthorizedSession] = build_authorized_session,
 ) -> DiscordInteractionService:
-    config = runner_config or RunnerConfig.from_env(require_discord=False)
+    backend = _coerce_text(os.environ.get("MANGA_WATCH_FETCH_BACKEND")) or DEFAULT_FETCH_BACKEND
     verification = InteractionVerificationConfig.from_env()
 
     coordinator = None
-    backend = _coerce_text(os.environ.get("MANGA_WATCH_FETCH_BACKEND")) or DEFAULT_FETCH_BACKEND
+    if runner_config is not None:
+        timezone_name = runner_config.timezone_name
+        watchlist_path = runner_config.watchlist_path
+        config = runner_config
+    else:
+        timezone_name = interaction_timezone_name_from_env()
+        watchlist_path = interaction_watchlist_path_from_env()
+        config = None
+
     if backend == FETCH_BACKEND_COORDINATOR:
+        config = config or RunnerConfig.from_env(require_discord=False)
+        timezone_name = config.timezone_name
+        watchlist_path = config.watchlist_path
         named_notifiers = build_named_notifiers(config.notifier_config)
         discord_client = (
             DiscordChannelClient(config.discord_outbound_config)
@@ -354,10 +377,10 @@ def build_interaction_service_from_env(
         verifier = DiscordRequestVerifier(verification.public_key)
 
     return DiscordInteractionService(
-        timezone_name=config.timezone_name,
+        timezone_name=timezone_name,
         fetch_dispatcher=fetch_dispatcher,
         interaction_path=interaction_path or os.environ.get("MANGA_WATCH_INTERACTION_PATH", DEFAULT_INTERACTION_PATH),
-        watchlist_path=config.watchlist_path,
+        watchlist_path=watchlist_path,
         verifier=verifier,
         verification_disabled=verification.verification_disabled,
     )
