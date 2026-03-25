@@ -1,2 +1,4 @@
 croniter>=3.0.4
 requests>=2.31.0
+google-cloud-firestore>=2.21.0
+google-cloud-secret-manager>=2.24.0

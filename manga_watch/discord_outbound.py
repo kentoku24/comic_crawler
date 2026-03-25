@@ -3,12 +3,13 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 
 from manga_watch.secret_redaction import redact_secret_text
+from manga_watch.secret_resolver import resolve_env_value
 from manga_watch.discord_text import (
     episode_label_for_snapshot,
     series_label_for_snapshot,
@@ -52,10 +53,14 @@ class DiscordOutboundConfig:
     timeout: int = DEFAULT_DISCORD_TIMEOUT
 
     @classmethod
-    def from_env(cls) -> "DiscordOutboundConfig":
-        bot_token = _coerce_text(os.environ.get("DISCORD_BOT_TOKEN"))
+    def from_env(
+        cls,
+        *,
+        secret_resolver: Callable[[str], Optional[str]] = resolve_env_value,
+    ) -> "DiscordOutboundConfig":
+        bot_token = secret_resolver("DISCORD_BOT_TOKEN")
         if not bot_token:
-            raise ValueError("DISCORD_BOT_TOKEN is required")
+            raise ValueError("DISCORD_BOT_TOKEN or DISCORD_BOT_TOKEN_SECRET_VERSION is required")
 
         main_channel_id = _coerce_text(os.environ.get("DISCORD_MAIN_CHANNEL_ID"))
         if not main_channel_id:
