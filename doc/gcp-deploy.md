@@ -59,7 +59,7 @@ gcloud scheduler jobs list \
 
 - Firestore / Secret Manager / migration contract は [doc/gcp-runtime.md](./gcp-runtime.md) を source of truth とする
 - 実環境 smoke test は [#139](https://github.com/kentoku24/comic_crawler/issues/139) が blocker
-- Discord interaction endpoint は [#146](https://github.com/kentoku24/comic_crawler/issues/146) が blocker
+- Discord interaction endpoint / signature verification は [#146](https://github.com/kentoku24/comic_crawler/issues/146) で source of truth を追加した
 - 現在 publish される image は `python -m manga_watch.runner` を起動する long-running container であり、Cloud Run Job の「1 execution で終了する task」にはまだ合わせ切れていない
 
 したがって、この文書の `create` / `update` command は canonical resource を揃えるための contract であり、production-ready runtime 完了の宣言ではない。
@@ -128,25 +128,31 @@ gcloud run jobs execute comic-crawler-job \
 - Firestore / Secret Manager / migration contract は `doc/gcp-runtime.md` を参照する
 - production-ready な Job 実行経路の実環境確認は #139 と後続 runtime packet が入るまで未完了
 
-## 6. Cloud Run Service naming reservation
+## 6. Cloud Run Service contract
 
-Cloud Run Service の canonical name は `comic-crawler-service`。この名前は Discord interaction endpoint 用に予約する。
+Cloud Run Service の canonical name は `comic-crawler-service`。Discord interaction endpoint は `python -m manga_watch.run_service` を command override して起動する。
 
-service 名だけを先に固定する場合の deploy skeleton:
+production deploy shape:
 
 ```bash
 gcloud run deploy comic-crawler-service \
   --project=star-light-breaker \
   --region=asia-northeast1 \
-  --image=ghcr.io/kentoku24/comic_crawler:latest
+  --image=ghcr.io/kentoku24/comic_crawler:latest \
+  --command=python \
+  --args=-m,manga_watch.run_service \
+  --allow-unauthenticated \
+  --set-env-vars=TZ=Asia/Tokyo,MANGA_WATCH_STORAGE_BACKEND=firestore,MANGA_WATCH_FIRESTORE_PROJECT=star-light-breaker,MANGA_WATCH_FETCH_BACKEND=cloud-run-job,MANGA_WATCH_GCP_PROJECT=star-light-breaker,MANGA_WATCH_CLOUD_RUN_REGION=asia-northeast1,MANGA_WATCH_CLOUD_RUN_JOB_NAME=comic-crawler-job \
+  --set-secrets=DISCORD_APPLICATION_PUBLIC_KEY=comic-crawler-discord-application-public-key:latest
 ```
 
 注意:
 
-- `comic-crawler-service` は naming contract を先に固定するための entry
-- Discord interaction runtime 自体は #146 が blocker
-- この task では Service routing / request auth / ingress / public-or-private exposure / Discord signature verification は固定しない
-- `--allow-unauthenticated` / `--no-allow-unauthenticated` を含む公開形態の選択は #146 の inbound contract で決める
+- Discord interaction endpoint は public ingress を前提にし、Discord request signature で認証する
+- production では `MANGA_WATCH_INSECURE_DISABLE_VERIFICATION=true` を使わない
+- `DISCORD_APPLICATION_PUBLIC_KEY` は direct env でも `*_SECRET_VERSION` でもよいが、deploy contract では Secret Manager を推奨する
+- `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のとき `fetch` は Cloud Run Jobs API へ manual override 付きで handoff する
+- local fallback として `MANGA_WATCH_FETCH_BACKEND=coordinator` を使って in-process 実行もできる
 
 ## 7. Scheduler caller IAM
 

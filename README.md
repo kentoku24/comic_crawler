@@ -306,8 +306,14 @@ docker compose logs --tail 80 comic-crawler
 - `DISCORD_BOT_TOKEN`: Discord main/run-report channel に送る bot token
 - `DISCORD_MAIN_CHANNEL_ID`: daily notification の送信先 channel id
 - `DISCORD_RUN_REPORT_CHANNEL_ID`: run report の送信先 channel id
-- `DISCORD_INBOUND_ENABLED`: `true` のとき Discord main channel で `latest` / `fetch` コマンドを監視する。既定値は `true`
-- `DISCORD_COMMAND_POLL_INTERVAL`: inbound command polling 間隔（秒）。既定値は `5`
+- `DISCORD_INBOUND_ENABLED`: local fallback の polling inbound を有効化する。既定値は `true`
+- `DISCORD_COMMAND_POLL_INTERVAL`: local fallback の inbound polling 間隔（秒）。既定値は `5`
+- `DISCORD_APPLICATION_PUBLIC_KEY`: Cloud Run Service の Discord interaction verification に使う public key
+- `MANGA_WATCH_INSECURE_DISABLE_VERIFICATION`: local のみで verification を無効化する escape hatch。production では使わない
+- `MANGA_WATCH_FETCH_BACKEND`: Cloud Run Service の `fetch` 実行先。`coordinator` または `cloud-run-job`。既定値は `coordinator`
+- `MANGA_WATCH_GCP_PROJECT`: `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のときに使う GCP project
+- `MANGA_WATCH_CLOUD_RUN_REGION`: `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のときに使う Cloud Run region。既定値は `asia-northeast1`
+- `MANGA_WATCH_CLOUD_RUN_JOB_NAME`: `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のときに起動する Job 名。既定値は `comic-crawler-job`
 - `TZ`: スケジュール計算の timezone。既定値は `Asia/Tokyo`
 - `CRAWL_SCHEDULE`: cron 形式。既定値は `0 19 * * *`
 - `CRAWL_INTERVAL`: 秒単位の固定間隔。`CRAWL_SCHEDULE` と同時指定は不可
@@ -352,6 +358,14 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 
 Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
+
+Cloud Run Service の Discord interaction endpoint をローカルで起動する場合は、署名検証用の public key を入れて `python -m manga_watch.run_service` を使います。
+
+```bash
+export DISCORD_APPLICATION_PUBLIC_KEY=...
+export MANGA_WATCH_INSECURE_DISABLE_VERIFICATION=false
+.venv/bin/python -m manga_watch.run_service
+```
 
 ## Status CLI
 
