@@ -12,6 +12,8 @@ Docker コンテナ 1 つで定期クロールし、generic notifier backend (`s
 - `doc/運用手順書.md`
 - `doc/受け入れテスト計画書.md`
 
+GCP runtime の backend env / Firestore schema / Secret Manager mapping / migration command は [`doc/gcp-runtime.md`](doc/gcp-runtime.md) を source of truth とします。
+
 root の受け入れ仕様書は Git 上の実ファイル名を `spec.md` にしていますが、文書名と cross-document 参照では `SPEC.md` と表記します。これは macOS などの case-insensitive filesystem で path 衝突を避けるためです。canonical docs や新しい issue / PR で `SPEC.md` と書かれている場合は、この `spec.md` を指します。旧 single-file spec への過去の言及は reference 扱いで、source of truth ではありません。
 
 ## Python 3.12 baseline

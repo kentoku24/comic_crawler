@@ -143,6 +143,26 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("[runner] configuration error:", result.stderr)
         self.assertIn("MANGA_WATCH_NOTIFIER_BACKENDS", result.stderr)
 
+    def test_run_once_records_run_summary_when_recorder_is_injected(self):
+        recorded = []
+
+        def checker(_watchlist_path):
+            return {"updates": [], "errors": {"sources": [], "run": []}}
+
+        outcome = run_once(
+            self.make_config(),
+            checker=checker,
+            state_loader=lambda: {"version": 2, "works": {}, "last_run_at": None, "notification_outbox": [], "discord_delivery": {"daily_notification": {"delivered_latest_keys": {}, "pending_messages": []}}},
+            state_saver=lambda _state: None,
+            run_recorder=lambda summary: recorded.append(dict(summary)) or "run-1",
+            report_logger=lambda _message: None,
+            error_logger=lambda _message: None,
+        )
+
+        self.assertEqual("run-1", outcome["runId"])
+        self.assertEqual(1, len(recorded))
+        self.assertTrue(recorded[0]["ok"])
+
     def make_config(self, *, with_discord=False):
         return RunnerConfig(
             timezone_name="Asia/Tokyo",
@@ -425,6 +445,49 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("daily notification: 送信なし", reports[0])
         self.assertIn("通知対象: 1件", reports[0])
         self.assertIn("通知抑制: 0件", reports[0])
+
+    def test_run_once_records_run_summary(self):
+        recorded = []
+
+        outcome = run_once(
+            self.make_config(),
+            notifier=FakeNotifier(),
+            checker=lambda _: {"updates": [self.make_update()]},
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            run_recorder=recorded.append,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: None,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        self.assertTrue(outcome["ok"])
+        self.assertEqual(1, len(recorded))
+        self.assertEqual(outcome, recorded[0])
+
+    def test_run_once_reports_failure_when_run_recorder_raises(self):
+        reports = []
+        errors = []
+
+        outcome = run_once(
+            self.make_config(),
+            notifier=FakeNotifier(),
+            checker=lambda _: {"updates": [self.make_update()]},
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            run_recorder=lambda _summary: (_ for _ in ()).throw(RuntimeError("firestore write failed")),
+            now_fn=lambda: 1_700_000_000,
+            report_logger=reports.append,
+            error_logger=errors.append,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual([], reports)
+        self.assertEqual(1, outcome["errorCount"])
+        self.assertIn("record_run_summary", outcome["error"])
+        self.assertEqual(1, len(errors))
+        self.assertIn("巡回実行に失敗しました", errors[0])
+        self.assertIn("record_run_summary", errors[0])
 
     def test_run_once_suppresses_bonus_updates_from_notifier_but_reports_them(self):
         notifier = FakeNotifier()

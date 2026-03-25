@@ -7,10 +7,17 @@ from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
 import fcntl
 
+from manga_watch.firestore_storage import FirestoreStorageConfig, FirestoreStorageRepository
 from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES, SUPPORTED_UPDATE_TYPES
 
 DEFAULT_WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "watchlist.json")
 DEFAULT_STATE_PATH = os.path.join(os.path.dirname(__file__), "state.json")
+STORAGE_BACKEND_JSON = "json"
+STORAGE_BACKEND_FIRESTORE = "firestore"
+SUPPORTED_STORAGE_BACKENDS = {
+    STORAGE_BACKEND_JSON,
+    STORAGE_BACKEND_FIRESTORE,
+}
 
 WATCHLIST_VERSION = 2
 STATE_VERSION = 2
@@ -51,6 +58,18 @@ def get_state_path() -> str:
     return os.environ.get("MANGA_WATCH_STATE", DEFAULT_STATE_PATH)
 
 
+def storage_backend_from_env() -> str:
+    return _resolve_storage_backend(os.environ.get("MANGA_WATCH_STORAGE_BACKEND"))
+
+
+def _default_firestore_repository(config: FirestoreStorageConfig) -> FirestoreStorageRepository:
+    return FirestoreStorageRepository(config=config)
+
+
+def get_firestore_repository() -> FirestoreStorageRepository:
+    return _default_firestore_repository(FirestoreStorageConfig.from_env())
+
+
 def default_watchlist() -> Dict[str, object]:
     return {"version": WATCHLIST_VERSION, "works": []}
 
@@ -70,14 +89,35 @@ def default_state() -> Dict[str, object]:
     }
 
 
-def load_watchlist(path: Optional[str] = None) -> Dict[str, object]:
+def load_watchlist(
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> Dict[str, object]:
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        payload = get_firestore_repository().load_watchlist()
+        return validate_watchlist(payload)
+
     watchlist_path = path or get_watchlist_path()
     with open(watchlist_path, "r", encoding="utf-8") as f:
         payload = json.load(f)
     return validate_watchlist(payload)
 
 
-def load_state(path: Optional[str] = None) -> Dict[str, object]:
+def load_state(
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> Dict[str, object]:
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        try:
+            payload = get_firestore_repository().load_state()
+        except FileNotFoundError:
+            return default_state()
+        return validate_state(payload)
+
     state_path = path or get_state_path()
     if not os.path.exists(state_path):
         return default_state()
@@ -86,12 +126,43 @@ def load_state(path: Optional[str] = None) -> Dict[str, object]:
     return validate_state(payload)
 
 
-def save_state(state: Mapping[str, object], path: Optional[str] = None) -> None:
-    atomic_write_json(path or get_state_path(), validate_state(state))
+def save_state(
+    state: Mapping[str, object],
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> None:
+    validated_state = validate_state(state)
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        get_firestore_repository().save_state(validated_state)
+        return
+    atomic_write_json(path or get_state_path(), validated_state)
 
 
-def save_watchlist(watchlist: Mapping[str, object], path: Optional[str] = None) -> None:
-    atomic_write_json(path or get_watchlist_path(), validate_watchlist(watchlist))
+def save_watchlist(
+    watchlist: Mapping[str, object],
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> None:
+    validated_watchlist = validate_watchlist(watchlist)
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        get_firestore_repository().save_watchlist(validated_watchlist)
+        return
+    atomic_write_json(path or get_watchlist_path(), validated_watchlist)
+
+
+def record_run_summary(
+    summary: Mapping[str, object],
+    *,
+    backend: Optional[str] = None,
+) -> Optional[str]:
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend != STORAGE_BACKEND_FIRESTORE:
+        return None
+    return get_firestore_repository().record_run_summary(dict(summary))
 
 
 @contextmanager
@@ -814,6 +885,20 @@ def _latest_storage_key(key: str) -> str:
 
 def _latest_runtime_key(key: str) -> str:
     return _LATEST_STORAGE_TO_RUNTIME.get(key, snake_to_camel(key))
+
+
+def _resolve_storage_backend(value: Optional[object]) -> str:
+    text = str(value or STORAGE_BACKEND_JSON).strip().lower()
+    if text not in SUPPORTED_STORAGE_BACKENDS:
+        supported = ", ".join(sorted(SUPPORTED_STORAGE_BACKENDS))
+        raise ValueError(f"MANGA_WATCH_STORAGE_BACKEND must be one of: {supported}")
+    return text
+
+
+def _effective_storage_backend(value: Optional[object]) -> str:
+    if value is None:
+        return storage_backend_from_env()
+    return _resolve_storage_backend(value)
 
 
 def camel_to_snake(value: str) -> str:

@@ -30,7 +30,13 @@ from manga_watch.notifier import (
     event_from_payload,
 )
 from manga_watch.secret_redaction import redact_secret_text
-from manga_watch.storage import DEFAULT_WATCHLIST_PATH, get_state_path, load_state, save_state
+from manga_watch.storage import (
+    DEFAULT_WATCHLIST_PATH,
+    get_state_path,
+    load_state,
+    record_run_summary,
+    save_state,
+)
 from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES
 
 DEFAULT_CRAWL_SCHEDULE = "0 19 * * *"
@@ -461,6 +467,7 @@ def run_once(
     checker: Callable[[str], Dict[str, object]] = run_check,
     state_loader: Callable[[], Dict[str, object]] = load_state,
     state_saver: Callable[[Dict[str, object]], None] = save_state,
+    run_recorder: Callable[[Mapping[str, object]], Optional[str]] = record_run_summary,
     now_fn: Callable[[], float] = time.time,
     report_logger: Callable[[str], None] = report_to_stdout,
     error_logger: Callable[[str], None] = report_to_stderr,
@@ -656,26 +663,6 @@ def run_once(
                 )
             )
 
-    if not errors["run"] and not delivery_failures and run_report_delivery_error is None:
-        report_logger(run_report)
-
-    if primary_failure is None and delivery_failures:
-        primary_failure = RuntimeError("notification delivery failed: " + "; ".join(delivery_failures))
-    if primary_failure is None and errors["run"]:
-        first_run_error = errors["run"][0]
-        primary_failure = RuntimeError(
-            f"{first_run_error.get('stage')}: {first_run_error.get('message')}"
-        )
-    if primary_failure is not None:
-        error_logger(
-            format_failure_report(
-                timestamp,
-                trigger_source,
-                primary_failure,
-                redaction_secrets=redaction_secrets,
-            )
-        )
-
     outcome = {
         "ok": error_count == 0 and not delivery_failures and run_report_delivery_error is None,
         "updateCount": update_count,
@@ -697,6 +684,50 @@ def run_once(
             f"{run_report_delivery_error.__class__.__name__}: "
             f"{redact_secret_text(run_report_delivery_error, secrets=redaction_secrets)}"
         )
+
+    try:
+        run_id = run_recorder(outcome)
+        if run_id:
+            outcome["runId"] = run_id
+    except Exception as exc:
+        errors["run"].append(
+            runner_error_record("record_run_summary", exc, redaction_secrets=redaction_secrets)
+        )
+        error_count = checker_error_count(errors)
+
+    if primary_failure is None and delivery_failures:
+        primary_failure = RuntimeError("notification delivery failed: " + "; ".join(delivery_failures))
+    if primary_failure is None and errors["run"]:
+        first_run_error = errors["run"][0]
+        primary_failure = RuntimeError(
+            f"{first_run_error.get('stage')}: {first_run_error.get('message')}"
+        )
+
+    outcome["ok"] = error_count == 0 and not delivery_failures and run_report_delivery_error is None
+    outcome["errorCount"] = error_count
+    outcome.pop("error", None)
+    if primary_failure is not None:
+        outcome["error"] = (
+            f"{primary_failure.__class__.__name__}: "
+            f"{redact_secret_text(primary_failure, secrets=redaction_secrets)}"
+        )
+    elif run_report_delivery_error is not None:
+        outcome["error"] = (
+            f"{run_report_delivery_error.__class__.__name__}: "
+            f"{redact_secret_text(run_report_delivery_error, secrets=redaction_secrets)}"
+        )
+
+    if not errors["run"] and not delivery_failures and run_report_delivery_error is None:
+        report_logger(run_report)
+    if primary_failure is not None:
+        error_logger(
+            format_failure_report(
+                timestamp,
+                trigger_source,
+                primary_failure,
+                redaction_secrets=redaction_secrets,
+            )
+        )
     return outcome
 
 
@@ -709,6 +740,7 @@ class RunCoordinator:
     checker: Callable[[str], Dict[str, object]] = run_check
     state_loader: Callable[[], Dict[str, object]] = load_state
     state_saver: Callable[[Dict[str, object]], None] = save_state
+    run_recorder: Callable[[Mapping[str, object]], Optional[str]] = record_run_summary
     now_fn: Callable[[], float] = time.time
     report_logger: Callable[[str], None] = report_to_stdout
     error_logger: Callable[[str], None] = report_to_stderr
@@ -732,6 +764,7 @@ class RunCoordinator:
             checker=self.checker,
             state_loader=self.state_loader,
             state_saver=self.state_saver,
+            run_recorder=self.run_recorder,
             now_fn=self.now_fn,
             report_logger=self.report_logger,
             error_logger=self.error_logger,

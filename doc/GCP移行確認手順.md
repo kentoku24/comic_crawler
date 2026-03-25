@@ -164,7 +164,8 @@ gcloud run jobs execute comic-crawler-job \
 
 ただし、この task 時点では次を前提に「command shape を確認する」までに留める。
 
-- #145 が未解決なので durable state / secret resolution は未完了
+- Firestore / Secret Manager / migration contract 自体は `doc/gcp-runtime.md` を参照する
+- 実環境 smoke test は #139 が未解決なので未完了
 - #146 が未解決なので Discord interaction service path は未完了
 - 現在の image は `python -m manga_watch.runner` を起動する long-running container であり、Cloud Run Job 完全対応をまだ主張しない
 
@@ -176,5 +177,5 @@ gcloud run jobs execute comic-crawler-job \
 
 - canonical resource 名が文書どおり固定されている
 - helper script が canonical Scheduler command を出力する
-- docs が #145 / #146 の blocker 境界を明記している
+- docs が `doc/gcp-runtime.md` と #146 の blocker 境界を明記している
 - GCP resource contract を参照する後続 issue が、この文書の名前と command をそのまま使える

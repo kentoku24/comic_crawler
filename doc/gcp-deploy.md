@@ -56,7 +56,8 @@ gcloud scheduler jobs list \
 
 この task が追加するのは resource contract と command source of truth までであり、GCP runtime 完了はまだ主張しない。
 
-- Job の durable state / secret resolution は [#145](https://github.com/kentoku24/comic_crawler/issues/145) が blocker
+- Firestore / Secret Manager / migration contract は [doc/gcp-runtime.md](./gcp-runtime.md) を source of truth とする
+- 実環境 smoke test は [#139](https://github.com/kentoku24/comic_crawler/issues/139) が blocker
 - Discord interaction endpoint は [#146](https://github.com/kentoku24/comic_crawler/issues/146) が blocker
 - 現在 publish される image は `python -m manga_watch.runner` を起動する long-running container であり、Cloud Run Job の「1 execution で終了する task」にはまだ合わせ切れていない
 
@@ -119,7 +120,8 @@ gcloud run jobs execute comic-crawler-job \
 
 - 上の `execute` command は API / CLI shape の source of truth として残す
 - 現在の image は long-running runner を起動するため、Job 実行成功をこの task では保証しない
-- production-ready な Job 実行経路は #145 と後続 runtime packet が入るまで未完了
+- Firestore / Secret Manager / migration contract は `doc/gcp-runtime.md` を参照する
+- production-ready な Job 実行経路の実環境確認は #139 と後続 runtime packet が入るまで未完了
 
 ## 6. Cloud Run Service naming reservation
 

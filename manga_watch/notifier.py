@@ -4,11 +4,12 @@ import os
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from typing import Dict, List, Mapping, Optional, Protocol, Sequence, TextIO, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, TextIO, Tuple
 
 import requests
 
 from manga_watch.secret_redaction import redact_secret_text
+from manga_watch.secret_resolver import resolve_env_value
 
 DEFAULT_WEBHOOK_TIMEOUT = 10
 SUPPORTED_NOTIFIER_BACKENDS = {"stdout", "webhook"}
@@ -225,7 +226,11 @@ class NotifierConfig:
     webhook_timeout: int = DEFAULT_WEBHOOK_TIMEOUT
 
     @classmethod
-    def from_env(cls) -> "NotifierConfig":
+    def from_env(
+        cls,
+        *,
+        secret_resolver: Callable[[str], Optional[str]] = resolve_env_value,
+    ) -> "NotifierConfig":
         raw_backends = _coerce_text(os.environ.get("MANGA_WATCH_NOTIFIER_BACKENDS"))
         if not raw_backends:
             raise ValueError("MANGA_WATCH_NOTIFIER_BACKENDS is required")
@@ -254,10 +259,11 @@ class NotifierConfig:
         if webhook_timeout <= 0:
             raise ValueError("MANGA_WATCH_WEBHOOK_TIMEOUT must be a positive integer (seconds)")
 
-        webhook_url = _coerce_text(os.environ.get("MANGA_WATCH_WEBHOOK_URL"))
+        webhook_url = secret_resolver("MANGA_WATCH_WEBHOOK_URL")
         if "webhook" in backends and not webhook_url:
             raise ValueError(
-                "MANGA_WATCH_WEBHOOK_URL is required when MANGA_WATCH_NOTIFIER_BACKENDS includes webhook"
+                "MANGA_WATCH_WEBHOOK_URL or MANGA_WATCH_WEBHOOK_URL_SECRET_VERSION is required "
+                "when MANGA_WATCH_NOTIFIER_BACKENDS includes webhook"
             )
 
         return cls(
