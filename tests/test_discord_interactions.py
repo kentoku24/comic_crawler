@@ -27,6 +27,11 @@ class RecordingFetchDispatcher:
         return {"message": self.message}
 
 
+class FailingFetchDispatcher:
+    def dispatch(self):
+        raise RuntimeError("boom")
+
+
 class FakeResponse:
     def __init__(self, status_code=200, text=""):
         self.status_code = status_code
@@ -122,6 +127,17 @@ class DiscordInteractionServiceTests(unittest.TestCase):
 
         self.assertEqual(200, response.status_code)
         self.assertEqual("ok", json.loads(response.body)["data"]["content"])
+
+    def test_fetch_dispatch_failure_returns_structured_interaction_response(self):
+        service, signing_key = self.make_service(fetch_dispatcher=FailingFetchDispatcher())
+        headers, body = self.signed_request({"type": 2, "data": {"name": "fetch"}}, signing_key)
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertEqual(4, payload["type"])
+        self.assertIn("fetch の起動に失敗しました", payload["data"]["content"])
 
 
 class FetchDispatcherTests(unittest.TestCase):

@@ -32,6 +32,7 @@ DEFAULT_CLOUD_RUN_JOB_NAME = "comic-crawler-job"
 DEFAULT_CLOUD_RUN_REGION = "asia-northeast1"
 DEFAULT_GOOGLE_AUTH_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 INVALID_SIGNATURE_MESSAGE = "invalid request signature"
+FETCH_DISPATCH_FAILURE_MESSAGE = "fetch の起動に失敗しました。Cloud Run logs を確認してください。"
 
 
 def _coerce_text(value: object) -> Optional[str]:
@@ -239,6 +240,19 @@ def text_response(status_code: int, message: str) -> InteractionHttpResponse:
     )
 
 
+def interaction_message_response(content: str) -> InteractionHttpResponse:
+    return json_response(
+        200,
+        {
+            "type": INTERACTION_RESPONSE_TYPE_CHANNEL_MESSAGE,
+            "data": {
+                "content": content,
+                "allowed_mentions": {"parse": []},
+            },
+        },
+    )
+
+
 @dataclass
 class DiscordInteractionService:
     timezone_name: str
@@ -288,22 +302,16 @@ class DiscordInteractionService:
                 timezone_name=self.timezone_name,
             )
         elif command_name == FETCH_COMMAND:
-            content = str(self.fetch_dispatcher.dispatch().get("message") or "").strip()
+            try:
+                content = str(self.fetch_dispatcher.dispatch().get("message") or "").strip()
+            except Exception:
+                return interaction_message_response(FETCH_DISPATCH_FAILURE_MESSAGE)
         else:
             return text_response(400, f"unsupported command: {command_name or '(missing)'}")
 
         if not content:
             return text_response(500, "empty interaction response")
-        return json_response(
-            200,
-            {
-                "type": INTERACTION_RESPONSE_TYPE_CHANNEL_MESSAGE,
-                "data": {
-                    "content": content,
-                    "allowed_mentions": {"parse": []},
-                },
-            },
-        )
+        return interaction_message_response(content)
 
     def _verify_request(self, *, headers: Mapping[str, str], body: bytes) -> bool:
         if self.verifier is None:
