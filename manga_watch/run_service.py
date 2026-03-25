@@ -6,7 +6,6 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from manga_watch.discord_interactions import build_interaction_service_from_env
-from manga_watch.runner import RunnerConfig
 
 
 def build_request_handler(service):
@@ -41,8 +40,7 @@ def build_request_handler(service):
 
 def main() -> int:
     try:
-        runner_config = RunnerConfig.from_env(require_discord=False)
-        service = build_interaction_service_from_env(runner_config=runner_config)
+        service = build_interaction_service_from_env()
     except Exception as exc:
         print(f"[run_service] configuration error: {exc}", file=sys.stderr)
         return 2
