@@ -38,7 +38,7 @@ gcloud scheduler jobs list \
   --format='value(name)'
 ```
 
-2026-03-25 に確認済みの baseline:
+2026-03-25 に [#143 の確認コメント 1](https://github.com/kentoku24/comic_crawler/issues/143#issuecomment-4127050468) と [確認コメント 2](https://github.com/kentoku24/comic_crawler/issues/143#issuecomment-4127061135) で採取した observed baseline。ここでは issue #143 の確認証跡を参照し、現時点の環境状態を repo 文書だけで断定しない:
 
 - Cloud Run jobs list: `[]`
 - Cloud Run services list: `[]`
@@ -135,14 +135,13 @@ gcloud run jobs create comic-crawler-job \
   --set-env-vars=TZ=Asia/Tokyo,MANGA_WATCH_NOTIFIER_BACKENDS=stdout
 ```
 
-Service deploy command shape:
+Service deploy skeleton:
 
 ```bash
 gcloud run deploy comic-crawler-service \
   --project=star-light-breaker \
   --region=asia-northeast1 \
-  --image=ghcr.io/kentoku24/comic_crawler:latest \
-  --no-allow-unauthenticated
+  --image=ghcr.io/kentoku24/comic_crawler:latest
 ```
 
 確認ポイント:
@@ -150,6 +149,7 @@ gcloud run deploy comic-crawler-service \
 - image が `ghcr.io/kentoku24/comic_crawler:latest`
 - Job 名と Service 名を取り違えていない
 - region が `asia-northeast1`
+- Service auth / ingress / public-or-private exposure 方針は #146 が解くため、この packet では固定されていない
 
 ## 7. Manual run 確認
 

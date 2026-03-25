@@ -25,9 +25,9 @@ GCP 上の resource 名、artifact image、Scheduler 呼び出し契約、未解
 - `comic-crawler-service`: 将来の Discord interaction endpoint 用 Cloud Run Service 名
 - `comic-crawler-scheduled-run`: Cloud Scheduler から Cloud Run Jobs API を叩く Job 名
 
-## 2. Verified baseline
+## 2. Observed baseline
 
-2026-03-25 時点の verified baseline は次のとおり。
+2026-03-25 に [#143 の確認コメント 1](https://github.com/kentoku24/comic_crawler/issues/143#issuecomment-4127050468) と [確認コメント 2](https://github.com/kentoku24/comic_crawler/issues/143#issuecomment-4127061135) で採取した observed baseline は次のとおり。ここでは issue #143 の確認証跡を canonical naming 契約の基準点として参照し、現時点の環境状態を repo 単体で断定しない。
 
 - Cloud Run jobs list: `[]`
 - Cloud Run services list: `[]`
@@ -121,25 +121,25 @@ gcloud run jobs execute comic-crawler-job \
 - 現在の image は long-running runner を起動するため、Job 実行成功をこの task では保証しない
 - production-ready な Job 実行経路は #145 と後続 runtime packet が入るまで未完了
 
-## 6. Cloud Run Service contract
+## 6. Cloud Run Service naming reservation
 
 Cloud Run Service の canonical name は `comic-crawler-service`。この名前は Discord interaction endpoint 用に予約する。
 
-作成または更新:
+service 名だけを先に固定する場合の deploy skeleton:
 
 ```bash
 gcloud run deploy comic-crawler-service \
   --project=star-light-breaker \
   --region=asia-northeast1 \
-  --image=ghcr.io/kentoku24/comic_crawler:latest \
-  --no-allow-unauthenticated
+  --image=ghcr.io/kentoku24/comic_crawler:latest
 ```
 
 注意:
 
 - `comic-crawler-service` は naming contract を先に固定するための entry
 - Discord interaction runtime 自体は #146 が blocker
-- この task では Service routing / request auth / Discord signature verification は実装しない
+- この task では Service routing / request auth / ingress / public-or-private exposure / Discord signature verification は固定しない
+- `--allow-unauthenticated` / `--no-allow-unauthenticated` を含む公開形態の選択は #146 の inbound contract で決める
 
 ## 7. Scheduler caller IAM
 

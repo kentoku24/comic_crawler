@@ -54,9 +54,11 @@ def build_gcloud_scheduler_http_command(
     oauth_token_scope: str = DEFAULT_OAUTH_TOKEN_SCOPE,
     trigger_source: str = DEFAULT_TRIGGER_SOURCE,
 ) -> str:
+    normalized_schedule = schedule.strip() if schedule is not None else None
+
     if action not in {"create", "update"}:
         raise ValueError(f"unsupported action: {action}")
-    if action == "create" and not schedule:
+    if action == "create" and not normalized_schedule:
         raise ValueError("schedule is required when action=create")
 
     uri = build_cloud_run_job_run_uri(
@@ -73,8 +75,8 @@ def build_gcloud_scheduler_http_command(
         f"--project={project}",
         f"--location={region}",
     ]
-    if schedule:
-        flags.append(f"--schedule={shlex.quote(schedule)}")
+    if normalized_schedule:
+        flags.append(f"--schedule={shlex.quote(normalized_schedule)}")
     flags.extend(
         [
             f"--time-zone={time_zone}",
@@ -90,7 +92,7 @@ def build_gcloud_scheduler_http_command(
     return command + " \\\n  " + " \\\n  ".join(flags)
 
 
-def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Print the canonical Cloud Scheduler command for comic_crawler.",
     )
@@ -106,7 +108,18 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=DEFAULT_SCHEDULER_SERVICE_ACCOUNT_EMAIL,
     )
     parser.add_argument("--trigger-source", default=DEFAULT_TRIGGER_SOURCE)
-    return parser.parse_args(argv)
+    return parser
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    parser = build_parser()
+    args = parser.parse_args(argv)
+    if args.action == "create":
+        normalized_schedule = args.schedule.strip() if args.schedule is not None else None
+        if not normalized_schedule:
+            parser.error("--schedule must be a non-empty cron expression when action=create")
+        args.schedule = normalized_schedule
+    return args
 
 
 def main(argv: list[str] | None = None) -> int:
