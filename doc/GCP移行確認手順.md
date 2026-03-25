@@ -164,12 +164,13 @@ gcloud run deploy comic-crawler-service \
 署名検証 smoke:
 
 ```bash
-/Users/kentokumatsunami/Documents/GitHub/comic_crawler/.venv/bin/python - <<'PY'
+eval "$(/Users/kentokumatsunami/Documents/GitHub/comic_crawler/.venv/bin/python - <<'PY'
 from nacl.signing import SigningKey
 key = SigningKey.generate()
-print("PRIVATE_KEY=" + key.encode().hex())
-print("PUBLIC_KEY=" + key.verify_key.encode().hex())
+print("export PRIVATE_KEY=" + key.encode().hex())
+print("export PUBLIC_KEY=" + key.verify_key.encode().hex())
 PY
+)"
 
 SERVICE_URL="$(gcloud run services describe comic-crawler-service \
   --project=star-light-breaker \
