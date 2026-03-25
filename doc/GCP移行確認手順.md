@@ -137,22 +137,29 @@ gcloud run jobs create comic-crawler-job \
   --set-env-vars=TZ=Asia/Tokyo,MANGA_WATCH_NOTIFIER_BACKENDS=stdout,DISCORD_MAIN_CHANNEL_ID=<main-channel-id>,DISCORD_RUN_REPORT_CHANNEL_ID=<run-report-channel-id>,DISCORD_BOT_TOKEN_SECRET_VERSION=projects/star-light-breaker/secrets/comic-crawler-discord-bot-token/versions/latest
 ```
 
-Service deploy skeleton:
+Service deploy shape:
 
 ```bash
 gcloud run deploy comic-crawler-service \
   --project=star-light-breaker \
   --region=asia-northeast1 \
-  --image=ghcr.io/kentoku24/comic_crawler:latest
+  --image=ghcr.io/kentoku24/comic_crawler:latest \
+  --command=python \
+  --args=-m,manga_watch.run_service \
+  --allow-unauthenticated \
+  --set-env-vars=TZ=Asia/Tokyo,MANGA_WATCH_STORAGE_BACKEND=firestore,MANGA_WATCH_FIRESTORE_PROJECT=star-light-breaker,MANGA_WATCH_FETCH_BACKEND=cloud-run-job,MANGA_WATCH_GCP_PROJECT=star-light-breaker,MANGA_WATCH_CLOUD_RUN_REGION=asia-northeast1,MANGA_WATCH_CLOUD_RUN_JOB_NAME=comic-crawler-job \
+  --set-secrets=DISCORD_APPLICATION_PUBLIC_KEY=comic-crawler-discord-application-public-key:latest
 ```
 
 確認ポイント:
 
 - image が `ghcr.io/kentoku24/comic_crawler:latest`
 - Job が `python -m manga_watch.run_job` を command override している
+- Service が `python -m manga_watch.run_service` を command override している
+- Service が `DISCORD_APPLICATION_PUBLIC_KEY` と `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` を持つ
 - Job 名と Service 名を取り違えていない
 - region が `asia-northeast1`
-- Service auth / ingress / public-or-private exposure 方針は #146 が解くため、この packet では固定されていない
+- production deploy で `MANGA_WATCH_INSECURE_DISABLE_VERIFICATION=true` を使っていない
 
 ## 7. Manual run 確認
 
@@ -169,7 +176,7 @@ gcloud run jobs execute comic-crawler-job \
 
 - Firestore / Secret Manager / migration contract 自体は `doc/gcp-runtime.md` を参照する
 - 実環境 smoke test は #139 が未解決なので未完了
-- #146 が未解決なので Discord interaction service path は未完了
+- Discord interaction service path は `python -m manga_watch.run_service` を source of truth とする
 - default image entrypoint は `python -m manga_watch.runner` のままだが、Cloud Run Job contract では `python -m manga_watch.run_job` を command override して使う
 
 したがって、手動実行を success criteria に含めるのは後続 runtime packet 完了後とする。
