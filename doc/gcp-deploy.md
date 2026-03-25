@@ -154,6 +154,46 @@ gcloud run deploy comic-crawler-service \
 - `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のとき `fetch` は Cloud Run Jobs API へ manual override 付きで handoff する
 - local fallback として `MANGA_WATCH_FETCH_BACKEND=coordinator` を使って in-process 実行もできる
 
+verification smoke shape:
+
+```bash
+eval "$(/Users/kentokumatsunami/Documents/GitHub/comic_crawler/.venv/bin/python - <<'PY'
+from nacl.signing import SigningKey
+key = SigningKey.generate()
+print("export PRIVATE_KEY=" + key.encode().hex())
+print("export PUBLIC_KEY=" + key.verify_key.encode().hex())
+PY
+)"
+
+gcloud secrets create comic-crawler-discord-application-public-key \
+  --project=star-light-breaker \
+  --replication-policy=automatic
+
+printf '%s' "$PUBLIC_KEY" | gcloud secrets versions add comic-crawler-discord-application-public-key \
+  --project=star-light-breaker \
+  --data-file=-
+
+SERVICE_URL="$(gcloud run services describe comic-crawler-service \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --format='value(status.url)')"
+
+/Users/kentokumatsunami/Documents/GitHub/comic_crawler/.venv/bin/python \
+  scripts/post_signed_discord_interaction.py \
+  --url "$SERVICE_URL" \
+  --private-key "$PRIVATE_KEY" \
+  --payload-json '{"type":1}' \
+  --expect-status 200
+
+/Users/kentokumatsunami/Documents/GitHub/comic_crawler/.venv/bin/python \
+  scripts/post_signed_discord_interaction.py \
+  --url "$SERVICE_URL" \
+  --private-key "$PRIVATE_KEY" \
+  --payload-json '{"type":1}' \
+  --invalidate-signature \
+  --expect-status 401
+```
+
 ## 7. Scheduler caller IAM
 
 Cloud Scheduler は `https://run.googleapis.com/...` を叩くので、OIDC ではなく OAuth service account auth を使う。  

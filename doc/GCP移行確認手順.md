@@ -161,6 +161,44 @@ gcloud run deploy comic-crawler-service \
 - region が `asia-northeast1`
 - production deploy で `MANGA_WATCH_INSECURE_DISABLE_VERIFICATION=true` を使っていない
 
+署名検証 smoke:
+
+```bash
+eval "$(/Users/kentokumatsunami/Documents/GitHub/comic_crawler/.venv/bin/python - <<'PY'
+from nacl.signing import SigningKey
+key = SigningKey.generate()
+print("export PRIVATE_KEY=" + key.encode().hex())
+print("export PUBLIC_KEY=" + key.verify_key.encode().hex())
+PY
+)"
+
+SERVICE_URL="$(gcloud run services describe comic-crawler-service \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --format='value(status.url)')"
+
+/Users/kentokumatsunami/Documents/GitHub/comic_crawler/.venv/bin/python \
+  scripts/post_signed_discord_interaction.py \
+  --url "$SERVICE_URL" \
+  --private-key "$PRIVATE_KEY" \
+  --payload-json '{"type":1}' \
+  --expect-status 200
+
+/Users/kentokumatsunami/Documents/GitHub/comic_crawler/.venv/bin/python \
+  scripts/post_signed_discord_interaction.py \
+  --url "$SERVICE_URL" \
+  --private-key "$PRIVATE_KEY" \
+  --payload-json '{"type":1}' \
+  --invalidate-signature \
+  --expect-status 401
+```
+
+確認ポイント:
+
+- valid signature request が `200`
+- invalid signature request が `401`
+- `latest` / `fetch` も `--payload-json '{"type":2,"data":{"name":"latest"}}'` / `fetch` で同じ helper から確認できる
+
 ## 7. Manual run 確認
 
 resource contract の manual run command は次で固定する。
