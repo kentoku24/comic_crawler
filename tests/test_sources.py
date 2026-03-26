@@ -13,6 +13,7 @@ from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
+from manga_watch.sources.util import html_title
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures"
 SOURCE_CASES = {
@@ -152,6 +153,11 @@ def discover_concrete_adapter_sources():
 
 class SourceAdapterTests(unittest.TestCase):
     maxDiff = None
+
+    def test_html_title_accepts_title_tag_with_attributes(self):
+        html = '<html><head><title data-next-head="">作品名｜カドコミ</title></head></html>'
+
+        self.assertEqual("作品名｜カドコミ", html_title(html))
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(

@@ -254,6 +254,56 @@ def unread_state_for_entry(previous_entry: Optional[Mapping[str, object]]) -> Di
     return unread
 
 
+def previous_series_metadata(previous_entry: Optional[Mapping[str, object]]) -> Dict[str, str]:
+    if not isinstance(previous_entry, Mapping):
+        return {}
+
+    latest = latest_storage_to_runtime(previous_entry.get("latest", {}) or {})
+    series_title = latest.get("seriesTitle") or latest.get("series_title")
+    series = latest.get("series")
+    result: Dict[str, str] = {}
+    if isinstance(series_title, str) and series_title:
+        result["seriesTitle"] = series_title
+    if isinstance(series, str) and series:
+        result["series"] = series
+
+    history = previous_entry.get("history", [])
+    if not isinstance(history, list):
+        return result
+
+    for event in reversed(history):
+        if not isinstance(event, Mapping):
+            continue
+        candidates = [event.get("latest")]
+        gap = event.get("gap")
+        if isinstance(gap, Mapping):
+            candidates.append(gap.get("from_latest"))
+        for candidate in candidates:
+            if not isinstance(candidate, Mapping):
+                continue
+            runtime_candidate = latest_storage_to_runtime(candidate)
+            candidate_series_title = runtime_candidate.get("seriesTitle") or runtime_candidate.get("series_title")
+            candidate_series = runtime_candidate.get("series")
+            if "seriesTitle" not in result and isinstance(candidate_series_title, str) and candidate_series_title:
+                result["seriesTitle"] = candidate_series_title
+            if "series" not in result and isinstance(candidate_series, str) and candidate_series:
+                result["series"] = candidate_series
+            if "seriesTitle" in result and "series" in result:
+                return result
+    return result
+
+
+def backfill_series_metadata(
+    latest: Mapping[str, object],
+    previous_entry: Optional[Mapping[str, object]],
+) -> Dict[str, object]:
+    merged = dict(latest)
+    for key, value in previous_series_metadata(previous_entry).items():
+        if not merged.get(key):
+            merged[key] = value
+    return merged
+
+
 def episode_label_candidates(latest: Mapping[str, object]) -> List[str]:
     candidates: List[str] = []
     for key in ("episodeTitle", "pageTitle", "episode_title", "page_title"):
@@ -368,10 +418,11 @@ def apply_item_transition(
     previous_latest_id = latest_id_for_state(previous_latest)
     latest_id = latest_id_for_state(latest_copy)
     if previous_latest_id != latest_id:
+        merged_latest = backfill_series_metadata(latest_copy, previous_entry)
         next_event = {
             "event_id": latest_id,
             "seen_at": seen_at,
-            "latest": latest_runtime_to_storage(latest_copy),
+            "latest": latest_runtime_to_storage(merged_latest),
             "gap": build_history_gap(previous_latest, latest_copy),
         }
         history, inserted = sync_history_event(
@@ -392,7 +443,7 @@ def apply_item_transition(
         update.update(update_event_metadata(latest_copy))
         return (
             {
-                "latest": latest_runtime_to_storage(latest_copy),
+                "latest": latest_runtime_to_storage(merged_latest),
                 "history": history,
                 "unread": {"event_ids": unread_event_ids},
                 "health": success_health(previous_entry, seen_at=seen_at),
@@ -400,7 +451,10 @@ def apply_item_transition(
             update,
         )
 
-    merged_latest = merge_latest_metadata(previous_latest, latest_copy)
+    merged_latest = backfill_series_metadata(
+        merge_latest_metadata(previous_latest, latest_copy),
+        previous_entry,
+    )
     history, _ = sync_history_event(
         history,
         merged_latest,
