@@ -1,0 +1,11 @@
+[Unit]
+Description=Run comic-crawler GHCR digest poller every 15 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=15min
+Persistent=true
+Unit=comic-crawler-ghcr-poller.service
+
+[Install]
+WantedBy=timers.target
