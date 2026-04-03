@@ -228,6 +228,21 @@ class SourceAdapterTests(unittest.TestCase):
             work.to_dict(),
         )
 
+    def test_champion_cross_normalize_accepts_takecomic_series_url(self):
+        work = ChampionCrossAdapter().normalize("https://takecomic.jp/series/3f846451aff2d/?ref=top")
+
+        self.assertEqual(
+            {
+                "source": "champion-cross",
+                "kind": "champion-cross",
+                "workId": "champion-cross:3f846451aff2d",
+                "seedUrl": "https://takecomic.jp/series/3f846451aff2d",
+                "series": "champion-cross:3f846451aff2d",
+                "seriesHash": "3f846451aff2d",
+            },
+            work.to_dict(),
+        )
+
     def test_champion_cross_normalize_accepts_series_rss_url(self):
         work = ChampionCrossAdapter().normalize("https://championcross.jp/series/abc123/rss?ref=top")
 
@@ -520,6 +535,49 @@ class SourceAdapterTests(unittest.TestCase):
             [
                 "https://championcross.jp/series/4756324e1c1b1/rss",
                 "https://championcross.jp/episodes/f35108c56e75d",
+            ],
+            client.calls,
+        )
+
+    def test_champion_cross_fetch_latest_accepts_takecomic_series_url(self):
+        adapter = ChampionCrossAdapter()
+        work = adapter.normalize("https://takecomic.jp/series/3f846451aff2d/")
+        client = StaticHttpClient(
+            {
+                "https://takecomic.jp/series/3f846451aff2d/rss": """
+                <rss>
+                  <channel>
+                    <title>作品D</title>
+                    <item>
+                      <title><![CDATA[第10話]]></title>
+                      <link>https://takecomic.jp/episodes/abc12345?from=rss</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://takecomic.jp/episodes/abc12345": """
+                <html>
+                  <body>
+                    <a href="/category/manga?type=連載中&amp;day=火" class="series-h-day-of-week-link">
+                      <span class="series-h-tag-label">火曜更新</span>
+                    </a>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("champion-cross:3f846451aff2d", latest["workId"])
+        self.assertEqual("https://takecomic.jp/episodes/abc12345", latest["latestKey"])
+        self.assertEqual("作品D", latest["seriesTitle"])
+        self.assertEqual("第10話", latest["episodeTitle"])
+        self.assertEqual("火曜更新", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://takecomic.jp/series/3f846451aff2d/rss",
+                "https://takecomic.jp/episodes/abc12345",
             ],
             client.calls,
         )

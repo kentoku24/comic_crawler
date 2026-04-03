@@ -80,6 +80,16 @@
         "mode": "all",
         "allowed_update_types": null
       }
+    },
+    {
+      "id": "champion-cross:3f846451aff2d",
+      "source": "champion-cross",
+      "seed_url": "https://takecomic.jp/series/3f846451aff2d",
+      "enabled": true,
+      "notification_policy": {
+        "mode": "all",
+        "allowed_update_types": null
+      }
     }
   ]
 }

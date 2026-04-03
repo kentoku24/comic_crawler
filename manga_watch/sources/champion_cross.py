@@ -6,51 +6,61 @@ from typing import Optional, Tuple
 from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, WorkDescriptor
 
 
+_SUPPORTED_HOSTS = ("championcross.jp", "takecomic.jp")
+_HOST_PATTERN = r"(?:championcross|takecomic)\.jp"
 _EPISODE_URL = re.compile(
-    r"^https?://(?:www\.)?championcross\.jp/episodes/([0-9A-Za-z]+)(?:/)?(?:\?.*)?$"
+    rf"^https?://(?:www\.)?{_HOST_PATTERN}/episodes/([0-9A-Za-z]+)(?:/)?(?:\?.*)?$"
 )
 _SERIES_URL = re.compile(
-    r"^https?://(?:www\.)?championcross\.jp/series/([0-9A-Za-z]+)(?:/)?(?:\?.*)?$"
+    rf"^https?://(?:www\.)?{_HOST_PATTERN}/series/([0-9A-Za-z]+)(?:/)?(?:\?.*)?$"
 )
 _SERIES_RSS_URL = re.compile(
-    r"^https?://(?:www\.)?championcross\.jp/series/([0-9A-Za-z]+)/rss(?:/)?(?:\?.*)?$"
+    rf"^https?://(?:www\.)?{_HOST_PATTERN}/series/([0-9A-Za-z]+)/rss(?:/)?(?:\?.*)?$"
 )
 _SERIES_HASH_IN_HTML = re.compile(
-    r"https?://(?:www\.)?championcross\.jp/series/([0-9A-Za-z]+)(?:/rss)?(?:[/?\"'])"
+    rf"https?://(?:www\.)?{_HOST_PATTERN}/series/([0-9A-Za-z]+)(?:/rss)?(?:[/?\"'])"
 )
 
 
-def canonical_champion_cross_episode_url(episode_hash: str) -> str:
-    return f"https://championcross.jp/episodes/{episode_hash}"
+def _canonical_host(seed_url: str) -> str:
+    normalized = seed_url.lower()
+    for host in _SUPPORTED_HOSTS:
+        if host in normalized:
+            return host
+    return "championcross.jp"
 
 
-def canonical_champion_cross_series_url(series_hash: str) -> str:
-    return f"https://championcross.jp/series/{series_hash}"
+def canonical_champion_cross_episode_url(episode_hash: str, *, host: str = "championcross.jp") -> str:
+    return f"https://{host}/episodes/{episode_hash}"
 
 
-def canonical_champion_cross_series_rss_url(series_hash: str) -> str:
-    return f"{canonical_champion_cross_series_url(series_hash)}/rss"
+def canonical_champion_cross_series_url(series_hash: str, *, host: str = "championcross.jp") -> str:
+    return f"https://{host}/series/{series_hash}"
+
+
+def canonical_champion_cross_series_rss_url(series_hash: str, *, host: str = "championcross.jp") -> str:
+    return f"{canonical_champion_cross_series_url(series_hash, host=host)}/rss"
 
 
 def parse_champion_cross_episode_url(seed_url: str) -> Optional[str]:
     match = _EPISODE_URL.match(seed_url)
     if not match:
         return None
-    return canonical_champion_cross_episode_url(match.group(1))
+    return canonical_champion_cross_episode_url(match.group(1), host=_canonical_host(seed_url))
 
 
 def parse_champion_cross_series_url(seed_url: str) -> Optional[str]:
     match = _SERIES_URL.match(seed_url)
     if not match:
         return None
-    return canonical_champion_cross_series_url(match.group(1))
+    return canonical_champion_cross_series_url(match.group(1), host=_canonical_host(seed_url))
 
 
 def parse_champion_cross_series_rss_url(seed_url: str) -> Optional[str]:
     match = _SERIES_RSS_URL.match(seed_url)
     if not match:
         return None
-    return canonical_champion_cross_series_rss_url(match.group(1))
+    return canonical_champion_cross_series_rss_url(match.group(1), host=_canonical_host(seed_url))
 
 
 def extract_champion_cross_series_hash_from_seed_url(seed_url: str) -> Optional[str]:
@@ -194,8 +204,9 @@ class ChampionCrossAdapter(SourceAdapter):
             work.metadata.get("seriesHash")
             or extract_champion_cross_series_hash_from_seed_url(work.seed_url)
         )
+        seed_host = _canonical_host(work.seed_url)
         if series_hash:
-            return series_hash, canonical_champion_cross_series_rss_url(series_hash), None
+            return series_hash, canonical_champion_cross_series_rss_url(series_hash, host=seed_host), None
 
         normalized_episode_url = parse_champion_cross_episode_url(work.seed_url)
         if not normalized_episode_url:
@@ -206,4 +217,4 @@ class ChampionCrossAdapter(SourceAdapter):
         if not series_hash:
             raise SourceParseError("champion-cross: series hash not found")
 
-        return series_hash, canonical_champion_cross_series_rss_url(series_hash), episode_html
+        return series_hash, canonical_champion_cross_series_rss_url(series_hash, host=seed_host), episode_html
