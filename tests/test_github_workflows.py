@@ -33,10 +33,12 @@ class GitHubWorkflowContractTests(unittest.TestCase):
 
     def test_deploy_workflow_emits_and_consumes_an_image_digest(self):
         content = read_workflow("deploy-production.yml")
+        service_section = content.split("      - name: Deploy Cloud Run Service", maxsplit=1)[1]
 
         self.assertIn("image_digest", content)
         self.assertIn("gcloud run jobs update comic-crawler-job", content)
         self.assertIn("gcloud run deploy comic-crawler-service", content)
+        self.assertIn("DISCORD_BOT_TOKEN_SECRET_VERSION=${DISCORD_BOT_TOKEN_SECRET_VERSION}", service_section)
         self.assertIn('if [[ "${service_image_digest}" != "${IMAGE_DIGEST}" ]]', content)
         self.assertIn('if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]', content)
 

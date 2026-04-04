@@ -163,7 +163,7 @@ jobs:
             --command=python \
             --args=-m,manga_watch.run_service \
             --allow-unauthenticated \
-            --set-env-vars="TZ=Asia/Tokyo,MANGA_WATCH_STORAGE_BACKEND=firestore,MANGA_WATCH_FIRESTORE_PROJECT=${GCP_PROJECT_ID},MANGA_WATCH_FETCH_BACKEND=cloud-run-job,MANGA_WATCH_GCP_PROJECT=${GCP_PROJECT_ID},MANGA_WATCH_CLOUD_RUN_REGION=${GCP_REGION},MANGA_WATCH_CLOUD_RUN_JOB_NAME=${CLOUD_RUN_JOB_NAME}" \
+            --set-env-vars="TZ=Asia/Tokyo,MANGA_WATCH_STORAGE_BACKEND=firestore,MANGA_WATCH_FIRESTORE_PROJECT=${GCP_PROJECT_ID},MANGA_WATCH_FETCH_BACKEND=cloud-run-job,MANGA_WATCH_GCP_PROJECT=${GCP_PROJECT_ID},MANGA_WATCH_CLOUD_RUN_REGION=${GCP_REGION},MANGA_WATCH_CLOUD_RUN_JOB_NAME=${CLOUD_RUN_JOB_NAME},DISCORD_BOT_TOKEN_SECRET_VERSION=${DISCORD_BOT_TOKEN_SECRET_VERSION}" \
             --set-secrets="DISCORD_APPLICATION_PUBLIC_KEY=comic-crawler-discord-application-public-key:latest"
 
       - id: verify
