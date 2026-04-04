@@ -347,6 +347,9 @@ GCP production runtime の deploy / rollback はこの compose 手順ではな�
 - `DISCORD_INBOUND_ENABLED`: local fallback の polling inbound を有効化する。既定値は `true`
 - `DISCORD_COMMAND_POLL_INTERVAL`: local fallback の inbound polling 間隔（秒）。既定値は `5`
 - `DISCORD_APPLICATION_PUBLIC_KEY`: Cloud Run Service の Discord interaction verification に使う public key
+- `MANGA_WATCH_GITHUB_TOKEN`: `/add` で未対応媒体を受けたときに GitHub Issue を自動作成するための token
+- `MANGA_WATCH_GITHUB_REPOSITORY`: 未対応媒体の対応候補 Issue を作る GitHub repository。例: `kentoku24/comic_crawler`
+- `MANGA_WATCH_GITHUB_API_BASE_URL`: GitHub API base URL。既定値は `https://api.github.com`
 - `MANGA_WATCH_INSECURE_DISABLE_VERIFICATION`: local のみで verification を無効化する escape hatch。production では使わない
 - `MANGA_WATCH_FETCH_BACKEND`: Cloud Run Service の `fetch` 実行先。`coordinator` または `cloud-run-job`。既定値は `coordinator`
 - `MANGA_WATCH_GCP_PROJECT`: `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のときに使う GCP project
@@ -394,7 +397,7 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 .venv/bin/python -m manga_watch.replay_outbox
 ```
 
-Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、shared add logic で対応できる URL のみクロール対象へ追加します。
+Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、shared add logic で対応できる URL のみクロール対象へ追加します。`MANGA_WATCH_GITHUB_TOKEN` と `MANGA_WATCH_GITHUB_REPOSITORY` が設定されている場合、`unsupported_source` は追加失敗のまま GitHub Issue を自動作成し、「対応候補として記録した」と返信します。
 Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/remove` を扱います。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 
@@ -405,6 +408,8 @@ export DISCORD_BOT_TOKEN=...
 export DISCORD_APPLICATION_ID=...
 export DISCORD_GUILD_ID=...  # optional
 export DISCORD_APPLICATION_PUBLIC_KEY=...
+export MANGA_WATCH_GITHUB_TOKEN=...        # optional
+export MANGA_WATCH_GITHUB_REPOSITORY=...   # optional
 export MANGA_WATCH_INSECURE_DISABLE_VERIFICATION=false
 .venv/bin/python -m manga_watch.run_service
 ```
