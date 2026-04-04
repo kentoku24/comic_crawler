@@ -304,6 +304,8 @@ docker compose logs --tail 80 comic-crawler
 - `MANGA_WATCH_WEBHOOK_URL`: `webhook` backend を使うときの POST 先 URL
 - `MANGA_WATCH_WEBHOOK_TIMEOUT`: webhook timeout 秒。既定値は `10`
 - `DISCORD_BOT_TOKEN`: Discord main/run-report channel に送る bot token
+- `DISCORD_APPLICATION_ID`: slash command 登録先の application id。省略時は bot token で `/oauth2/applications/@me` を引いて解決する
+- `DISCORD_GUILD_ID`: slash command を test guild scope で登録したいときの guild id。未指定なら global command を更新する
 - `DISCORD_MAIN_CHANNEL_ID`: daily notification の送信先 channel id
 - `DISCORD_RUN_REPORT_CHANNEL_ID`: run report の送信先 channel id
 - `DISCORD_INBOUND_ENABLED`: local fallback の polling inbound を有効化する。既定値は `true`
@@ -357,14 +359,25 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 ```
 
 Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。
+Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/remove` を扱います。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 
-Cloud Run Service の Discord interaction endpoint をローカルで起動する場合は、署名検証用の public key を入れて `python -m manga_watch.run_service` を使います。
+Cloud Run Service の Discord interaction endpoint をローカルで起動する場合は、署名検証用の public key に加えて command registration 用の bot token を入れて `python -m manga_watch.run_service` を使います。service startup では `/latest` `/fetch` `/remove` の command 定義を Discord へ idempotent に登録し、登録に失敗した場合は fail-fast で起動を中断します。`DISCORD_GUILD_ID` を入れると guild command、未指定なら global command を更新します。
 
 ```bash
+export DISCORD_BOT_TOKEN=...
+export DISCORD_APPLICATION_ID=...
+export DISCORD_GUILD_ID=...  # optional
 export DISCORD_APPLICATION_PUBLIC_KEY=...
 export MANGA_WATCH_INSECURE_DISABLE_VERIFICATION=false
 .venv/bin/python -m manga_watch.run_service
+```
+
+startup registration だけを手動で確認したいときは次を使います。service と同じ env を読み、planned payload の表示や再登録の fallback に使えます。
+
+```bash
+.venv/bin/python scripts/register_discord_commands.py --dry-run
+.venv/bin/python scripts/register_discord_commands.py
 ```
 
 ## Status CLI

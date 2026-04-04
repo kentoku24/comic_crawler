@@ -14,6 +14,7 @@ from manga_watch.discord_interactions import (
     build_interaction_service_from_env,
     build_manual_run_request_body,
 )
+from manga_watch.discord_remove import REMOVE_COMMAND
 from manga_watch.runner import FETCH_ACCEPTED_MESSAGE, RunCoordinator, RunnerConfig
 
 
@@ -59,7 +60,7 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         }
         return headers, body
 
-    def make_service(self, *, fetch_dispatcher=None, latest_handler=None, signing_key=None):
+    def make_service(self, *, fetch_dispatcher=None, latest_handler=None, remove_handler=None, signing_key=None):
         signing_key = signing_key or SigningKey.generate()
         public_key = signing_key.verify_key.encode().hex()
         service = DiscordInteractionService(
@@ -67,6 +68,7 @@ class DiscordInteractionServiceTests(unittest.TestCase):
             fetch_dispatcher=fetch_dispatcher or RecordingFetchDispatcher(),
             verifier=DiscordRequestVerifier(public_key),
             latest_handler=latest_handler or (lambda *_args, **_kwargs: "保存済みの最新話一覧です"),
+            remove_handler=remove_handler,
         )
         return service, signing_key
 
@@ -138,6 +140,58 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         payload = json.loads(response.body)
         self.assertEqual(4, payload["type"])
         self.assertIn("fetch の起動に失敗しました", payload["data"]["content"])
+
+    def test_remove_command_returns_ephemeral_component_response(self):
+        class FakeRemoveHandler:
+            def start(self, **_kwargs):
+                return {
+                    "content": "削除する作品を選んでください。",
+                    "components": [
+                        {
+                            "type": 1,
+                            "components": [
+                                {
+                                    "type": 3,
+                                    "custom_id": "remove_select",
+                                    "options": [{"label": "作品A", "value": "token-a"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+
+        service, signing_key = self.make_service(remove_handler=FakeRemoveHandler())
+        headers, body = self.signed_request({"type": 2, "data": {"name": REMOVE_COMMAND}}, signing_key)
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        payload = json.loads(response.body)
+        self.assertEqual(4, payload["type"])
+        self.assertEqual(64, payload["data"]["flags"])
+        self.assertEqual("remove_select", payload["data"]["components"][0]["components"][0]["custom_id"])
+
+    def test_message_component_routes_to_remove_handler(self):
+        class FakeRemoveHandler:
+            def __init__(self):
+                self.calls = []
+
+            def handle_component(self, data, **_kwargs):
+                self.calls.append(data)
+                return {"content": "updated", "components": []}
+
+        remove_handler = FakeRemoveHandler()
+        service, signing_key = self.make_service(remove_handler=remove_handler)
+        headers, body = self.signed_request(
+            {"type": 3, "data": {"custom_id": "remove_select", "values": ["token-a"]}},
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        payload = json.loads(response.body)
+        self.assertEqual(7, payload["type"])
+        self.assertEqual("updated", payload["data"]["content"])
+        self.assertEqual("remove_select", remove_handler.calls[0]["custom_id"])
 
 
 class FetchDispatcherTests(unittest.TestCase):
@@ -224,6 +278,8 @@ class BuildInteractionServiceFromEnvTests(unittest.TestCase):
 
         self.assertEqual("Asia/Tokyo", service.timezone_name)
         self.assertFalse(service.verification_disabled)
+        self.assertIsNotNone(service.remove_handler)
+        self.assertEqual("json", service.remove_handler.backend)
 
     def test_build_interaction_service_defaults_fetch_backend_to_coordinator(self):
         runner_config = RunnerConfig(
@@ -239,6 +295,7 @@ class BuildInteractionServiceFromEnvTests(unittest.TestCase):
             os.environ,
             {
                 "DISCORD_APPLICATION_PUBLIC_KEY": SigningKey.generate().verify_key.encode().hex(),
+                "MANGA_WATCH_STORAGE_BACKEND": "firestore",
             },
             clear=True,
         ):
@@ -247,6 +304,8 @@ class BuildInteractionServiceFromEnvTests(unittest.TestCase):
 
         self.assertEqual(DEFAULT_FETCH_BACKEND, os.environ.get("MANGA_WATCH_FETCH_BACKEND", DEFAULT_FETCH_BACKEND))
         self.assertFalse(service.verification_disabled)
+        self.assertIsNotNone(service.remove_handler)
+        self.assertEqual("firestore", service.remove_handler.backend)
 
 
 if __name__ == "__main__":
