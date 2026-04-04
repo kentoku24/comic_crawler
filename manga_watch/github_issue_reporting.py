@@ -71,7 +71,7 @@ def build_unsupported_source_issue_reporter_from_env(
     repository = _coerce_text(
         os.environ.get("MANGA_WATCH_GITHUB_REPOSITORY") or os.environ.get("GITHUB_REPOSITORY")
     )
-    if token is None and repository is None:
+    if token is None or repository is None:
         return None
     return GitHubIssueReporter(
         GitHubIssueReporterConfig.from_env(secret_resolver=secret_resolver),

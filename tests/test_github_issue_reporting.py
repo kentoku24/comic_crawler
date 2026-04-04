@@ -44,6 +44,34 @@ class GitHubIssueReportingTests(unittest.TestCase):
 
         self.assertIsNone(reporter)
 
+    def test_build_reporter_from_env_returns_none_when_only_token_is_present(self):
+        from manga_watch.github_issue_reporting import build_unsupported_source_issue_reporter_from_env
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MANGA_WATCH_GITHUB_TOKEN": "github-token",
+            },
+            clear=True,
+        ):
+            reporter = build_unsupported_source_issue_reporter_from_env()
+
+        self.assertIsNone(reporter)
+
+    def test_build_reporter_from_env_returns_none_when_only_repository_is_present(self):
+        from manga_watch.github_issue_reporting import build_unsupported_source_issue_reporter_from_env
+
+        with mock.patch.dict(
+            os.environ,
+            {
+                "MANGA_WATCH_GITHUB_REPOSITORY": "kentoku24/comic_crawler",
+            },
+            clear=True,
+        ):
+            reporter = build_unsupported_source_issue_reporter_from_env()
+
+        self.assertIsNone(reporter)
+
     def test_report_unsupported_source_creates_issue(self):
         from manga_watch.github_issue_reporting import GitHubIssueReporter, GitHubIssueReporterConfig
 

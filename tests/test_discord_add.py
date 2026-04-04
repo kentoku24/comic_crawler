@@ -1,4 +1,7 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
 from manga_watch.discord_add import (
     ADD_MISSING_URL_MESSAGE,
@@ -6,7 +9,7 @@ from manga_watch.discord_add import (
     UNSUPPORTED_SOURCE_REPORTED_MESSAGE,
     UNSUPPORTED_SOURCE_REPORT_FAILURE_MESSAGE,
 )
-from manga_watch.watchlist import WatchlistAddError
+from manga_watch.watchlist import WatchlistAddError, add_watchlist_url
 
 
 class DiscordAddTests(unittest.TestCase):
@@ -66,6 +69,29 @@ class DiscordAddTests(unittest.TestCase):
 
         self.assertIn("追加できませんでした", payload["content"])
         self.assertIn("Unsupported source host: example.com", payload["content"])
+
+    def test_start_accepts_nicovideo_sp_comic_url_via_watchlist_logic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            watchlist_path.write_text(
+                json.dumps({"version": 2, "works": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            handler = AddCommandHandler(
+                add_subscription=lambda url, *, watchlist_path=None: add_watchlist_url(
+                    url,
+                    watchlist_path=watchlist_path,
+                )
+            )
+
+            payload = handler.start(
+                url="https://sp.manga.nicovideo.jp/comic/53764?track=share",
+                watchlist_path=str(watchlist_path),
+            )
+
+        self.assertIn("追加しました", payload["content"])
+        self.assertIn("nicovideo-manga:53764", payload["content"])
 
     def test_start_reports_unsupported_source_to_github_issue(self):
         calls = []
