@@ -12,6 +12,7 @@ _EPISODE_URL = re.compile(
 _SERIES_FEED_URL = re.compile(
     r"^https?://(?:www\.)?comic-action\.com/(rss|atom)/series/(\d+)(?:/)?(?:\?.*)?$"
 )
+_EPISODE_TITLE_NUMBER = re.compile(r"第\s*(\d+)\s*話")
 
 
 def parse_comic_action_title(page_title: str) -> Tuple[Optional[str], Optional[str]]:
@@ -135,7 +136,7 @@ class ComicActionAdapter(SourceAdapter):
 
         feed_match = parse_comic_action_series_feed_url(work.seed_url)
         if feed_match:
-            latest_url, page_title, series_title, episode_title, next_update_label = (
+            latest_url, page_title, series_title, episode_title, next_update_label, _ = (
                 self._fetch_latest_from_series_feed_url(work.seed_url, http_client)
             )
         else:
@@ -144,15 +145,22 @@ class ComicActionAdapter(SourceAdapter):
             next_url = self._parse_next_readable_url(entry_html)
             series_id = extract_comic_action_series_id(entry_html)
             if series_id and (not next_url or next_url == entry_episode_url):
+                latest_url, page_title, series_title, episode_title, next_update_label = self._snapshot_from_episode_html(
+                    entry_episode_url,
+                    entry_html,
+                )
                 try:
-                    latest_url, page_title, series_title, episode_title, next_update_label = (
-                        self._fetch_latest_from_series_feed_url(
-                            canonical_comic_action_series_feed_url("rss", series_id),
-                            http_client,
-                        )
+                    feed_snapshot = self._fetch_latest_from_series_feed_url(
+                        canonical_comic_action_series_feed_url("rss", series_id),
+                        http_client,
                     )
-                except SourceParseError:
-                    pass
+                except Exception:
+                    feed_snapshot = None
+                if feed_snapshot and self._should_prefer_feed_snapshot(
+                    entry_html=entry_html,
+                    feed_html=feed_snapshot[5],
+                ):
+                    latest_url, page_title, series_title, episode_title, next_update_label, _ = feed_snapshot
 
             if latest_url is None:
                 latest_url, page_title, series_title, episode_title, next_update_label = self._walk_to_latest(
@@ -195,16 +203,50 @@ class ComicActionAdapter(SourceAdapter):
         self,
         feed_url: str,
         http_client: HttpClient,
-    ) -> Tuple[str, Optional[str], Optional[str], Optional[str], Optional[str]]:
+    ) -> Tuple[str, Optional[str], Optional[str], Optional[str], Optional[str], str]:
         feed_text = http_client.get_text(feed_url)
         latest_url = extract_comic_action_episode_url_from_feed(feed_text)
         if not latest_url:
             raise SourceParseError("comic-action: no episode URL found in series feed")
         html = self._fetch_episode_page(latest_url, http_client)
-        page_title = html_title(html)
+        page_title, series_title, episode_title, next_update_label = self._snapshot_from_episode_html(
+            latest_url,
+            html,
+        )[1:]
+        return latest_url, page_title, series_title, episode_title, next_update_label, html
+
+    def _snapshot_from_episode_html(
+        self,
+        episode_url: str,
+        html_text: str,
+    ) -> Tuple[str, Optional[str], Optional[str], Optional[str], Optional[str]]:
+        page_title = html_title(html_text)
         episode_title, series_title = parse_comic_action_title(page_title or "")
-        next_update_label = extract_comic_action_next_update_label(html)
-        return latest_url, page_title, series_title, episode_title, next_update_label
+        next_update_label = extract_comic_action_next_update_label(html_text)
+        return episode_url, page_title, series_title, episode_title, next_update_label
+
+    def _should_prefer_feed_snapshot(
+        self,
+        *,
+        entry_html: str,
+        feed_html: str,
+    ) -> bool:
+        entry_number = self._episode_sort_number(entry_html)
+        feed_number = self._episode_sort_number(feed_html)
+        if entry_number is None or feed_number is None:
+            return False
+        return feed_number > entry_number
+
+    def _episode_sort_number(self, html_text: str) -> Optional[int]:
+        decoded = html.unescape(html_text or "")
+        match = re.search(r'"number"\s*:\s*(\d+)', decoded)
+        if match:
+            return int(match.group(1))
+        title = html_title(html_text or "") or ""
+        match = _EPISODE_TITLE_NUMBER.search(title)
+        if match:
+            return int(match.group(1))
+        return None
 
     def _walk_to_latest(
         self,

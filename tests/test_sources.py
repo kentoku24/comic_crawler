@@ -387,6 +387,7 @@ class SourceAdapterTests(unittest.TestCase):
                       "readableProduct":{
                         "series":{"id":"13933686331663374228","title":"ダンジョンの中のひと"},
                         "title":"第39話",
+                        "number":50,
                         "nextReadableProductUri":null
                       }
                     }'></script>
@@ -411,6 +412,7 @@ class SourceAdapterTests(unittest.TestCase):
                 <html>
                   <head><title>第51話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
                   <body>
+                    <script id='episode-json' type='text/json' data-value='{"readableProduct":{"title":"第51話","number":51}}'></script>
                     <div class="viewer-colophon-update-container">
                       <p class="viewer-colophon-next-update">次回更新： 4月4日</p>
                     </div>
@@ -434,6 +436,114 @@ class SourceAdapterTests(unittest.TestCase):
                 "https://comic-action.com/episode/2550689798784879524",
                 "https://comic-action.com/rss/series/13933686331663374228",
                 "https://comic-action.com/episode/2551460910007760899",
+            ],
+            client.calls,
+        )
+
+    def test_comic_action_fetch_latest_falls_back_to_entry_episode_when_series_rss_fetch_fails(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/episode/2550689798784879524")
+
+        class Client:
+            def __init__(self):
+                self.calls = []
+
+            def get_text(self, url: str) -> str:
+                self.calls.append(url)
+                if url == "https://comic-action.com/episode/2550689798784879524":
+                    return """
+                    <html>
+                      <head><title>第39話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                      <body>
+                        <script>{"series_id":"13933686331663374228","episode_title":"第39話"}</script>
+                        <script id='episode-json' type='text/json' data-value='{
+                          "readableProduct":{
+                            "series":{"id":"13933686331663374228","title":"ダンジョンの中のひと"},
+                            "title":"第39話",
+                            "number":50,
+                            "nextReadableProductUri":null
+                          }
+                        }'></script>
+                      </body>
+                    </html>
+                    """
+                if url == "https://comic-action.com/rss/series/13933686331663374228":
+                    raise RuntimeError("temporary feed outage")
+                raise AssertionError(f"unexpected request: {url!r}")
+
+        client = Client()
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual(
+            "https://comic-action.com/episode/2550689798784879524",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第39話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/episode/2550689798784879524",
+                "https://comic-action.com/rss/series/13933686331663374228",
+            ],
+            client.calls,
+        )
+
+    def test_comic_action_fetch_latest_keeps_entry_episode_when_series_rss_is_stale(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/episode/2550689798784879524")
+        client = StaticHttpClient(
+            {
+                "https://comic-action.com/episode/2550689798784879524": """
+                <html>
+                  <head><title>第39話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script>{"series_id":"13933686331663374228","episode_title":"第39話"}</script>
+                    <script id='episode-json' type='text/json' data-value='{
+                      "readableProduct":{
+                        "series":{"id":"13933686331663374228","title":"ダンジョンの中のひと"},
+                        "title":"第39話",
+                        "number":51,
+                        "nextReadableProductUri":null
+                      }
+                    }'></script>
+                  </body>
+                </html>
+                """,
+                "https://comic-action.com/rss/series/13933686331663374228": """
+                <rss>
+                  <channel>
+                    <item>
+                      <title>第50話</title>
+                      <link>https://comic-action.com/episode/2551460909780695609</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-action.com/episode/2551460909780695609": """
+                <html>
+                  <head><title>第50話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script id='episode-json' type='text/json' data-value='{"readableProduct":{"title":"第50話","number":50}}'></script>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual(
+            "https://comic-action.com/episode/2550689798784879524",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第39話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/episode/2550689798784879524",
+                "https://comic-action.com/rss/series/13933686331663374228",
+                "https://comic-action.com/episode/2551460909780695609",
             ],
             client.calls,
         )
