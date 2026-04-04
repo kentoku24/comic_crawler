@@ -19,11 +19,25 @@ _SERIES_RSS_URL = re.compile(
 _SERIES_HASH_IN_HTML = re.compile(
     rf"https?://(?:www\.)?{_HOST}/series/([0-9A-Za-z]+)(?:/rss)?(?:[/?\"'])"
 )
+_NEXT_UPDATE_LABEL_IN_PRE_DAY = re.compile(
+    r'<a[^>]*class="[^"]*\bseries-h-pre-day\b[^"]*"[^>]*>\s*([^<]+?)\s*</a>',
+    re.S,
+)
 _NEXT_UPDATE_LABEL_IN_DAY_LINK = re.compile(
     r'<a[^>]*class="[^"]*\bseries-h-day-of-week-link\b[^"]*"[^>]*>.*?'
     r'<span[^>]*class="[^"]*\bseries-h-tag-label\b[^"]*"[^>]*>\s*([^<]+?)\s*</span>',
     re.S,
 )
+_DAYS_OF_WEEK_IN_SERIALIZED_DATA = re.compile(r'"daysOfWeek":"([^"]+)"')
+_DAYS_OF_WEEK_LABELS = {
+    "0": "日",
+    "1": "月",
+    "2": "火",
+    "3": "水",
+    "4": "木",
+    "5": "金",
+    "6": "土",
+}
 
 
 def canonical_takecomic_episode_url(episode_hash: str) -> str:
@@ -80,12 +94,34 @@ def extract_takecomic_series_hash(html_text: str) -> Optional[str]:
 def extract_takecomic_next_update_label(html_text: str) -> Optional[str]:
     if not html_text:
         return None
-    normalized = html.unescape(html_text).replace("\\/", "/")
-    match = _NEXT_UPDATE_LABEL_IN_DAY_LINK.search(normalized)
+    normalized = html.unescape(html_text).replace("\\/", "/").replace('\\"', '"')
+    for pattern in (_NEXT_UPDATE_LABEL_IN_PRE_DAY, _NEXT_UPDATE_LABEL_IN_DAY_LINK):
+        match = pattern.search(normalized)
+        if not match:
+            continue
+        label = re.sub(r"\s+", " ", match.group(1)).strip()
+        if label:
+            return label
+
+    match = _DAYS_OF_WEEK_IN_SERIALIZED_DATA.search(normalized)
     if not match:
         return None
-    label = re.sub(r"\s+", " ", match.group(1)).strip()
-    return label or None
+    return _format_takecomic_days_of_week(match.group(1))
+
+
+def _format_takecomic_days_of_week(raw_value: str) -> Optional[str]:
+    tokens = [token.strip() for token in raw_value.split(",") if token.strip()]
+    if not tokens:
+        return None
+
+    labels = []
+    for token in tokens:
+        label = _DAYS_OF_WEEK_LABELS.get(token)
+        if not label:
+            return None
+        labels.append(label)
+
+    return f"{'・'.join(labels)}曜更新"
 
 
 def parse_takecomic_rss_latest(feed_text: str) -> Tuple[str, Optional[str], Optional[str]]:

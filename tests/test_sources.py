@@ -41,6 +41,7 @@ SOURCE_CASES = {
         "episode_seed_missing_next_update",
     ),
     "takecomic": (
+        "days_of_week_json_only",
         "genre_tag_before_update_label",
         "normal",
     ),
@@ -73,6 +74,7 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "episode_seed_missing_next_update": "main_story",
     },
     "takecomic": {
+        "days_of_week_json_only": "main_story",
         "genre_tag_before_update_label": "main_story",
         "normal": "main_story",
     },
