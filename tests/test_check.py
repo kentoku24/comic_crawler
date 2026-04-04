@@ -658,6 +658,225 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(latest_storage_to_runtime(previous["latest"]), update["from"])
         self.assertEqual(latest, update["to"])
 
+    def test_apply_item_transition_preserves_series_title_when_latest_key_changes_without_title(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-1",
+                "series_title": "作品A",
+                "series": "series-a",
+                "episode_title": "第1話",
+                "url": "https://example.com/work/1",
+            },
+            "history": [],
+            "unread": {"event_ids": []},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-2",
+            "episodeTitle": "第2話",
+            "url": "https://example.com/work/2",
+        }
+
+        next_entry, _ = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertEqual("ep-2", next_entry["latest"]["latest_key"])
+        self.assertEqual("作品A", next_entry["latest"]["series_title"])
+        self.assertEqual("series-a", next_entry["latest"]["series"])
+        self.assertEqual(["ep-2"], next_entry["unread"]["event_ids"])
+
+    def test_apply_item_transition_recovers_series_title_from_history_when_latest_is_already_missing_it(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-2",
+                "episode_title": "第2話",
+                "url": "https://example.com/work/2",
+            },
+            "history": [
+                {
+                    "event_id": "ep-2",
+                    "seen_at": 10,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-2",
+                        "episode_title": "第2話",
+                        "url": "https://example.com/work/2",
+                    },
+                    "gap": {
+                        "from_latest": {
+                            "source": "fake",
+                            "work_id": "work-1",
+                            "latest_key": "ep-1",
+                            "series_title": "作品A",
+                            "series": "series-a",
+                            "episode_title": "第1話",
+                            "url": "https://example.com/work/1",
+                        },
+                        "multiple_updates": None,
+                        "estimation_basis": "previous_latest_only",
+                    },
+                }
+            ],
+            "unread": {"event_ids": ["ep-2"]},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-3",
+            "episodeTitle": "第3話",
+            "url": "https://example.com/work/3",
+        }
+
+        next_entry, _ = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertEqual("ep-3", next_entry["latest"]["latest_key"])
+        self.assertEqual("作品A", next_entry["latest"]["series_title"])
+        self.assertEqual("series-a", next_entry["latest"]["series"])
+        self.assertEqual(["ep-2", "ep-3"], next_entry["unread"]["event_ids"])
+
+    def test_apply_item_transition_same_latest_key_recovers_series_title_from_history(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-2",
+                "episode_title": "第2話",
+                "url": "https://example.com/work/2",
+            },
+            "history": [
+                {
+                    "event_id": "ep-2",
+                    "seen_at": 10,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-2",
+                        "episode_title": "第2話",
+                        "url": "https://example.com/work/2",
+                    },
+                    "gap": {
+                        "from_latest": {
+                            "source": "fake",
+                            "work_id": "work-1",
+                            "latest_key": "ep-1",
+                            "series_title": "作品A",
+                            "series": "series-a",
+                            "episode_title": "第1話",
+                            "url": "https://example.com/work/1",
+                        },
+                        "multiple_updates": None,
+                        "estimation_basis": "previous_latest_only",
+                    },
+                }
+            ],
+            "unread": {"event_ids": ["ep-2"]},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-2",
+            "url": "https://example.com/work/2",
+        }
+
+        next_entry, update = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertIsNone(update)
+        self.assertEqual("ep-2", next_entry["latest"]["latest_key"])
+        self.assertEqual("作品A", next_entry["latest"]["series_title"])
+        self.assertEqual("series-a", next_entry["latest"]["series"])
+
+    def test_previous_series_metadata_searches_past_recent_history_without_title(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-3",
+                "series": "series-a",
+            },
+            "history": [
+                {
+                    "event_id": "ep-2",
+                    "seen_at": 10,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-2",
+                        "series": "series-a",
+                    },
+                    "gap": {
+                        "from_latest": {
+                            "source": "fake",
+                            "work_id": "work-1",
+                            "latest_key": "ep-1",
+                            "series_title": "作品A",
+                            "series": "series-a",
+                        }
+                    },
+                },
+                {
+                    "event_id": "ep-3",
+                    "seen_at": 20,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-3",
+                        "series": "series-a",
+                    },
+                    "gap": {
+                        "from_latest": {
+                            "source": "fake",
+                            "work_id": "work-1",
+                            "latest_key": "ep-2",
+                            "series": "series-a",
+                        }
+                    },
+                },
+            ],
+        }
+
+        self.assertEqual(
+            {"seriesTitle": "作品A", "series": "series-a"},
+            check.previous_series_metadata(previous),
+        )
+
     def test_apply_item_transition_evaluates_notification_policy_truth_table(self):
         previous = {
             "latest": {
