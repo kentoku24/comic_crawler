@@ -14,9 +14,9 @@ from manga_watch.discord_interactions import (
     build_interaction_service_from_env,
     build_manual_run_request_body,
 )
+from manga_watch.discord_add import AddCommandHandler
 from manga_watch.discord_remove import REMOVE_COMMAND
 from manga_watch.runner import FETCH_ACCEPTED_MESSAGE, RunCoordinator, RunnerConfig
-from manga_watch.watchlist import WatchlistAddError
 
 
 class RecordingFetchDispatcher:
@@ -72,9 +72,9 @@ class DiscordInteractionServiceTests(unittest.TestCase):
     ):
         signing_key = signing_key or SigningKey.generate()
         public_key = signing_key.verify_key.encode().hex()
-        resolved_add_handler = add_handler
-        if resolved_add_handler is None:
-            resolved_add_handler = lambda *_args, **_kwargs: {"action": "added", "entry": {"id": "unused"}}
+        resolved_add_handler = add_handler or AddCommandHandler(
+            add_subscription=lambda *_args, **_kwargs: {"action": "added", "entry": {"id": "unused"}}
+        )
         service = DiscordInteractionService(
             timezone_name="Asia/Tokyo",
             fetch_dispatcher=fetch_dispatcher or RecordingFetchDispatcher(),
@@ -128,19 +128,15 @@ class DiscordInteractionServiceTests(unittest.TestCase):
     def test_add_command_routes_url_to_watchlist_handler(self):
         recorded = {}
 
-        def add_handler(url, *, watchlist_path=None):
-            recorded["url"] = url
-            recorded["watchlist_path"] = watchlist_path
-            return {
-                "action": "added",
-                "entry": {
-                    "id": "kakuyomu:123",
-                    "source": "kakuyomu",
-                    "seed_url": "https://kakuyomu.jp/works/123",
-                },
-            }
+        class FakeAddHandler:
+            def start(self, *, url, watchlist_path=None):
+                recorded["url"] = url
+                recorded["watchlist_path"] = watchlist_path
+                return {
+                    "content": "追加しました: kakuyomu:123\nseed_url: https://kakuyomu.jp/works/123"
+                }
 
-        service, signing_key = self.make_service(add_handler=add_handler)
+        service, signing_key = self.make_service(add_handler=FakeAddHandler())
         headers, body = self.signed_command_request(
             "add",
             signing_key,
@@ -156,17 +152,11 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         self.assertIn("kakuyomu:123", payload["data"]["content"])
 
     def test_add_command_reports_duplicate_entry(self):
-        def add_handler(_url, *, watchlist_path=None):
-            return {
-                "action": "duplicate",
-                "entry": {"id": "kakuyomu:123"},
-                "existing": {
-                    "id": "kakuyomu:123",
-                    "seed_url": "https://kakuyomu.jp/works/123",
-                },
-            }
+        class FakeAddHandler:
+            def start(self, *, url, watchlist_path=None):
+                return {"content": "既に登録済みです: kakuyomu:123"}
 
-        service, signing_key = self.make_service(add_handler=add_handler)
+        service, signing_key = self.make_service(add_handler=FakeAddHandler())
         headers, body = self.signed_command_request(
             "add",
             signing_key,
@@ -181,14 +171,11 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         self.assertIn("kakuyomu:123", payload["data"]["content"])
 
     def test_add_command_reports_watchlist_errors_as_interaction_message(self):
-        def add_handler(_url, *, watchlist_path=None):
-            raise WatchlistAddError(
-                "unsupported_source",
-                "Unsupported source host: example.com",
-                "Use one of the supported sources.",
-            )
+        class FakeAddHandler:
+            def start(self, *, url, watchlist_path=None):
+                return {"content": "追加できませんでした: Unsupported source host: example.com"}
 
-        service, signing_key = self.make_service(add_handler=add_handler)
+        service, signing_key = self.make_service(add_handler=FakeAddHandler())
         headers, body = self.signed_command_request(
             "add",
             signing_key,

@@ -403,10 +403,10 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 ```
 
 Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、既存 `watchlist add` ロジックで対応できる URL のみクロール対象へ追加します。
-Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/remove` を扱います。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
+Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/remove` を扱います。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 
-Cloud Run Service の Discord interaction endpoint をローカルで起動する場合は、署名検証用の public key に加えて command registration 用の bot token を入れて `python -m manga_watch.run_service` を使います。service startup では `/latest` `/fetch` `/remove` の command 定義を Discord へ idempotent に登録し、登録に失敗した場合は fail-fast で起動を中断します。`DISCORD_GUILD_ID` を入れると guild command、未指定なら global command を更新します。
+Cloud Run Service の Discord interaction endpoint をローカルで起動する場合は、署名検証用の public key に加えて command registration 用の bot token を入れて `python -m manga_watch.run_service` を使います。service startup では `/latest` `/fetch` `/add` `/remove` の command 定義を Discord へ idempotent に登録し、登録に失敗した場合は fail-fast で起動を中断します。`DISCORD_GUILD_ID` を入れると guild command、未指定なら global command を更新します。
 
 ```bash
 export DISCORD_BOT_TOKEN=...

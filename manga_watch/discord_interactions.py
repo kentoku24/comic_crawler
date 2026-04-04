@@ -10,6 +10,7 @@ from google.auth.transport.requests import AuthorizedSession
 from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
 
+from manga_watch.discord_add import ADD_COMMAND, AddCommandHandler
 from manga_watch.discord_fetch import FETCH_COMMAND, handle_fetch_trigger
 from manga_watch.discord_latest import LATEST_COMMAND, handle_latest_query, validated_timezone_name
 from manga_watch.discord_remove import REMOVE_COMMAND, RemoveCommandHandler
@@ -19,7 +20,6 @@ from manga_watch.runner import FETCH_ACCEPTED_MESSAGE, RunCoordinator, RunnerCon
 from manga_watch.secret_redaction import redact_secret_text
 from manga_watch.secret_resolver import resolve_env_value
 from manga_watch.storage import DEFAULT_WATCHLIST_PATH, get_state_path, storage_backend_from_env
-from manga_watch.watchlist import WatchlistAddError, add_watchlist_url
 
 INTERACTION_TYPE_PING = 1
 INTERACTION_TYPE_APPLICATION_COMMAND = 2
@@ -31,7 +31,6 @@ EPHEMERAL_MESSAGE_FLAG = 64
 DEFAULT_HTTP_TIMEOUT = 15
 DEFAULT_INTERACTION_PATH = "/"
 DEFAULT_FETCH_BACKEND = "coordinator"
-ADD_COMMAND = "add"
 FETCH_BACKEND_COORDINATOR = "coordinator"
 FETCH_BACKEND_CLOUD_RUN_JOB = "cloud-run-job"
 DEFAULT_CLOUD_RUN_JOB_NAME = "comic-crawler-job"
@@ -39,8 +38,6 @@ DEFAULT_CLOUD_RUN_REGION = "asia-northeast1"
 DEFAULT_GOOGLE_AUTH_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 INVALID_SIGNATURE_MESSAGE = "invalid request signature"
 FETCH_DISPATCH_FAILURE_MESSAGE = "fetch の起動に失敗しました。Cloud Run logs を確認してください。"
-ADD_FAILURE_MESSAGE = "作品追加に失敗しました。サーバーログを確認してください。"
-ADD_MISSING_URL_MESSAGE = "追加する作品URLを `url` オプションで指定してください。"
 
 
 def _coerce_text(value: object) -> Optional[str]:
@@ -282,32 +279,6 @@ def interaction_ephemeral_response(data: Mapping[str, object]) -> InteractionHtt
     )
 
 
-def format_watchlist_add_response(result: Mapping[str, object]) -> str:
-    action = str(result.get("action") or "").strip()
-    entry = result.get("entry")
-    existing = result.get("existing")
-    entry_payload = entry if isinstance(entry, Mapping) else {}
-    existing_payload = existing if isinstance(existing, Mapping) else {}
-
-    work_id = str(entry_payload.get("id") or existing_payload.get("id") or "").strip()
-    seed_url = str(entry_payload.get("seed_url") or existing_payload.get("seed_url") or "").strip()
-
-    lines = []
-    if action == "added":
-        lines.append(f"追加しました: {work_id}")
-    elif action == "duplicate":
-        lines.append(f"既に登録済みです: {work_id}")
-    else:
-        lines.append("作品追加を受け付けました。")
-    if seed_url:
-        lines.append(f"seed_url: {seed_url}")
-    return "\n".join(lines)
-
-
-def format_watchlist_add_error(exc: WatchlistAddError) -> str:
-    return f"追加できませんでした: {exc.message}"
-
-
 @dataclass
 class DiscordInteractionService:
     timezone_name: str
@@ -318,7 +289,7 @@ class DiscordInteractionService:
     verifier: Optional[DiscordRequestVerifier] = None
     verification_disabled: bool = False
     latest_handler: Callable[..., Optional[str]] = handle_latest_query
-    add_handler: Optional[Callable[..., Mapping[str, object]]] = add_watchlist_url
+    add_handler: Optional[AddCommandHandler] = None
     remove_handler: Optional[RemoveCommandHandler] = None
 
     def handle_request(
@@ -374,16 +345,11 @@ class DiscordInteractionService:
                 return text_response(500, "empty interaction response")
             return interaction_message_response(content)
         if command_name == ADD_COMMAND and self.add_handler is not None:
-            url = self._command_option(payload, "url")
-            if not url:
-                return interaction_message_response(ADD_MISSING_URL_MESSAGE)
-            try:
-                result = self.add_handler(url, watchlist_path=self.watchlist_path)
-            except WatchlistAddError as exc:
-                return interaction_message_response(format_watchlist_add_error(exc))
-            except Exception:
-                return interaction_message_response(ADD_FAILURE_MESSAGE)
-            return interaction_message_response(format_watchlist_add_response(result))
+            response_payload = self.add_handler.start(
+                url=self._command_option(payload, "url"),
+                watchlist_path=self.watchlist_path,
+            )
+            return interaction_message_response(str(response_payload.get("content") or "").strip())
         if command_name == REMOVE_COMMAND and self.remove_handler is not None:
             payload = self.remove_handler.start(
                 watchlist_path=self.watchlist_path,
@@ -507,5 +473,6 @@ def build_interaction_service_from_env(
         state_path=state_path,
         verifier=verifier,
         verification_disabled=verification.verification_disabled,
+        add_handler=AddCommandHandler(),
         remove_handler=RemoveCommandHandler(backend=storage_backend),
     )

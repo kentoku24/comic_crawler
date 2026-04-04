@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Protocol
 
 import requests
 
+from manga_watch.discord_add import ADD_COMMAND
 from manga_watch.discord_fetch import FETCH_COMMAND
 from manga_watch.discord_latest import LATEST_COMMAND
 from manga_watch.discord_remove import REMOVE_COMMAND
@@ -13,7 +14,6 @@ from manga_watch.secret_redaction import redact_secret_text
 from manga_watch.secret_resolver import resolve_env_value
 
 DEFAULT_API_BASE_URL = "https://discord.com/api/v10"
-ADD_COMMAND = "add"
 
 
 class RequestsSession(Protocol):
