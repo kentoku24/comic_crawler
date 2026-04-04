@@ -18,6 +18,7 @@ from manga_watch.runner import FETCH_ACCEPTED_MESSAGE, RunCoordinator, RunnerCon
 from manga_watch.secret_redaction import redact_secret_text
 from manga_watch.secret_resolver import resolve_env_value
 from manga_watch.storage import DEFAULT_WATCHLIST_PATH
+from manga_watch.watchlist import WatchlistAddError, add_watchlist_url
 
 INTERACTION_TYPE_PING = 1
 INTERACTION_TYPE_APPLICATION_COMMAND = 2
@@ -26,6 +27,7 @@ INTERACTION_RESPONSE_TYPE_CHANNEL_MESSAGE = 4
 DEFAULT_HTTP_TIMEOUT = 15
 DEFAULT_INTERACTION_PATH = "/"
 DEFAULT_FETCH_BACKEND = "coordinator"
+ADD_COMMAND = "add"
 FETCH_BACKEND_COORDINATOR = "coordinator"
 FETCH_BACKEND_CLOUD_RUN_JOB = "cloud-run-job"
 DEFAULT_CLOUD_RUN_JOB_NAME = "comic-crawler-job"
@@ -33,6 +35,8 @@ DEFAULT_CLOUD_RUN_REGION = "asia-northeast1"
 DEFAULT_GOOGLE_AUTH_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 INVALID_SIGNATURE_MESSAGE = "invalid request signature"
 FETCH_DISPATCH_FAILURE_MESSAGE = "fetch の起動に失敗しました。Cloud Run logs を確認してください。"
+ADD_FAILURE_MESSAGE = "作品追加に失敗しました。サーバーログを確認してください。"
+ADD_MISSING_URL_MESSAGE = "追加する作品URLを `url` オプションで指定してください。"
 
 
 def _coerce_text(value: object) -> Optional[str]:
@@ -253,6 +257,44 @@ def interaction_message_response(content: str) -> InteractionHttpResponse:
     )
 
 
+def format_watchlist_add_response(result: Mapping[str, object]) -> str:
+    action = str(result.get("action") or "").strip()
+    entry = result.get("entry")
+    existing = result.get("existing")
+    entry_payload = entry if isinstance(entry, Mapping) else {}
+    existing_payload = existing if isinstance(existing, Mapping) else {}
+
+    work_id = str(
+        entry_payload.get("id")
+        or existing_payload.get("id")
+        or ""
+    ).strip()
+    seed_url = str(
+        entry_payload.get("seed_url")
+        or existing_payload.get("seed_url")
+        or ""
+    ).strip()
+
+    lines = []
+    if action == "added":
+        lines.append(f"追加しました: {work_id}")
+    elif action == "duplicate":
+        lines.append(f"既に登録済みです: {work_id}")
+    else:
+        lines.append("作品追加を受け付けました。")
+
+    if seed_url:
+        lines.append(f"seed_url: {seed_url}")
+    return "\n".join(lines)
+
+
+def format_watchlist_add_error(exc: WatchlistAddError) -> str:
+    lines = [f"追加できませんでした: {exc.message}"]
+    if exc.next_action:
+        lines.append(str(exc.next_action))
+    return "\n".join(lines)
+
+
 @dataclass
 class DiscordInteractionService:
     timezone_name: str
@@ -263,6 +305,7 @@ class DiscordInteractionService:
     verifier: Optional[DiscordRequestVerifier] = None
     verification_disabled: bool = False
     latest_handler: Callable[..., Optional[str]] = handle_latest_query
+    add_handler: Callable[..., Mapping[str, object]] = add_watchlist_url
 
     def handle_request(
         self,
@@ -301,6 +344,18 @@ class DiscordInteractionService:
                 state_path=self.state_path,
                 timezone_name=self.timezone_name,
             )
+        elif command_name == ADD_COMMAND:
+            url = self._command_option(payload, "url")
+            if not url:
+                content = ADD_MISSING_URL_MESSAGE
+            else:
+                try:
+                    result = self.add_handler(url, watchlist_path=self.watchlist_path)
+                    content = format_watchlist_add_response(result)
+                except WatchlistAddError as exc:
+                    content = format_watchlist_add_error(exc)
+                except Exception:
+                    return interaction_message_response(ADD_FAILURE_MESSAGE)
         elif command_name == FETCH_COMMAND:
             try:
                 content = str(self.fetch_dispatcher.dispatch().get("message") or "").strip()
@@ -328,6 +383,24 @@ class DiscordInteractionService:
         if not isinstance(data, Mapping):
             return ""
         return str(data.get("name") or "").strip().lower()
+
+    @staticmethod
+    def _command_option(payload: Mapping[str, object], option_name: str) -> Optional[str]:
+        data = payload.get("data")
+        if not isinstance(data, Mapping):
+            return None
+        options = data.get("options")
+        if not isinstance(options, list):
+            return None
+        normalized_name = option_name.strip().lower()
+        for option in options:
+            if not isinstance(option, Mapping):
+                continue
+            name = str(option.get("name") or "").strip().lower()
+            if name != normalized_name:
+                continue
+            return _coerce_text(option.get("value"))
+        return None
 
 
 def interaction_timezone_name_from_env() -> str:

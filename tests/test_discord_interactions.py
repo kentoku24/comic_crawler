@@ -15,6 +15,7 @@ from manga_watch.discord_interactions import (
     build_manual_run_request_body,
 )
 from manga_watch.runner import FETCH_ACCEPTED_MESSAGE, RunCoordinator, RunnerConfig
+from manga_watch.watchlist import WatchlistAddError
 
 
 class RecordingFetchDispatcher:
@@ -70,6 +71,12 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         )
         return service, signing_key
 
+    def signed_command_request(self, command_name, signing_key, *, options=None):
+        payload = {"type": 2, "data": {"name": command_name}}
+        if options is not None:
+            payload["data"]["options"] = options
+        return self.signed_request(payload, signing_key)
+
     def test_ping_request_returns_pong_when_signature_is_valid(self):
         service, signing_key = self.make_service()
         headers, body = self.signed_request({"type": 1}, signing_key)
@@ -103,6 +110,96 @@ class DiscordInteractionServiceTests(unittest.TestCase):
             FETCH_ACCEPTED_MESSAGE,
             json.loads(response.body)["data"]["content"],
         )
+
+    def test_add_command_routes_url_to_watchlist_handler(self):
+        recorded = {}
+
+        def add_handler(url, *, watchlist_path=None):
+            recorded["url"] = url
+            recorded["watchlist_path"] = watchlist_path
+            return {
+                "action": "added",
+                "entry": {
+                    "id": "kakuyomu:123",
+                    "source": "kakuyomu",
+                    "seed_url": "https://kakuyomu.jp/works/123",
+                },
+            }
+
+        service, signing_key = self.make_service()
+        service.add_handler = add_handler
+        headers, body = self.signed_command_request(
+            "add",
+            signing_key,
+            options=[{"name": "url", "type": 3, "value": "https://kakuyomu.jp/works/123"}],
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertEqual("https://kakuyomu.jp/works/123", recorded["url"])
+        self.assertIn("kakuyomu:123", payload["data"]["content"])
+        self.assertIn("追加しました", payload["data"]["content"])
+
+    def test_add_command_reports_duplicate_entry(self):
+        def add_handler(_url, *, watchlist_path=None):
+            return {
+                "action": "duplicate",
+                "entry": {"id": "kakuyomu:123"},
+                "existing": {
+                    "id": "kakuyomu:123",
+                    "seed_url": "https://kakuyomu.jp/works/123",
+                },
+            }
+
+        service, signing_key = self.make_service()
+        service.add_handler = add_handler
+        headers, body = self.signed_command_request(
+            "add",
+            signing_key,
+            options=[{"name": "url", "type": 3, "value": "https://kakuyomu.jp/works/123"}],
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertIn("既に登録済み", payload["data"]["content"])
+        self.assertIn("kakuyomu:123", payload["data"]["content"])
+
+    def test_add_command_reports_watchlist_errors_as_interaction_message(self):
+        def add_handler(_url, *, watchlist_path=None):
+            raise WatchlistAddError(
+                "unsupported_source",
+                "Unsupported source host: example.com",
+                "Use one of the supported sources.",
+            )
+
+        service, signing_key = self.make_service()
+        service.add_handler = add_handler
+        headers, body = self.signed_command_request(
+            "add",
+            signing_key,
+            options=[{"name": "url", "type": 3, "value": "https://example.com/work/1"}],
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertIn("Unsupported source host: example.com", payload["data"]["content"])
+        self.assertIn("Use one of the supported sources.", payload["data"]["content"])
+
+    def test_add_command_requires_url_option(self):
+        service, signing_key = self.make_service()
+        headers, body = self.signed_command_request("add", signing_key, options=[])
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertIn("url", payload["data"]["content"])
 
     def test_invalid_signature_returns_401(self):
         service, signing_key = self.make_service()
