@@ -1,0 +1,148 @@
+name: Rollback Production
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_ref:
+        description: "Artifact Registry image digest to deploy"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCP_PROJECT_ID: star-light-breaker
+  GCP_REGION: asia-northeast1
+  CLOUD_RUN_JOB_NAME: comic-crawler-job
+  CLOUD_RUN_SERVICE_NAME: comic-crawler-service
+  DISCORD_BOT_TOKEN_SECRET_VERSION: projects/star-light-breaker/secrets/comic-crawler-discord-bot-token/versions/latest
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    outputs:
+      image_ref: ${{ steps.validate.outputs.image_ref }}
+      image_digest: ${{ steps.validate.outputs.image_digest }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: validate
+        name: Validate rollback target
+        env:
+          IMAGE_REF: ${{ inputs.image_ref }}
+        run: |
+          if [[ ! "${IMAGE_REF}" =~ ^asia-northeast1-docker\.pkg\.dev/star-light-breaker/comic-crawler/comic-crawler@sha256:[a-f0-9]{64}$ ]]; then
+            echo "image_ref must match asia-northeast1-docker.pkg.dev/star-light-breaker/comic-crawler/comic-crawler@sha256:<64 hex>" >&2
+            exit 1
+          fi
+          echo "image_ref=${IMAGE_REF}" >> "${GITHUB_OUTPUT}"
+          echo "image_digest=${IMAGE_REF##*@}" >> "${GITHUB_OUTPUT}"
+
+      - name: Summarize validation
+        env:
+          IMAGE_REF: ${{ steps.validate.outputs.image_ref }}
+          IMAGE_DIGEST: ${{ steps.validate.outputs.image_digest }}
+        run: |
+          {
+            echo "## Rollback validation"
+            echo ""
+            echo "- Image ref: \`${IMAGE_REF}\`"
+            echo "- Image digest: \`${IMAGE_DIGEST}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  rollback:
+    needs: validate
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      IMAGE_REF: ${{ needs.validate.outputs.image_ref }}
+      IMAGE_DIGEST: ${{ needs.validate.outputs.image_digest }}
+      DISCORD_MAIN_CHANNEL_ID: ${{ vars.DISCORD_MAIN_CHANNEL_ID }}
+      DISCORD_RUN_REPORT_CHANNEL_ID: ${{ vars.DISCORD_RUN_REPORT_CHANNEL_ID }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          create_credentials_file: true
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Confirm rollback target exists in Artifact Registry
+        run: gcloud artifacts docker images describe "${IMAGE_REF}" >/dev/null
+
+      - name: Update Cloud Run Job
+        run: |
+          gcloud run jobs update comic-crawler-job \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_REF}" \
+            --command=python \
+            --args=-m,manga_watch.run_job \
+            --tasks=1 \
+            --max-retries=0 \
+            --update-env-vars="TZ=Asia/Tokyo,MANGA_WATCH_STORAGE_BACKEND=firestore,MANGA_WATCH_FIRESTORE_PROJECT=${GCP_PROJECT_ID},MANGA_WATCH_NOTIFIER_BACKENDS=stdout,DISCORD_MAIN_CHANNEL_ID=${DISCORD_MAIN_CHANNEL_ID},DISCORD_RUN_REPORT_CHANNEL_ID=${DISCORD_RUN_REPORT_CHANNEL_ID},DISCORD_BOT_TOKEN_SECRET_VERSION=${DISCORD_BOT_TOKEN_SECRET_VERSION}"
+
+      - name: Deploy Cloud Run Service
+        run: |
+          gcloud run deploy comic-crawler-service \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_REF}" \
+            --command=python \
+            --args=-m,manga_watch.run_service \
+            --allow-unauthenticated \
+            --set-env-vars="TZ=Asia/Tokyo,MANGA_WATCH_STORAGE_BACKEND=firestore,MANGA_WATCH_FIRESTORE_PROJECT=${GCP_PROJECT_ID},MANGA_WATCH_FETCH_BACKEND=cloud-run-job,MANGA_WATCH_GCP_PROJECT=${GCP_PROJECT_ID},MANGA_WATCH_CLOUD_RUN_REGION=${GCP_REGION},MANGA_WATCH_CLOUD_RUN_JOB_NAME=${CLOUD_RUN_JOB_NAME}" \
+            --set-secrets="DISCORD_APPLICATION_PUBLIC_KEY=comic-crawler-discord-application-public-key:latest"
+
+      - id: verify
+        name: Capture rolled back revision
+        run: |
+          latest_ready_revision="$(gcloud run services describe comic-crawler-service \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --format='value(status.latestReadyRevisionName)')"
+          service_image_digest="$(gcloud run revisions describe "${latest_ready_revision}" \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --format='value(status.imageDigest)')"
+          job_image_ref="$(gcloud run jobs describe comic-crawler-job \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --format='value(spec.template.template.containers[0].image)')"
+          if [[ "${service_image_digest}" != "${IMAGE_DIGEST}" ]]; then
+            echo "service digest mismatch: expected ${IMAGE_DIGEST}, got ${service_image_digest}" >&2
+            exit 1
+          fi
+          if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]; then
+            echo "job image ref mismatch: expected ${IMAGE_REF}, got ${job_image_ref}" >&2
+            exit 1
+          fi
+          echo "latest_ready_revision=${latest_ready_revision}" >> "${GITHUB_OUTPUT}"
+          echo "service_image_digest=${service_image_digest}" >> "${GITHUB_OUTPUT}"
+          echo "job_image_ref=${job_image_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Summarize rollback output
+        run: |
+          {
+            echo "## Rollback output"
+            echo ""
+            echo "- Image digest: \`${IMAGE_DIGEST}\`"
+            echo "- Image ref: \`${IMAGE_REF}\`"
+            echo "- Latest ready revision: \`${{ steps.verify.outputs.latest_ready_revision }}\`"
+            echo "- Service image digest: \`${{ steps.verify.outputs.service_image_digest }}\`"
+            echo "- Job image ref: \`${{ steps.verify.outputs.job_image_ref }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
