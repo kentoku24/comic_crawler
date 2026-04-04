@@ -13,6 +13,7 @@ from manga_watch.secret_redaction import redact_secret_text
 from manga_watch.secret_resolver import resolve_env_value
 
 DEFAULT_API_BASE_URL = "https://discord.com/api/v10"
+ADD_COMMAND = "add"
 
 
 class RequestsSession(Protocol):
@@ -28,7 +29,7 @@ def _coerce_text(value: object) -> Optional[str]:
     return text or None
 
 
-def default_interaction_commands() -> List[Dict[str, str]]:
+def default_interaction_commands() -> List[Dict[str, object]]:
     return [
         {
             "name": LATEST_COMMAND,
@@ -37,6 +38,18 @@ def default_interaction_commands() -> List[Dict[str, str]]:
         {
             "name": FETCH_COMMAND,
             "description": "手動で巡回を開始します。",
+        },
+        {
+            "name": ADD_COMMAND,
+            "description": "作品URLを追加してクロール対象に登録します。",
+            "options": [
+                {
+                    "type": 3,
+                    "name": "url",
+                    "description": "追加したい作品URL",
+                    "required": True,
+                }
+            ],
         },
         {
             "name": REMOVE_COMMAND,

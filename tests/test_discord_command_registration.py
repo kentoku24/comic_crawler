@@ -38,14 +38,27 @@ class FakeRequestsSession:
 
 
 class DiscordCommandRegistrationTests(unittest.TestCase):
-    def test_default_command_definitions_include_remove(self):
+    def test_default_command_definitions_include_add_and_remove(self):
         from manga_watch.discord_command_registration import default_interaction_commands
 
         commands = default_interaction_commands()
 
         self.assertEqual(
-            [LATEST_COMMAND, FETCH_COMMAND, REMOVE_COMMAND],
+            [LATEST_COMMAND, FETCH_COMMAND, "add", REMOVE_COMMAND],
             [command["name"] for command in commands],
+        )
+        add_command = commands[2]
+        self.assertEqual("作品URLを追加してクロール対象に登録します。", add_command["description"])
+        self.assertEqual(
+            [
+                {
+                    "type": 3,
+                    "name": "url",
+                    "description": "追加したい作品URL",
+                    "required": True,
+                }
+            ],
+            add_command["options"],
         )
 
     def test_ensure_registered_from_env_uses_guild_registration_when_guild_id_is_present(self):
