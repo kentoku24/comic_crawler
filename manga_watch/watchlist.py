@@ -48,6 +48,16 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="takecomic",
+        domains=("takecomic.jp",),
+        input_labels=("episode URL", "series URL", "series RSS URL"),
+        examples=(
+            "https://takecomic.jp/episodes/0123456789ab",
+            "https://takecomic.jp/series/0123456789ab",
+            "https://takecomic.jp/series/0123456789ab/rss",
+        ),
+    ),
+    SourceCapability(
         source="kakuyomu",
         domains=("kakuyomu.jp",),
         input_labels=("work URL", "episode URL"),

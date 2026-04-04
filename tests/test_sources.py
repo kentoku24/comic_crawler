@@ -13,6 +13,7 @@ from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
+from manga_watch.sources.takecomic import TakecomicAdapter
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures"
 SOURCE_CASES = {
@@ -39,9 +40,8 @@ SOURCE_CASES = {
         "normal",
         "episode_seed_missing_next_update",
     ),
-    "champion-cross": (
+    "takecomic": (
         "normal",
-        "episode_seed_missing_next_update",
     ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
@@ -70,7 +70,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
     "champion-cross": {
         "normal": "main_story",
         "episode_seed_missing_next_update": "main_story",
-        "episode_seed_missing_next_update": "main_story",
+    },
+    "takecomic": {
+        "normal": "main_story",
     },
 }
 
@@ -155,7 +157,7 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "champion-cross", "kakuyomu"),
+            ("comic-walker", "comic-action", "champion-cross", "takecomic", "kakuyomu"),
             REGISTERED_SOURCES,
         )
 
@@ -182,6 +184,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_champion_cross_fixtures(self):
         self._assert_fixture_matrix("champion-cross")
+
+    def test_takecomic_fixtures(self):
+        self._assert_fixture_matrix("takecomic")
 
     def test_comic_walker_normalize_accepts_canonical_series_url(self):
         work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")
@@ -228,16 +233,16 @@ class SourceAdapterTests(unittest.TestCase):
             work.to_dict(),
         )
 
-    def test_champion_cross_normalize_accepts_takecomic_series_url(self):
-        work = ChampionCrossAdapter().normalize("https://takecomic.jp/series/3f846451aff2d/?ref=top")
+    def test_takecomic_normalize_accepts_series_url(self):
+        work = TakecomicAdapter().normalize("https://takecomic.jp/series/3f846451aff2d/?ref=top")
 
         self.assertEqual(
             {
-                "source": "champion-cross",
-                "kind": "champion-cross",
-                "workId": "champion-cross:3f846451aff2d",
+                "source": "takecomic",
+                "kind": "takecomic",
+                "workId": "takecomic:3f846451aff2d",
                 "seedUrl": "https://takecomic.jp/series/3f846451aff2d",
-                "series": "champion-cross:3f846451aff2d",
+                "series": "takecomic:3f846451aff2d",
                 "seriesHash": "3f846451aff2d",
             },
             work.to_dict(),
@@ -539,8 +544,8 @@ class SourceAdapterTests(unittest.TestCase):
             client.calls,
         )
 
-    def test_champion_cross_fetch_latest_accepts_takecomic_series_url(self):
-        adapter = ChampionCrossAdapter()
+    def test_takecomic_fetch_latest_accepts_series_url(self):
+        adapter = TakecomicAdapter()
         work = adapter.normalize("https://takecomic.jp/series/3f846451aff2d/")
         client = StaticHttpClient(
             {
@@ -569,7 +574,7 @@ class SourceAdapterTests(unittest.TestCase):
 
         latest = adapter.fetch_latest(work, client).to_dict()
 
-        self.assertEqual("champion-cross:3f846451aff2d", latest["workId"])
+        self.assertEqual("takecomic:3f846451aff2d", latest["workId"])
         self.assertEqual("https://takecomic.jp/episodes/abc12345", latest["latestKey"])
         self.assertEqual("作品D", latest["seriesTitle"])
         self.assertEqual("第10話", latest["episodeTitle"])

@@ -168,6 +168,28 @@ class WatchlistCliTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
+    def test_watchlist_add_accepts_takecomic_series_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://takecomic.jp/series/3f846451aff2d/?utm_source=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient({}),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("takecomic:3f846451aff2d", payload["entry"]["id"])
+        self.assertEqual(
+            "https://takecomic.jp/series/3f846451aff2d",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("takecomic", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
     def test_watchlist_add_reports_unsupported_source(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
