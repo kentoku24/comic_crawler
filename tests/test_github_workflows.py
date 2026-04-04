@@ -43,10 +43,16 @@ class GitHubWorkflowContractTests(unittest.TestCase):
     def test_deploy_workflow_sets_up_buildx_before_using_gha_cache(self):
         content = read_workflow("deploy-production.yml")
 
-        self.assertIn("uses: docker/setup-buildx-action@v3", content)
-        self.assertIn("driver: docker-container", content)
-        self.assertIn("cache-from: type=gha", content)
-        self.assertIn("cache-to: type=gha,mode=max", content)
+        build_section = content.split("  deploy:", maxsplit=1)[0]
+
+        self.assertIn("uses: docker/setup-buildx-action@v3", build_section)
+        self.assertIn("driver: docker-container", build_section)
+        self.assertIn("cache-from: type=gha", build_section)
+        self.assertIn("cache-to: type=gha,mode=max", build_section)
+        self.assertLess(
+            build_section.index("uses: docker/setup-buildx-action@v3"),
+            build_section.index("uses: docker/build-push-action@v6"),
+        )
 
     def test_rollback_workflow_exists_and_uses_workflow_dispatch(self):
         content = read_workflow("rollback-production.yml")
