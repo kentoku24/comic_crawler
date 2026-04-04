@@ -6,6 +6,7 @@ from typing import Dict, List, Optional, Protocol
 
 import requests
 
+from manga_watch.discord_add import ADD_COMMAND
 from manga_watch.discord_fetch import FETCH_COMMAND
 from manga_watch.discord_latest import LATEST_COMMAND
 from manga_watch.discord_remove import REMOVE_COMMAND
@@ -28,7 +29,7 @@ def _coerce_text(value: object) -> Optional[str]:
     return text or None
 
 
-def default_interaction_commands() -> List[Dict[str, str]]:
+def default_interaction_commands() -> List[Dict[str, object]]:
     return [
         {
             "name": LATEST_COMMAND,
@@ -37,6 +38,18 @@ def default_interaction_commands() -> List[Dict[str, str]]:
         {
             "name": FETCH_COMMAND,
             "description": "手動で巡回を開始します。",
+        },
+        {
+            "name": ADD_COMMAND,
+            "description": "作品URLを追加してクロール対象に登録します。",
+            "options": [
+                {
+                    "type": 3,
+                    "name": "url",
+                    "description": "追加したい作品URL",
+                    "required": True,
+                }
+            ],
         },
         {
             "name": REMOVE_COMMAND,

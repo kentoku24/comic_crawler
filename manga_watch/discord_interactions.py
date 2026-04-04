@@ -10,6 +10,7 @@ from google.auth.transport.requests import AuthorizedSession
 from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
 
+from manga_watch.discord_add import ADD_COMMAND, AddCommandHandler
 from manga_watch.discord_fetch import FETCH_COMMAND, handle_fetch_trigger
 from manga_watch.discord_latest import LATEST_COMMAND, handle_latest_query, validated_timezone_name
 from manga_watch.discord_remove import REMOVE_COMMAND, RemoveCommandHandler
@@ -288,6 +289,7 @@ class DiscordInteractionService:
     verifier: Optional[DiscordRequestVerifier] = None
     verification_disabled: bool = False
     latest_handler: Callable[..., Optional[str]] = handle_latest_query
+    add_handler: Optional[AddCommandHandler] = None
     remove_handler: Optional[RemoveCommandHandler] = None
 
     def handle_request(
@@ -342,6 +344,12 @@ class DiscordInteractionService:
             if not content:
                 return text_response(500, "empty interaction response")
             return interaction_message_response(content)
+        if command_name == ADD_COMMAND and self.add_handler is not None:
+            response_payload = self.add_handler.start(
+                url=self._command_option(payload, "url"),
+                watchlist_path=self.watchlist_path,
+            )
+            return interaction_message_response(str(response_payload.get("content") or "").strip())
         if command_name == REMOVE_COMMAND and self.remove_handler is not None:
             payload = self.remove_handler.start(
                 watchlist_path=self.watchlist_path,
@@ -381,6 +389,24 @@ class DiscordInteractionService:
         if not isinstance(data, Mapping):
             return ""
         return str(data.get("name") or "").strip().lower()
+
+    @staticmethod
+    def _command_option(payload: Mapping[str, object], option_name: str) -> Optional[str]:
+        data = payload.get("data")
+        if not isinstance(data, Mapping):
+            return None
+        options = data.get("options")
+        if not isinstance(options, list):
+            return None
+        normalized_name = option_name.strip().lower()
+        for option in options:
+            if not isinstance(option, Mapping):
+                continue
+            name = str(option.get("name") or "").strip().lower()
+            if name != normalized_name:
+                continue
+            return _coerce_text(option.get("value"))
+        return None
 
 
 def interaction_timezone_name_from_env() -> str:
@@ -447,5 +473,6 @@ def build_interaction_service_from_env(
         state_path=state_path,
         verifier=verifier,
         verification_disabled=verification.verification_disabled,
+        add_handler=AddCommandHandler(),
         remove_handler=RemoveCommandHandler(backend=storage_backend),
     )

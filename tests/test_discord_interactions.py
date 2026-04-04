@@ -14,6 +14,7 @@ from manga_watch.discord_interactions import (
     build_interaction_service_from_env,
     build_manual_run_request_body,
 )
+from manga_watch.discord_add import AddCommandHandler
 from manga_watch.discord_remove import REMOVE_COMMAND
 from manga_watch.runner import FETCH_ACCEPTED_MESSAGE, RunCoordinator, RunnerConfig
 
@@ -60,17 +61,35 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         }
         return headers, body
 
-    def make_service(self, *, fetch_dispatcher=None, latest_handler=None, remove_handler=None, signing_key=None):
+    def make_service(
+        self,
+        *,
+        fetch_dispatcher=None,
+        latest_handler=None,
+        add_handler=None,
+        remove_handler=None,
+        signing_key=None,
+    ):
         signing_key = signing_key or SigningKey.generate()
         public_key = signing_key.verify_key.encode().hex()
+        resolved_add_handler = add_handler or AddCommandHandler(
+            add_subscription=lambda *_args, **_kwargs: {"action": "added", "entry": {"id": "unused"}}
+        )
         service = DiscordInteractionService(
             timezone_name="Asia/Tokyo",
             fetch_dispatcher=fetch_dispatcher or RecordingFetchDispatcher(),
             verifier=DiscordRequestVerifier(public_key),
             latest_handler=latest_handler or (lambda *_args, **_kwargs: "保存済みの最新話一覧です"),
+            add_handler=resolved_add_handler,
             remove_handler=remove_handler,
         )
         return service, signing_key
+
+    def signed_command_request(self, command_name, signing_key, *, options=None):
+        payload = {"type": 2, "data": {"name": command_name}}
+        if options is not None:
+            payload["data"]["options"] = options
+        return self.signed_request(payload, signing_key)
 
     def test_ping_request_returns_pong_when_signature_is_valid(self):
         service, signing_key = self.make_service()
@@ -105,6 +124,80 @@ class DiscordInteractionServiceTests(unittest.TestCase):
             FETCH_ACCEPTED_MESSAGE,
             json.loads(response.body)["data"]["content"],
         )
+
+    def test_add_command_routes_url_to_watchlist_handler(self):
+        recorded = {}
+
+        class FakeAddHandler:
+            def start(self, *, url, watchlist_path=None):
+                recorded["url"] = url
+                recorded["watchlist_path"] = watchlist_path
+                return {
+                    "content": "追加しました: kakuyomu:123\nseed_url: https://kakuyomu.jp/works/123"
+                }
+
+        service, signing_key = self.make_service(add_handler=FakeAddHandler())
+        headers, body = self.signed_command_request(
+            "add",
+            signing_key,
+            options=[{"name": "url", "type": 3, "value": "https://kakuyomu.jp/works/123"}],
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertEqual("https://kakuyomu.jp/works/123", recorded["url"])
+        self.assertIn("追加しました", payload["data"]["content"])
+        self.assertIn("kakuyomu:123", payload["data"]["content"])
+
+    def test_add_command_reports_duplicate_entry(self):
+        class FakeAddHandler:
+            def start(self, *, url, watchlist_path=None):
+                return {"content": "既に登録済みです: kakuyomu:123"}
+
+        service, signing_key = self.make_service(add_handler=FakeAddHandler())
+        headers, body = self.signed_command_request(
+            "add",
+            signing_key,
+            options=[{"name": "url", "type": 3, "value": "https://kakuyomu.jp/works/123"}],
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertIn("既に登録済み", payload["data"]["content"])
+        self.assertIn("kakuyomu:123", payload["data"]["content"])
+
+    def test_add_command_reports_watchlist_errors_as_interaction_message(self):
+        class FakeAddHandler:
+            def start(self, *, url, watchlist_path=None):
+                return {"content": "追加できませんでした: Unsupported source host: example.com"}
+
+        service, signing_key = self.make_service(add_handler=FakeAddHandler())
+        headers, body = self.signed_command_request(
+            "add",
+            signing_key,
+            options=[{"name": "url", "type": 3, "value": "https://example.com/work/1"}],
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertIn("追加できませんでした", payload["data"]["content"])
+        self.assertIn("Unsupported source host: example.com", payload["data"]["content"])
+
+    def test_add_command_requires_url_option(self):
+        service, signing_key = self.make_service()
+        headers, body = self.signed_command_request("add", signing_key, options=[])
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertIn("url", payload["data"]["content"])
 
     def test_invalid_signature_returns_401(self):
         service, signing_key = self.make_service()
