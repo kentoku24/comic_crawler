@@ -473,6 +473,6 @@ def build_interaction_service_from_env(
         state_path=state_path,
         verifier=verifier,
         verification_disabled=verification.verification_disabled,
-        add_handler=AddCommandHandler(),
+        add_handler=AddCommandHandler.from_env(),
         remove_handler=RemoveCommandHandler(backend=storage_backend),
     )

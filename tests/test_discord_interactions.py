@@ -400,6 +400,37 @@ class BuildInteractionServiceFromEnvTests(unittest.TestCase):
         self.assertIsNotNone(service.remove_handler)
         self.assertEqual("firestore", service.remove_handler.backend)
 
+    def test_build_interaction_service_configures_github_issue_reporter_when_env_present(self):
+        runner_config = RunnerConfig(
+            timezone_name="Asia/Tokyo",
+            watchlist_path="manga_watch/watchlist.json",
+            crawl_schedule="0 19 * * *",
+            crawl_interval=None,
+            run_on_startup=True,
+            notifier_config=mock.Mock(),
+            discord_outbound_config=None,
+        )
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DISCORD_APPLICATION_PUBLIC_KEY": SigningKey.generate().verify_key.encode().hex(),
+                "MANGA_WATCH_FETCH_BACKEND": "cloud-run-job",
+                "MANGA_WATCH_GCP_PROJECT": "star-light-breaker",
+                "MANGA_WATCH_CLOUD_RUN_REGION": "asia-northeast1",
+                "MANGA_WATCH_CLOUD_RUN_JOB_NAME": "comic-crawler-job",
+                "MANGA_WATCH_GITHUB_TOKEN": "github-token",
+                "MANGA_WATCH_GITHUB_REPOSITORY": "kentoku24/comic_crawler",
+            },
+            clear=True,
+        ):
+            service = build_interaction_service_from_env(
+                runner_config=runner_config,
+                session_factory=lambda: FakeAuthorizedSession(),
+            )
+
+        self.assertIsNotNone(service.add_handler)
+        self.assertIsNotNone(service.add_handler.unsupported_source_reporter)
+
 
 if __name__ == "__main__":
     unittest.main()
