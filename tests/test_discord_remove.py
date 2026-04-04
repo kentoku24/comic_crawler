@@ -97,6 +97,113 @@ class DiscordRemoveTests(unittest.TestCase):
         self.assertEqual("removed", result["action"])
         self.assertEqual([], saved_watchlist["works"])
         self.assertEqual({}, saved_state["works"])
+        self.assertEqual([], saved_state["notification_outbox"])
+        self.assertEqual({}, saved_state["discord_delivery"]["daily_notification"]["delivered_latest_keys"])
+        self.assertEqual([], saved_state["discord_delivery"]["daily_notification"]["pending_messages"])
+
+    def test_remove_watch_subscription_prunes_only_removed_work_delivery_state(self):
+        watchlist = {
+            "version": 2,
+            "works": make_watchlist()["works"]
+            + [
+                {
+                    "id": "work-2",
+                    "source": "comic-walker",
+                    "seed_url": "https://comic-walker.com/detail/work-2",
+                    "enabled": True,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                }
+            ],
+        }
+        state = make_state()
+        state["works"]["work-2"] = {
+            "latest": {
+                "series_title": "作品B",
+                "episode_title": "第5話",
+                "latest_key": "episode-5",
+                "url": "https://example.com/episodes/5",
+            },
+            "history": [],
+            "unread": {"event_ids": []},
+            "health": {},
+        }
+        state["notification_outbox"].append(
+            {
+                "event": {
+                    "schema_version": 1,
+                    "event_id": "event-2",
+                    "work_id": "work-2",
+                    "latest_key": "episode-5",
+                    "series_title": "作品B",
+                    "update_type": "main_story",
+                    "detected_at": "2023-11-14T22:13:20Z",
+                    "from": {"latest_key": "episode-4"},
+                    "to": {"latest_key": "episode-5"},
+                },
+                "pending_backends": ["stdout"],
+                "attempt_count": 0,
+                "last_attempted_at": None,
+                "last_error": None,
+            }
+        )
+        state["discord_delivery"]["daily_notification"]["delivered_latest_keys"]["work-2"] = {
+            "latest_key": "episode-5",
+            "delivered_at": None,
+        }
+        state["discord_delivery"]["daily_notification"]["pending_messages"].append(
+            {
+                "channel_id": "main-channel",
+                "content": "pending daily message for work-2",
+                "message_keys": [{"work_id": "work-2", "latest_key": "episode-5"}],
+                "created_at": "2023-11-14T22:16:20Z",
+                "attempt_count": 0,
+                "last_attempted_at": None,
+                "last_error": None,
+            }
+        )
+        state["discord_delivery"]["daily_notification"]["pending_messages"].append(
+            {
+                "channel_id": "main-channel",
+                "content": "mixed daily message",
+                "message_keys": [
+                    {"work_id": "work-1", "latest_key": "episode-2"},
+                    {"work_id": "work-2", "latest_key": "episode-5"},
+                ],
+                "created_at": "2023-11-14T22:17:20Z",
+                "attempt_count": 0,
+                "last_attempted_at": None,
+                "last_error": None,
+            }
+        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            state_path = Path(tmpdir) / "state.json"
+            write_json(watchlist_path, watchlist)
+            write_json(state_path, state)
+
+            result = remove_watch_subscription(
+                "work-1",
+                watchlist_path=str(watchlist_path),
+                state_path=str(state_path),
+            )
+
+            saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("removed", result["action"])
+        self.assertEqual({"work-2"}, set(saved_state["works"].keys()))
+        self.assertEqual(["work-2"], [entry["event"]["work_id"] for entry in saved_state["notification_outbox"]])
+        self.assertEqual(
+            {"work-2"},
+            set(saved_state["discord_delivery"]["daily_notification"]["delivered_latest_keys"].keys()),
+        )
+        self.assertEqual(
+            ["work-2"],
+            [
+                entry["message_keys"][0]["work_id"]
+                for entry in saved_state["discord_delivery"]["daily_notification"]["pending_messages"]
+            ],
+        )
 
     def test_remove_watch_subscription_supports_firestore_backend(self):
         from manga_watch.firestore_storage import FirestoreStorageConfig, FirestoreStorageRepository
@@ -118,6 +225,9 @@ class DiscordRemoveTests(unittest.TestCase):
         self.assertEqual("removed", result["action"])
         self.assertEqual([], saved_watchlist["works"])
         self.assertEqual({}, saved_state["works"])
+        self.assertEqual([], saved_state["notification_outbox"])
+        self.assertEqual({}, saved_state["discord_delivery"]["daily_notification"]["delivered_latest_keys"])
+        self.assertEqual([], saved_state["discord_delivery"]["daily_notification"]["pending_messages"])
 
     def test_remove_watch_subscription_rolls_back_watchlist_when_state_save_fails(self):
         watchlist = make_watchlist()

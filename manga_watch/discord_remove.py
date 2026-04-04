@@ -67,6 +67,65 @@ def _call_saver(
     saver(payload, path=path, backend=backend)
 
 
+def _notification_event_work_id(entry: object) -> Optional[str]:
+    if not isinstance(entry, Mapping):
+        return None
+    event = entry.get("event")
+    if not isinstance(event, Mapping):
+        return None
+    work_id = str(event.get("work_id") or event.get("workId") or "").strip()
+    return work_id or None
+
+
+def _pending_message_mentions_work(entry: object, work_id: str) -> bool:
+    if not isinstance(entry, Mapping):
+        return False
+    message_keys = entry.get("message_keys", [])
+    if not isinstance(message_keys, list):
+        return False
+    for message_key in message_keys:
+        if not isinstance(message_key, Mapping):
+            continue
+        current_work_id = str(message_key.get("work_id") or message_key.get("workId") or "").strip()
+        if current_work_id == work_id:
+            return True
+    return False
+
+
+def _prune_delivery_state_for_work(
+    state: Mapping[str, object],
+    work_id: str,
+) -> Dict[str, object]:
+    updated_state = _clone_payload(state)
+    works = updated_state.setdefault("works", {})
+    if isinstance(works, dict):
+        works.pop(work_id, None)
+
+    notification_outbox = updated_state.get("notification_outbox", [])
+    if isinstance(notification_outbox, list):
+        updated_state["notification_outbox"] = [
+            entry
+            for entry in notification_outbox
+            if _notification_event_work_id(entry) != work_id
+        ]
+
+    discord_delivery = updated_state.get("discord_delivery")
+    if isinstance(discord_delivery, dict):
+        daily_notification = discord_delivery.get("daily_notification")
+        if isinstance(daily_notification, dict):
+            delivered_latest_keys = daily_notification.get("delivered_latest_keys")
+            if isinstance(delivered_latest_keys, dict):
+                delivered_latest_keys.pop(work_id, None)
+            pending_messages = daily_notification.get("pending_messages", [])
+            if isinstance(pending_messages, list):
+                daily_notification["pending_messages"] = [
+                    entry
+                    for entry in pending_messages
+                    if not _pending_message_mentions_work(entry, work_id)
+                ]
+    return updated_state
+
+
 def remove_watch_subscription(
     work_id: str,
     *,
@@ -105,10 +164,7 @@ def remove_watch_subscription(
     series_title = series_label_for_snapshot(work_id, latest.get("latest", latest))
 
     updated_watchlist = {"version": watchlist.get("version"), "works": kept_works}
-    updated_state = _clone_payload(state)
-    updated_state.setdefault("works", {})
-    if isinstance(updated_state["works"], dict):
-        updated_state["works"].pop(work_id, None)
+    updated_state = _prune_delivery_state_for_work(state, work_id)
 
     try:
         _call_saver(watchlist_saver, updated_watchlist, watchlist_path, backend=backend)
