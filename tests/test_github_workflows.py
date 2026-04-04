@@ -39,7 +39,15 @@ class GitHubWorkflowContractTests(unittest.TestCase):
         self.assertIn("gcloud run jobs update comic-crawler-job", content)
         self.assertIn("gcloud run deploy comic-crawler-service", content)
         self.assertIn("DISCORD_BOT_TOKEN_SECRET_VERSION=${DISCORD_BOT_TOKEN_SECRET_VERSION}", service_section)
-        self.assertIn('if [[ "${service_image_digest}" != "${IMAGE_DIGEST}" ]]', content)
+        self.assertIn('if [[ "${service_image_ref}" != "${IMAGE_REF}" ]]', content)
+        self.assertIn('if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]', content)
+
+    def test_deploy_workflow_verifies_service_and_job_image_refs_from_resource_configs(self):
+        content = read_workflow("deploy-production.yml")
+
+        self.assertIn("--format='value(spec.template.spec.containers[0].image)'", content)
+        self.assertIn("--format='value(spec.template.template.spec.containers[0].image)'", content)
+        self.assertIn('if [[ "${service_image_ref}" != "${IMAGE_REF}" ]]', content)
         self.assertIn('if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]', content)
 
     def test_deploy_workflow_sets_up_buildx_before_using_gha_cache(self):
