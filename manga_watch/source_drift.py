@@ -18,6 +18,12 @@ from .sources.champion_cross import (
 from .sources.comic_action import ComicActionAdapter, extract_comic_action_series_id, parse_comic_action_title
 from .sources.comic_walker import ComicWalkerAdapter, parse_comic_walker_title
 from .sources.kakuyomu import KakuyomuAdapter
+from .sources.takecomic import (
+    TakecomicAdapter,
+    canonical_takecomic_series_rss_url,
+    extract_takecomic_series_hash,
+    parse_takecomic_rss_latest,
+)
 from .sources.util import html_title
 
 
@@ -110,6 +116,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "latest episode page title is still readable",
         ),
     ),
+    "takecomic": SourceCanaryContract(
+        source="takecomic",
+        seed_url="https://takecomic.jp/series/3f846451aff2d",
+        fixture_bundle="tests/fixtures/takecomic/normal",
+        monitored_signals=(
+            "series page keeps a stable series hash",
+            "series RSS feed keeps the latest episode URL",
+            "series RSS feed keeps the latest episode title",
+        ),
+    ),
 }
 
 
@@ -198,35 +214,6 @@ def _comic_action_canary(contract: SourceCanaryContract, http_client: HttpClient
     )
 
 
-def _champion_cross_canary(
-    contract: SourceCanaryContract,
-    http_client: HttpClient,
-) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
-    adapter = ChampionCrossAdapter()
-    work = adapter.normalize(contract.seed_url)
-
-    episode_html = http_client.get_text(work.seed_url)
-    series_hash = extract_champion_cross_series_hash(episode_html)
-    if not series_hash:
-        raise SourceParseError("champion-cross: series hash not found")
-
-    rss_url = canonical_champion_cross_series_rss_url(series_hash)
-    feed_text = http_client.get_text(rss_url)
-    latest_url, latest_title, series_title = parse_champion_cross_rss_latest(feed_text)
-    if not latest_title:
-        raise SourceParseError("champion-cross: latest episode title not found")
-
-    return (
-        (work.seed_url, rss_url),
-        (
-            CanaryObservation("series_hash", series_hash),
-            CanaryObservation("series_title", series_title or ""),
-            CanaryObservation("latest_episode_url", latest_url),
-            CanaryObservation("latest_episode_title", latest_title),
-        ),
-    )
-
-
 def _kakuyomu_canary(contract: SourceCanaryContract, http_client: HttpClient) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
     adapter = KakuyomuAdapter()
     work = adapter.normalize(contract.seed_url)
@@ -285,11 +272,43 @@ def _champion_cross_canary(
     )
 
 
+def _takecomic_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = TakecomicAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    series_hash = str(work.metadata.get("seriesHash") or "")
+    if not series_hash:
+        series_html = http_client.get_text(work.seed_url)
+        series_hash = extract_takecomic_series_hash(series_html) or ""
+    if not series_hash:
+        raise SourceParseError("takecomic: series hash not found")
+
+    rss_url = canonical_takecomic_series_rss_url(series_hash)
+    feed_text = http_client.get_text(rss_url)
+    latest_url, latest_title, series_title = parse_takecomic_rss_latest(feed_text)
+    if not latest_title:
+        raise SourceParseError("takecomic: latest episode title not found")
+
+    return (
+        (work.seed_url, rss_url),
+        (
+            CanaryObservation("series_hash", series_hash),
+            CanaryObservation("series_title", series_title or ""),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", latest_title),
+        ),
+    )
+
+
 CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
     "champion-cross": _champion_cross_canary,
     "kakuyomu": _kakuyomu_canary,
+    "takecomic": _takecomic_canary,
 }
 
 

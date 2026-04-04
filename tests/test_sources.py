@@ -13,6 +13,7 @@ from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
+from manga_watch.sources.takecomic import TakecomicAdapter
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures"
 SOURCE_CASES = {
@@ -39,9 +40,10 @@ SOURCE_CASES = {
         "normal",
         "episode_seed_missing_next_update",
     ),
-    "champion-cross": (
+    "takecomic": (
+        "days_of_week_json_only",
+        "genre_tag_before_update_label",
         "normal",
-        "episode_seed_missing_next_update",
     ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
@@ -70,7 +72,11 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
     "champion-cross": {
         "normal": "main_story",
         "episode_seed_missing_next_update": "main_story",
-        "episode_seed_missing_next_update": "main_story",
+    },
+    "takecomic": {
+        "days_of_week_json_only": "main_story",
+        "genre_tag_before_update_label": "main_story",
+        "normal": "main_story",
     },
 }
 
@@ -155,7 +161,7 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "champion-cross", "kakuyomu"),
+            ("comic-walker", "comic-action", "champion-cross", "takecomic", "kakuyomu"),
             REGISTERED_SOURCES,
         )
 
@@ -182,6 +188,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_champion_cross_fixtures(self):
         self._assert_fixture_matrix("champion-cross")
+
+    def test_takecomic_fixtures(self):
+        self._assert_fixture_matrix("takecomic")
 
     def test_comic_walker_normalize_accepts_canonical_series_url(self):
         work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")
@@ -224,6 +233,21 @@ class SourceAdapterTests(unittest.TestCase):
                 "seedUrl": "https://championcross.jp/series/abc123",
                 "series": "champion-cross:abc123",
                 "seriesHash": "abc123",
+            },
+            work.to_dict(),
+        )
+
+    def test_takecomic_normalize_accepts_series_url(self):
+        work = TakecomicAdapter().normalize("https://takecomic.jp/series/3f846451aff2d/?ref=top")
+
+        self.assertEqual(
+            {
+                "source": "takecomic",
+                "kind": "takecomic",
+                "workId": "takecomic:3f846451aff2d",
+                "seedUrl": "https://takecomic.jp/series/3f846451aff2d",
+                "series": "takecomic:3f846451aff2d",
+                "seriesHash": "3f846451aff2d",
             },
             work.to_dict(),
         )
@@ -520,6 +544,49 @@ class SourceAdapterTests(unittest.TestCase):
             [
                 "https://championcross.jp/series/4756324e1c1b1/rss",
                 "https://championcross.jp/episodes/f35108c56e75d",
+            ],
+            client.calls,
+        )
+
+    def test_takecomic_fetch_latest_accepts_series_url(self):
+        adapter = TakecomicAdapter()
+        work = adapter.normalize("https://takecomic.jp/series/3f846451aff2d/")
+        client = StaticHttpClient(
+            {
+                "https://takecomic.jp/series/3f846451aff2d/rss": """
+                <rss>
+                  <channel>
+                    <title>作品D</title>
+                    <item>
+                      <title><![CDATA[第10話]]></title>
+                      <link>https://takecomic.jp/episodes/abc12345?from=rss</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://takecomic.jp/episodes/abc12345": """
+                <html>
+                  <body>
+                    <a href="/category/manga?type=連載中&amp;day=火" class="series-h-day-of-week-link">
+                      <span class="series-h-tag-label">火曜更新</span>
+                    </a>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("takecomic:3f846451aff2d", latest["workId"])
+        self.assertEqual("https://takecomic.jp/episodes/abc12345", latest["latestKey"])
+        self.assertEqual("作品D", latest["seriesTitle"])
+        self.assertEqual("第10話", latest["episodeTitle"])
+        self.assertEqual("火曜更新", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://takecomic.jp/series/3f846451aff2d/rss",
+                "https://takecomic.jp/episodes/abc12345",
             ],
             client.calls,
         )
