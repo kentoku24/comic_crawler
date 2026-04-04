@@ -13,6 +13,7 @@ from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
+from manga_watch.sources.nicovideo_manga import NicovideoMangaAdapter
 from manga_watch.sources.util import html_title
 from manga_watch.sources.takecomic import TakecomicAdapter
 
@@ -46,6 +47,9 @@ SOURCE_CASES = {
         "genre_tag_before_update_label",
         "normal",
     ),
+    "nicovideo-manga": (
+        "normal",
+    ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
 ERROR_TYPES = {
@@ -77,6 +81,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
     "takecomic": {
         "days_of_week_json_only": "main_story",
         "genre_tag_before_update_label": "main_story",
+        "normal": "main_story",
+    },
+    "nicovideo-manga": {
         "normal": "main_story",
     },
 }
@@ -167,7 +174,7 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "champion-cross", "takecomic", "kakuyomu"),
+            ("comic-walker", "comic-action", "champion-cross", "takecomic", "nicovideo-manga", "kakuyomu"),
             REGISTERED_SOURCES,
         )
 
@@ -197,6 +204,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_takecomic_fixtures(self):
         self._assert_fixture_matrix("takecomic")
+
+    def test_nicovideo_manga_fixtures(self):
+        self._assert_fixture_matrix("nicovideo-manga")
 
     def test_comic_walker_normalize_accepts_canonical_series_url(self):
         work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")
@@ -254,6 +264,21 @@ class SourceAdapterTests(unittest.TestCase):
                 "seedUrl": "https://takecomic.jp/series/3f846451aff2d",
                 "series": "takecomic:3f846451aff2d",
                 "seriesHash": "3f846451aff2d",
+            },
+            work.to_dict(),
+        )
+
+    def test_nicovideo_manga_normalize_accepts_sp_comic_url(self):
+        work = NicovideoMangaAdapter().normalize("https://sp.manga.nicovideo.jp/comic/53764?track=share")
+
+        self.assertEqual(
+            {
+                "source": "nicovideo-manga",
+                "kind": "nicovideo-manga",
+                "workId": "nicovideo-manga:53764",
+                "seedUrl": "https://manga.nicovideo.jp/comic/53764",
+                "series": "nicovideo-manga:53764",
+                "comicId": "53764",
             },
             work.to_dict(),
         )
@@ -769,6 +794,36 @@ class SourceAdapterTests(unittest.TestCase):
                 "https://takecomic.jp/series/3f846451aff2d/rss",
                 "https://takecomic.jp/episodes/abc12345",
             ],
+            client.calls,
+        )
+
+    def test_nicovideo_manga_fetch_latest_accepts_comic_url(self):
+        adapter = NicovideoMangaAdapter()
+        work = adapter.normalize("https://sp.manga.nicovideo.jp/comic/53764")
+        client = StaticHttpClient(
+            {
+                "https://manga.nicovideo.jp/comic/53764/new": """
+                <html>
+                  <head>
+                    <meta property="og:url" content="https://manga.nicovideo.jp/watch/mg1007626" />
+                    <title>ダンジョンの中のひと 第51話 / 双見酔 - ニコニコ漫画</title>
+                  </head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("nicovideo-manga:53764", latest["workId"])
+        self.assertEqual("https://manga.nicovideo.jp/watch/mg1007626", latest["latestKey"])
+        self.assertEqual("https://manga.nicovideo.jp/watch/mg1007626", latest["url"])
+        self.assertEqual("nicovideo-manga:53764", latest["series"])
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第51話", latest["episodeTitle"])
+        self.assertEqual(
+            ["https://manga.nicovideo.jp/comic/53764/new"],
             client.calls,
         )
 
