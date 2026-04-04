@@ -183,6 +183,7 @@ canonical name は `comic-crawler-service`。deploy / rollback では `python -m
 - `MANGA_WATCH_GCP_PROJECT=star-light-breaker`
 - `MANGA_WATCH_CLOUD_RUN_REGION=asia-northeast1`
 - `MANGA_WATCH_CLOUD_RUN_JOB_NAME=comic-crawler-job`
+- `DISCORD_BOT_TOKEN_SECRET_VERSION=projects/star-light-breaker/secrets/comic-crawler-discord-bot-token/versions/latest`
 - `DISCORD_APPLICATION_PUBLIC_KEY=comic-crawler-discord-application-public-key:latest`
 
 ## 7. Post-deploy verification

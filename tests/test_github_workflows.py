@@ -33,10 +33,12 @@ class GitHubWorkflowContractTests(unittest.TestCase):
 
     def test_deploy_workflow_emits_and_consumes_an_image_digest(self):
         content = read_workflow("deploy-production.yml")
+        service_section = content.split("      - name: Deploy Cloud Run Service", maxsplit=1)[1]
 
         self.assertIn("image_digest", content)
         self.assertIn("gcloud run jobs update comic-crawler-job", content)
         self.assertIn("gcloud run deploy comic-crawler-service", content)
+        self.assertIn("DISCORD_BOT_TOKEN_SECRET_VERSION=${DISCORD_BOT_TOKEN_SECRET_VERSION}", service_section)
         self.assertIn('if [[ "${service_image_digest}" != "${IMAGE_DIGEST}" ]]', content)
         self.assertIn('if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]', content)
 
@@ -71,10 +73,15 @@ class GitHubWorkflowContractTests(unittest.TestCase):
 
     def test_rollback_workflow_validates_input_without_gcp_auth_and_updates_both_resources_after_gate(self):
         content = read_workflow("rollback-production.yml")
+        rollback_service_section = content.split("      - name: Deploy Cloud Run Service", maxsplit=1)[1]
 
         self.assertIn("asia-northeast1-docker.pkg.dev/star-light-breaker/comic-crawler/comic-crawler@sha256:", content)
         self.assertIn("gcloud run jobs update comic-crawler-job", content)
         self.assertIn("gcloud run deploy comic-crawler-service", content)
+        self.assertIn(
+            "DISCORD_BOT_TOKEN_SECRET_VERSION=${DISCORD_BOT_TOKEN_SECRET_VERSION}",
+            rollback_service_section,
+        )
         validate_section = content.split("  rollback:", maxsplit=1)[0]
         self.assertNotIn("Authenticate to Google Cloud", validate_section)
         self.assertNotIn("gcloud artifacts docker images describe", validate_section)
