@@ -40,6 +40,20 @@ class GitHubWorkflowContractTests(unittest.TestCase):
         self.assertIn('if [[ "${service_image_digest}" != "${IMAGE_DIGEST}" ]]', content)
         self.assertIn('if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]', content)
 
+    def test_deploy_workflow_sets_up_buildx_before_using_gha_cache(self):
+        content = read_workflow("deploy-production.yml")
+
+        build_section = content.split("  deploy:", maxsplit=1)[0]
+
+        self.assertIn("uses: docker/setup-buildx-action@v3", build_section)
+        self.assertIn("driver: docker-container", build_section)
+        self.assertIn("cache-from: type=gha", build_section)
+        self.assertIn("cache-to: type=gha,mode=max", build_section)
+        self.assertLess(
+            build_section.index("uses: docker/setup-buildx-action@v3"),
+            build_section.index("uses: docker/build-push-action@v6"),
+        )
+
     def test_rollback_workflow_exists_and_uses_workflow_dispatch(self):
         content = read_workflow("rollback-production.yml")
 
