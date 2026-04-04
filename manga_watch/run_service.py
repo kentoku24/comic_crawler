@@ -5,6 +5,7 @@ import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
+from manga_watch.discord_command_registration import ensure_commands_registered_from_env
 from manga_watch.discord_interactions import build_interaction_service_from_env
 
 
@@ -40,6 +41,7 @@ def build_request_handler(service):
 
 def main() -> int:
     try:
+        ensure_commands_registered_from_env()
         service = build_interaction_service_from_env()
     except Exception as exc:
         print(f"[run_service] configuration error: {exc}", file=sys.stderr)
