@@ -88,6 +88,28 @@ class DiscordCommandRegistrationTests(unittest.TestCase):
         self.assertIn("/oauth2/applications/@me", session.get_calls[0]["url"])
         self.assertIn("/applications/resolved-app/commands", session.put_calls[0]["url"])
 
+    def test_ensure_registered_from_env_uses_custom_api_base_for_application_lookup(self):
+        from manga_watch.discord_command_registration import ensure_commands_registered_from_env
+
+        session = FakeRequestsSession(
+            get_responses=[FakeResponse(status_code=200, json_data={"id": "resolved-app"})],
+            put_responses=[FakeResponse(status_code=200, json_data=[{"id": "1"}])],
+        )
+        with mock.patch.dict(
+            os.environ,
+            {
+                "DISCORD_BOT_TOKEN": "discord-token",
+                "DISCORD_API_BASE_URL": "https://discord.example.test/api/v10",
+            },
+            clear=True,
+        ):
+            ensure_commands_registered_from_env(session=session)
+
+        self.assertEqual(
+            "https://discord.example.test/api/v10/oauth2/applications/@me",
+            session.get_calls[0]["url"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()

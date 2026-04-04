@@ -48,6 +48,7 @@ def default_interaction_commands() -> List[Dict[str, str]]:
 def resolve_bot_config(
     *,
     environ: Optional[Dict[str, str]] = None,
+    api_base_url: str = DEFAULT_API_BASE_URL,
     session: RequestsSession = requests,
 ) -> tuple[str, str]:
     resolved_environ = os.environ.copy() if environ is None else environ
@@ -60,7 +61,7 @@ def resolve_bot_config(
         return bot_token, application_id
 
     response = session.get(
-        f"{DEFAULT_API_BASE_URL}/oauth2/applications/@me",
+        f"{api_base_url}/oauth2/applications/@me",
         headers={"Authorization": f"Bot {bot_token}"},
         timeout=10,
         allow_redirects=False,
@@ -127,7 +128,11 @@ def ensure_commands_registered_from_env(
     resolved_environ = os.environ.copy() if environ is None else environ
     resolved_guild_id = _coerce_text(resolved_environ.get("DISCORD_GUILD_ID"))
     api_base_url = (_coerce_text(resolved_environ.get("DISCORD_API_BASE_URL")) or DEFAULT_API_BASE_URL).rstrip("/")
-    bot_token, application_id = resolve_bot_config(environ=resolved_environ, session=session)
+    bot_token, application_id = resolve_bot_config(
+        environ=resolved_environ,
+        api_base_url=api_base_url,
+        session=session,
+    )
     return register_commands(
         bot_token=bot_token,
         application_id=application_id,
