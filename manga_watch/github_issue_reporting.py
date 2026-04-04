@@ -4,7 +4,7 @@ import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Callable, Dict, Mapping, Optional, Protocol
-from urllib.parse import urlparse
+from urllib.parse import urlparse, urlunparse
 
 import requests
 
@@ -83,6 +83,23 @@ def build_unsupported_source_issue_title(host: str) -> str:
     return f"{UNSUPPORTED_SOURCE_ISSUE_TITLE_PREFIX}: {host}"
 
 
+def normalize_unsupported_source_host(url: str) -> str:
+    parsed = urlparse(url)
+    hostname = _coerce_text(parsed.hostname)
+    if hostname is not None:
+        return hostname.lower()
+    return _coerce_text(parsed.netloc) or url
+
+
+def sanitize_unsupported_source_url(url: str) -> str:
+    parsed = urlparse(url)
+    hostname = _coerce_text(parsed.hostname)
+    scheme = _coerce_text(parsed.scheme)
+    if hostname is None or scheme is None:
+        return redact_secret_text(url)
+    return urlunparse((scheme, hostname.lower(), parsed.path, "", "", ""))
+
+
 def build_unsupported_source_issue_body(
     *,
     url: str,
@@ -94,7 +111,7 @@ def build_unsupported_source_issue_body(
         [
             UNSUPPORTED_SOURCE_ISSUE_MARKER,
             "## Unsupported Source Request",
-            f"- Input URL: `{url}`",
+            f"- Input URL: `{sanitize_unsupported_source_url(url)}`",
             f"- Host: `{host}`",
             "- Requested from: Discord `/add`",
             f"- Requested at: `{reported_at}`",
@@ -124,7 +141,7 @@ class GitHubIssueReporter:
         url: str,
         error: WatchlistAddError,
     ) -> Dict[str, object]:
-        host = urlparse(url).netloc.lower()
+        host = normalize_unsupported_source_host(url)
         title = build_unsupported_source_issue_title(host)
         existing = self._find_existing_open_issue(url=url, host=host, title=title)
         if existing is not None:
@@ -165,6 +182,7 @@ class GitHubIssueReporter:
         host: str,
         title: str,
     ) -> Optional[Dict[str, object]]:
+        sanitized_url = sanitize_unsupported_source_url(url)
         response = self._request(
             "get",
             f"{self.config.api_base_url}/repos/{self.config.repository}/issues",
@@ -173,7 +191,7 @@ class GitHubIssueReporter:
         payload = response.json()
         if not isinstance(payload, list):
             raise RuntimeError("GitHub issue list returned unexpected response")
-        url_line = f"- Input URL: `{url}`"
+        url_line = f"- Input URL: `{sanitized_url}`"
         host_line = f"- Host: `{host}`"
         for item in payload:
             if not isinstance(item, Mapping) or item.get("pull_request") is not None:

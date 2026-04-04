@@ -115,6 +115,44 @@ class GitHubIssueReportingTests(unittest.TestCase):
         )
         self.assertIn("https://example.com/work/1", session.post_calls[0]["json"]["body"])
 
+    def test_report_unsupported_source_redacts_query_and_userinfo_from_issue_body(self):
+        from manga_watch.github_issue_reporting import GitHubIssueReporter, GitHubIssueReporterConfig
+
+        session = FakeRequestsSession(
+            get_responses=[FakeResponse(status_code=200, json_data=[])],
+            post_responses=[
+                FakeResponse(
+                    status_code=201,
+                    json_data={
+                        "number": 174,
+                        "html_url": "https://github.com/kentoku24/comic_crawler/issues/174",
+                    },
+                )
+            ],
+        )
+        reporter = GitHubIssueReporter(
+            GitHubIssueReporterConfig(
+                token="github-token",
+                repository="kentoku24/comic_crawler",
+            ),
+            session=session,
+        )
+
+        reporter.report_unsupported_source(
+            url="https://user:pass@example.com:443/work/1?token=secret#frag",
+            error=WatchlistAddError(
+                "unsupported_source",
+                "Unsupported source host: example.com",
+                "Use one of the supported sources.",
+            ),
+        )
+
+        body = session.post_calls[0]["json"]["body"]
+        self.assertIn("- Input URL: `https://example.com/work/1`", body)
+        self.assertNotIn("user:pass", body)
+        self.assertNotIn("token=secret", body)
+        self.assertNotIn(":443", body)
+
     def test_report_unsupported_source_reuses_existing_open_issue(self):
         from manga_watch.github_issue_reporting import GitHubIssueReporter, GitHubIssueReporterConfig
 
@@ -157,6 +195,49 @@ class GitHubIssueReportingTests(unittest.TestCase):
         self.assertEqual("duplicate", outcome["action"])
         self.assertEqual(175, outcome["issue_number"])
         self.assertEqual(1, len(session.get_calls))
+        self.assertEqual(0, len(session.post_calls))
+
+    def test_report_unsupported_source_deduplicates_by_hostname_without_port(self):
+        from manga_watch.github_issue_reporting import GitHubIssueReporter, GitHubIssueReporterConfig
+
+        session = FakeRequestsSession(
+            get_responses=[
+                FakeResponse(
+                    status_code=200,
+                    json_data=[
+                        {
+                            "number": 175,
+                            "html_url": "https://github.com/kentoku24/comic_crawler/issues/175",
+                            "title": "Unsupported source request from Discord /add: example.com",
+                            "body": (
+                                "<!-- unsupported-source-request -->\n"
+                                "- Input URL: `https://example.com/work/1`\n"
+                                "- Host: `example.com`\n"
+                            ),
+                        }
+                    ],
+                )
+            ],
+        )
+        reporter = GitHubIssueReporter(
+            GitHubIssueReporterConfig(
+                token="github-token",
+                repository="kentoku24/comic_crawler",
+            ),
+            session=session,
+        )
+
+        outcome = reporter.report_unsupported_source(
+            url="https://example.com:443/work/1?token=secret",
+            error=WatchlistAddError(
+                "unsupported_source",
+                "Unsupported source host: example.com",
+                "Use one of the supported sources.",
+            ),
+        )
+
+        self.assertEqual("duplicate", outcome["action"])
+        self.assertEqual(175, outcome["issue_number"])
         self.assertEqual(0, len(session.post_calls))
 
     def test_build_reporter_from_env_uses_namespaced_token_and_repository(self):
