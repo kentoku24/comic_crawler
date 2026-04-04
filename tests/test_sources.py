@@ -41,6 +41,7 @@ SOURCE_CASES = {
         "episode_seed_missing_next_update",
     ),
     "takecomic": (
+        "genre_tag_before_update_label",
         "normal",
     ),
 }
@@ -72,6 +73,7 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "episode_seed_missing_next_update": "main_story",
     },
     "takecomic": {
+        "genre_tag_before_update_label": "main_story",
         "normal": "main_story",
     },
 }

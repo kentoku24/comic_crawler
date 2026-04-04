@@ -4,7 +4,6 @@ import xml.etree.ElementTree as ET
 from typing import Optional, Tuple
 
 from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, WorkDescriptor
-from .champion_cross import extract_champion_cross_next_update_label
 
 
 _HOST = "takecomic.jp"
@@ -19,6 +18,11 @@ _SERIES_RSS_URL = re.compile(
 )
 _SERIES_HASH_IN_HTML = re.compile(
     rf"https?://(?:www\.)?{_HOST}/series/([0-9A-Za-z]+)(?:/rss)?(?:[/?\"'])"
+)
+_NEXT_UPDATE_LABEL_IN_DAY_LINK = re.compile(
+    r'<a[^>]*class="[^"]*\bseries-h-day-of-week-link\b[^"]*"[^>]*>.*?'
+    r'<span[^>]*class="[^"]*\bseries-h-tag-label\b[^"]*"[^>]*>\s*([^<]+?)\s*</span>',
+    re.S,
 )
 
 
@@ -71,6 +75,17 @@ def extract_takecomic_series_hash(html_text: str) -> Optional[str]:
     if not match:
         return None
     return match.group(1)
+
+
+def extract_takecomic_next_update_label(html_text: str) -> Optional[str]:
+    if not html_text:
+        return None
+    normalized = html.unescape(html_text).replace("\\/", "/")
+    match = _NEXT_UPDATE_LABEL_IN_DAY_LINK.search(normalized)
+    if not match:
+        return None
+    label = re.sub(r"\s+", " ", match.group(1)).strip()
+    return label or None
 
 
 def parse_takecomic_rss_latest(feed_text: str) -> Tuple[str, Optional[str], Optional[str]]:
@@ -156,7 +171,7 @@ class TakecomicAdapter(SourceAdapter):
         latest_episode_html = seed_episode_html
         if latest_episode_html is None or latest_url != parse_takecomic_episode_url(work.seed_url):
             latest_episode_html = http_client.get_text(latest_url)
-        next_update_label = extract_champion_cross_next_update_label(latest_episode_html)
+        next_update_label = extract_takecomic_next_update_label(latest_episode_html)
 
         extra = {}
         if next_update_label:
