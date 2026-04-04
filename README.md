@@ -298,6 +298,8 @@ docker compose logs --tail 80 comic-crawler
 - `docker compose ps`: `comic-crawler` が `Up` になっていることを確認する
 - `docker compose logs --tail 80 comic-crawler`: startup run に configuration / state / delivery failure が出ていないことを確認する
 
+GCP production runtime の deploy / rollback はこの compose 手順ではなく、GitHub Actions の `Deploy Production` / `Rollback Production` workflow を source of truth とします。production deploy contract と確認コマンドは [`doc/gcp-deploy.md`](doc/gcp-deploy.md)、日常運用は [`doc/運用手順書.md`](doc/運用手順書.md) を参照してください。
+
 ### Environment variables
 
 - `MANGA_WATCH_NOTIFIER_BACKENDS`: required。comma-separated backend list。現在値は `stdout`, `webhook`
