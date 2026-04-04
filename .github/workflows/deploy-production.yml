@@ -176,6 +176,14 @@ jobs:
             --project="${GCP_PROJECT_ID}" \
             --region="${GCP_REGION}" \
             --format='value(spec.template.template.containers[0].image)')"
+          if [[ "${service_image_digest}" != "${IMAGE_DIGEST}" ]]; then
+            echo "service digest mismatch: expected ${IMAGE_DIGEST}, got ${service_image_digest}" >&2
+            exit 1
+          fi
+          if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]; then
+            echo "job image ref mismatch: expected ${IMAGE_REF}, got ${job_image_ref}" >&2
+            exit 1
+          fi
           echo "latest_ready_revision=${latest_ready_revision}" >> "${GITHUB_OUTPUT}"
           echo "service_image_digest=${service_image_digest}" >> "${GITHUB_OUTPUT}"
           echo "job_image_ref=${job_image_ref}" >> "${GITHUB_OUTPUT}"

@@ -1,18 +1,28 @@
 # comic_crawler
 
-Docker コンテナ 1 つで定期クロールし、generic notifier backend (`stdout` / webhook) に update event を送れる漫画更新監視アプリです。Discord surface は別契約で、daily notification を main channel、run report を run-report channel へ送ります。stdout/stderr はローカル運用ログとして引き続き使います。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
+GCP では Cloud Run Job / Cloud Run Service / Cloud Scheduler を primary path として定期クロールし、generic notifier backend (`stdout` / webhook) に update event を送る漫画更新監視アプリです。Discord surface は別契約で、daily notification を main channel、run report を run-report channel へ送ります。stdout/stderr はローカル運用ログとして引き続き使います。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
 
 ## Canonical docs
 
-この repo の source of truth は次の 5 文書です。
+この repo の source of truth は次の 6 文書です。
 
 - `doc/要件定義書.md`
 - `doc/設計書.md`
+- `doc/gcp-deploy.md`
 - `spec.md` (document title: `SPEC.md`)
 - `doc/運用手順書.md`
 - `doc/受け入れテスト計画書.md`
 
 GCP runtime の backend env / Firestore schema / Secret Manager mapping / migration command は [`doc/gcp-runtime.md`](doc/gcp-runtime.md) を source of truth とします。
+
+GCP の deploy / run / verify の source of truth は [`doc/gcp-deploy.md`](doc/gcp-deploy.md)、日常運用の確認手順は [`doc/運用手順書.md`](doc/運用手順書.md) を参照します。
+
+## GCP runtime
+
+- Cloud Run Job `comic-crawler-job`: 定期クロールと手動実行の実体
+- Cloud Run Service `comic-crawler-service`: Discord interaction endpoint
+- Cloud Scheduler helper: `python3 scripts/print_cloud_scheduler_job.py create|update --schedule "<cron>"`
+- Scheduler force-run: `gcloud scheduler jobs run comic-crawler-scheduled-run --project=star-light-breaker --location=asia-northeast1`
 
 root の受け入れ仕様書は Git 上の実ファイル名を `spec.md` にしていますが、文書名と cross-document 参照では `SPEC.md` と表記します。これは macOS などの case-insensitive filesystem で path 衝突を避けるためです。canonical docs や新しい issue / PR で `SPEC.md` と書かれている場合は、この `spec.md` を指します。旧 single-file spec への過去の言及は reference 扱いで、source of truth ではありません。
 
@@ -269,7 +279,39 @@ python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
 }
 ```
 
-## Docker run
+## GCP run / verify
+
+GCP での運用は Cloud Run Job / Cloud Run Service / Cloud Scheduler を基準にします。詳細な resource contract は [`doc/gcp-deploy.md`](doc/gcp-deploy.md) を見てください。
+
+```bash
+gcloud run jobs execute comic-crawler-job \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --wait
+
+gcloud scheduler jobs run comic-crawler-scheduled-run \
+  --project=star-light-breaker \
+  --location=asia-northeast1
+
+gcloud run jobs logs read comic-crawler-job \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --limit=20
+
+gcloud run services logs read comic-crawler-service \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --limit=20
+```
+
+- Cloud Run Job は手動 run と定期 run の実行主体
+- Cloud Run Service は `latest` / `fetch` を受ける Discord interaction endpoint
+- Cloud Scheduler helper script は `create` / `update` の command shape を出すので、Scheduler 側の設定確認に使う
+- 詳細な日次確認は [`doc/運用手順書.md`](doc/運用手順書.md) を参照する
+
+## Legacy / local fallback
+
+`docker compose` は GCP の代替ではなく、ローカル検証や一時的な fallback 用です。
 
 1. `.env.example` を `.env` にコピーして notifier 設定を入れる
 2. 必要なら `manga_watch/watchlist.json` を編集する
@@ -282,9 +324,9 @@ docker compose logs -f
 
 compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は volume `crawler-data` に保存します。
 
-### Updating an existing deployment
+### Legacy local update
 
-`main` にデプロイ済み環境を `origin/main` の最新へ更新するときは、repo root で次を実行します。
+ローカル fallback を更新するときは、repo root で次を実行します。
 
 ```bash
 git pull --ff-only origin main

@@ -37,6 +37,8 @@ class GitHubWorkflowContractTests(unittest.TestCase):
         self.assertIn("image_digest", content)
         self.assertIn("gcloud run jobs update comic-crawler-job", content)
         self.assertIn("gcloud run deploy comic-crawler-service", content)
+        self.assertIn('if [[ "${service_image_digest}" != "${IMAGE_DIGEST}" ]]', content)
+        self.assertIn('if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]', content)
 
     def test_rollback_workflow_exists_and_uses_workflow_dispatch(self):
         content = read_workflow("rollback-production.yml")
@@ -53,13 +55,16 @@ class GitHubWorkflowContractTests(unittest.TestCase):
         self.assertIn("rollback:", content)
         self.assertIn("environment: production", content)
 
-    def test_rollback_workflow_validates_input_and_updates_both_resources(self):
+    def test_rollback_workflow_validates_input_without_gcp_auth_and_updates_both_resources_after_gate(self):
         content = read_workflow("rollback-production.yml")
 
         self.assertIn("asia-northeast1-docker.pkg.dev/star-light-breaker/comic-crawler/comic-crawler@sha256:", content)
-        self.assertIn("gcloud artifacts docker images describe", content)
         self.assertIn("gcloud run jobs update comic-crawler-job", content)
         self.assertIn("gcloud run deploy comic-crawler-service", content)
+        validate_section = content.split("  rollback:", maxsplit=1)[0]
+        self.assertNotIn("Authenticate to Google Cloud", validate_section)
+        self.assertNotIn("gcloud artifacts docker images describe", validate_section)
+        self.assertIn("gcloud artifacts docker images describe", content.split("  rollback:", maxsplit=1)[1])
 
 
 if __name__ == "__main__":

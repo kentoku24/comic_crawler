@@ -30,19 +30,6 @@ jobs:
     steps:
       - uses: actions/checkout@v5
 
-      - id: auth
-        name: Authenticate to Google Cloud
-        uses: google-github-actions/auth@v3
-        with:
-          create_credentials_file: true
-          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
-          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
-
-      - name: Set up gcloud
-        uses: google-github-actions/setup-gcloud@v3
-        with:
-          project_id: ${{ env.GCP_PROJECT_ID }}
-
       - id: validate
         name: Validate rollback target
         env:
@@ -52,7 +39,6 @@ jobs:
             echo "image_ref must match asia-northeast1-docker.pkg.dev/star-light-breaker/comic-crawler/comic-crawler@sha256:<64 hex>" >&2
             exit 1
           fi
-          gcloud artifacts docker images describe "${IMAGE_REF}" >/dev/null
           echo "image_ref=${IMAGE_REF}" >> "${GITHUB_OUTPUT}"
           echo "image_digest=${IMAGE_REF##*@}" >> "${GITHUB_OUTPUT}"
 
@@ -95,6 +81,9 @@ jobs:
         with:
           project_id: ${{ env.GCP_PROJECT_ID }}
 
+      - name: Confirm rollback target exists in Artifact Registry
+        run: gcloud artifacts docker images describe "${IMAGE_REF}" >/dev/null
+
       - name: Update Cloud Run Job
         run: |
           gcloud run jobs update comic-crawler-job \
@@ -134,6 +123,14 @@ jobs:
             --project="${GCP_PROJECT_ID}" \
             --region="${GCP_REGION}" \
             --format='value(spec.template.template.containers[0].image)')"
+          if [[ "${service_image_digest}" != "${IMAGE_DIGEST}" ]]; then
+            echo "service digest mismatch: expected ${IMAGE_DIGEST}, got ${service_image_digest}" >&2
+            exit 1
+          fi
+          if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]; then
+            echo "job image ref mismatch: expected ${IMAGE_REF}, got ${job_image_ref}" >&2
+            exit 1
+          fi
           echo "latest_ready_revision=${latest_ready_revision}" >> "${GITHUB_OUTPUT}"
           echo "service_image_digest=${service_image_digest}" >> "${GITHUB_OUTPUT}"
           echo "job_image_ref=${job_image_ref}" >> "${GITHUB_OUTPUT}"

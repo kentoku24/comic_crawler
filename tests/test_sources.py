@@ -14,6 +14,7 @@ from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
 from manga_watch.sources.util import html_title
+from manga_watch.sources.takecomic import TakecomicAdapter
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures"
 SOURCE_CASES = {
@@ -40,9 +41,10 @@ SOURCE_CASES = {
         "normal",
         "episode_seed_missing_next_update",
     ),
-    "champion-cross": (
+    "takecomic": (
+        "days_of_week_json_only",
+        "genre_tag_before_update_label",
         "normal",
-        "episode_seed_missing_next_update",
     ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
@@ -71,7 +73,11 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
     "champion-cross": {
         "normal": "main_story",
         "episode_seed_missing_next_update": "main_story",
-        "episode_seed_missing_next_update": "main_story",
+    },
+    "takecomic": {
+        "days_of_week_json_only": "main_story",
+        "genre_tag_before_update_label": "main_story",
+        "normal": "main_story",
     },
 }
 
@@ -161,7 +167,7 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "champion-cross", "kakuyomu"),
+            ("comic-walker", "comic-action", "champion-cross", "takecomic", "kakuyomu"),
             REGISTERED_SOURCES,
         )
 
@@ -188,6 +194,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_champion_cross_fixtures(self):
         self._assert_fixture_matrix("champion-cross")
+
+    def test_takecomic_fixtures(self):
+        self._assert_fixture_matrix("takecomic")
 
     def test_comic_walker_normalize_accepts_canonical_series_url(self):
         work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")
@@ -230,6 +239,21 @@ class SourceAdapterTests(unittest.TestCase):
                 "seedUrl": "https://championcross.jp/series/abc123",
                 "series": "champion-cross:abc123",
                 "seriesHash": "abc123",
+            },
+            work.to_dict(),
+        )
+
+    def test_takecomic_normalize_accepts_series_url(self):
+        work = TakecomicAdapter().normalize("https://takecomic.jp/series/3f846451aff2d/?ref=top")
+
+        self.assertEqual(
+            {
+                "source": "takecomic",
+                "kind": "takecomic",
+                "workId": "takecomic:3f846451aff2d",
+                "seedUrl": "https://takecomic.jp/series/3f846451aff2d",
+                "series": "takecomic:3f846451aff2d",
+                "seriesHash": "3f846451aff2d",
             },
             work.to_dict(),
         )
@@ -348,6 +372,181 @@ class SourceAdapterTests(unittest.TestCase):
         latest = adapter.fetch_latest(work, client).to_dict()
 
         self.assertEqual("4月3日", latest["nextUpdateLabel"])
+
+    def test_comic_action_fetch_latest_uses_series_rss_for_episode_seed_when_readable_chain_stops(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/episode/2550689798784879524")
+        client = StaticHttpClient(
+            {
+                "https://comic-action.com/episode/2550689798784879524": """
+                <html>
+                  <head><title>第39話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script>{"series_id":"13933686331663374228","episode_title":"第39話"}</script>
+                    <script id='episode-json' type='text/json' data-value='{
+                      "readableProduct":{
+                        "series":{"id":"13933686331663374228","title":"ダンジョンの中のひと"},
+                        "title":"第39話",
+                        "number":50,
+                        "nextReadableProductUri":null
+                      }
+                    }'></script>
+                  </body>
+                </html>
+                """,
+                "https://comic-action.com/rss/series/13933686331663374228": """
+                <rss>
+                  <channel>
+                    <item>
+                      <title>第51話</title>
+                      <link>https://comic-action.com/episode/2551460910007760899</link>
+                    </item>
+                    <item>
+                      <title>第50話</title>
+                      <link>https://comic-action.com/episode/2551460909780695609</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-action.com/episode/2551460910007760899": """
+                <html>
+                  <head><title>第51話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script id='episode-json' type='text/json' data-value='{"readableProduct":{"title":"第51話","number":51}}'></script>
+                    <div class="viewer-colophon-update-container">
+                      <p class="viewer-colophon-next-update">次回更新： 4月4日</p>
+                    </div>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual(
+            "https://comic-action.com/episode/2551460910007760899",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第51話", latest["episodeTitle"])
+        self.assertEqual("4月4日", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/episode/2550689798784879524",
+                "https://comic-action.com/rss/series/13933686331663374228",
+                "https://comic-action.com/episode/2551460910007760899",
+            ],
+            client.calls,
+        )
+
+    def test_comic_action_fetch_latest_falls_back_to_entry_episode_when_series_rss_fetch_fails(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/episode/2550689798784879524")
+
+        class Client:
+            def __init__(self):
+                self.calls = []
+
+            def get_text(self, url: str) -> str:
+                self.calls.append(url)
+                if url == "https://comic-action.com/episode/2550689798784879524":
+                    return """
+                    <html>
+                      <head><title>第39話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                      <body>
+                        <script>{"series_id":"13933686331663374228","episode_title":"第39話"}</script>
+                        <script id='episode-json' type='text/json' data-value='{
+                          "readableProduct":{
+                            "series":{"id":"13933686331663374228","title":"ダンジョンの中のひと"},
+                            "title":"第39話",
+                            "number":50,
+                            "nextReadableProductUri":null
+                          }
+                        }'></script>
+                      </body>
+                    </html>
+                    """
+                if url == "https://comic-action.com/rss/series/13933686331663374228":
+                    raise RuntimeError("temporary feed outage")
+                raise AssertionError(f"unexpected request: {url!r}")
+
+        client = Client()
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual(
+            "https://comic-action.com/episode/2550689798784879524",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第39話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/episode/2550689798784879524",
+                "https://comic-action.com/rss/series/13933686331663374228",
+            ],
+            client.calls,
+        )
+
+    def test_comic_action_fetch_latest_keeps_entry_episode_when_series_rss_is_stale(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/episode/2550689798784879524")
+        client = StaticHttpClient(
+            {
+                "https://comic-action.com/episode/2550689798784879524": """
+                <html>
+                  <head><title>第39話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script>{"series_id":"13933686331663374228","episode_title":"第39話"}</script>
+                    <script id='episode-json' type='text/json' data-value='{
+                      "readableProduct":{
+                        "series":{"id":"13933686331663374228","title":"ダンジョンの中のひと"},
+                        "title":"第39話",
+                        "number":51,
+                        "nextReadableProductUri":null
+                      }
+                    }'></script>
+                  </body>
+                </html>
+                """,
+                "https://comic-action.com/rss/series/13933686331663374228": """
+                <rss>
+                  <channel>
+                    <item>
+                      <title>第50話</title>
+                      <link>https://comic-action.com/episode/2551460909780695609</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-action.com/episode/2551460909780695609": """
+                <html>
+                  <head><title>第50話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script id='episode-json' type='text/json' data-value='{"readableProduct":{"title":"第50話","number":50}}'></script>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual(
+            "https://comic-action.com/episode/2550689798784879524",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第39話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/episode/2550689798784879524",
+                "https://comic-action.com/rss/series/13933686331663374228",
+                "https://comic-action.com/episode/2551460909780695609",
+            ],
+            client.calls,
+        )
 
     def test_comic_walker_fetch_latest_extracts_next_update_label(self):
         adapter = ComicWalkerAdapter()
@@ -526,6 +725,49 @@ class SourceAdapterTests(unittest.TestCase):
             [
                 "https://championcross.jp/series/4756324e1c1b1/rss",
                 "https://championcross.jp/episodes/f35108c56e75d",
+            ],
+            client.calls,
+        )
+
+    def test_takecomic_fetch_latest_accepts_series_url(self):
+        adapter = TakecomicAdapter()
+        work = adapter.normalize("https://takecomic.jp/series/3f846451aff2d/")
+        client = StaticHttpClient(
+            {
+                "https://takecomic.jp/series/3f846451aff2d/rss": """
+                <rss>
+                  <channel>
+                    <title>作品D</title>
+                    <item>
+                      <title><![CDATA[第10話]]></title>
+                      <link>https://takecomic.jp/episodes/abc12345?from=rss</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://takecomic.jp/episodes/abc12345": """
+                <html>
+                  <body>
+                    <a href="/category/manga?type=連載中&amp;day=火" class="series-h-day-of-week-link">
+                      <span class="series-h-tag-label">火曜更新</span>
+                    </a>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("takecomic:3f846451aff2d", latest["workId"])
+        self.assertEqual("https://takecomic.jp/episodes/abc12345", latest["latestKey"])
+        self.assertEqual("作品D", latest["seriesTitle"])
+        self.assertEqual("第10話", latest["episodeTitle"])
+        self.assertEqual("火曜更新", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://takecomic.jp/series/3f846451aff2d/rss",
+                "https://takecomic.jp/episodes/abc12345",
             ],
             client.calls,
         )

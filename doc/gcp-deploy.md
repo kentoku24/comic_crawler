@@ -3,6 +3,12 @@
 この文書は `comic_crawler` repo の canonical GCP naming / deploy contract である。  
 GCP 上の resource 名、production artifact source of truth、GitHub Actions deploy / rollback 契約、検証コマンドをここで固定する。
 
+## 0. Related source of truth
+
+- 日常運用の入口は [`README.md`](../README.md)
+- operator 向けの手順は [`doc/運用手順書.md`](./運用手順書.md)
+- runtime の backend env / Firestore schema / Secret Manager mapping は [`doc/gcp-runtime.md`](./gcp-runtime.md)
+
 ## 1. Canonical contract
 
 | 項目 | Canonical value |
@@ -290,3 +296,85 @@ helper script で create command を出す:
 SCHEDULE="0 * * * *"
 python3 scripts/print_cloud_scheduler_job.py create --schedule "$SCHEDULE"
 ```
+
+helper script で update command を出す:
+
+```bash
+SCHEDULE="0 * * * *"
+python3 scripts/print_cloud_scheduler_job.py update --schedule "$SCHEDULE"
+```
+
+helper script は次を固定で出力する。
+
+- HTTP method: `POST`
+- auth: OAuth service account token
+- scope: `https://www.googleapis.com/auth/cloud-platform`
+- header: `Content-Type=application/json`
+- message body: Cloud Run Job `run` override payload
+- time zone default: `Asia/Tokyo`
+
+`SCHEDULE` の cron 自体は deployment decision であり、この task では canonical 値として固定しない。
+
+## 9. Practical run / verify
+
+この節は、上の contract を GCP で実際に確認するための実用コマンドをまとめる。
+個別の運用判断は [`README.md`](../README.md) と [`doc/運用手順書.md`](./運用手順書.md) を優先し、この文書では command shape を source of truth として残す。
+
+### Cloud Run Job の手動 run
+
+```bash
+gcloud run jobs execute comic-crawler-job \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --wait
+```
+
+### Cloud Scheduler の force-run
+
+```bash
+gcloud scheduler jobs run comic-crawler-scheduled-run \
+  --project=star-light-breaker \
+  --location=asia-northeast1
+```
+
+### Cloud Run Job / Service の logs 確認
+
+```bash
+gcloud run jobs logs read comic-crawler-job \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --limit=50
+
+gcloud run services logs read comic-crawler-service \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --limit=50
+```
+
+### Cloud Logging の直接確認
+
+```bash
+gcloud logging read 'resource.type="cloud_run_job" AND resource.labels.job_name="comic-crawler-job"' \
+  --project=star-light-breaker \
+  --freshness=1d \
+  --limit=20 \
+  --format='value(timestamp,resource.type,textPayload)'
+
+gcloud logging read 'resource.type="cloud_run_revision" AND resource.labels.service_name="comic-crawler-service"' \
+  --project=star-light-breaker \
+  --freshness=1d \
+  --limit=20 \
+  --format='value(timestamp,resource.type,textPayload)'
+```
+
+### Helper script の確認
+
+```bash
+python3 scripts/print_cloud_scheduler_job.py create --schedule "0 * * * *"
+python3 scripts/print_cloud_scheduler_job.py update --schedule "0 * * * *"
+```
+
+- helper script は Cloud Scheduler の create / update command shape を固定する
+- Cloud Run Job は `comic-crawler-job`
+- Cloud Run Service は `comic-crawler-service`
+- Scheduler force-run は `comic-crawler-scheduled-run` に対して実行する
