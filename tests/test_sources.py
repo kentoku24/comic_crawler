@@ -349,6 +349,71 @@ class SourceAdapterTests(unittest.TestCase):
 
         self.assertEqual("4月3日", latest["nextUpdateLabel"])
 
+    def test_comic_action_fetch_latest_uses_series_rss_for_episode_seed_when_readable_chain_stops(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/episode/2550689798784879524")
+        client = StaticHttpClient(
+            {
+                "https://comic-action.com/episode/2550689798784879524": """
+                <html>
+                  <head><title>第39話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script>{"series_id":"13933686331663374228","episode_title":"第39話"}</script>
+                    <script id='episode-json' type='text/json' data-value='{
+                      "readableProduct":{
+                        "series":{"id":"13933686331663374228","title":"ダンジョンの中のひと"},
+                        "title":"第39話",
+                        "nextReadableProductUri":null
+                      }
+                    }'></script>
+                  </body>
+                </html>
+                """,
+                "https://comic-action.com/rss/series/13933686331663374228": """
+                <rss>
+                  <channel>
+                    <item>
+                      <title>第51話</title>
+                      <link>https://comic-action.com/episode/2551460910007760899</link>
+                    </item>
+                    <item>
+                      <title>第50話</title>
+                      <link>https://comic-action.com/episode/2551460909780695609</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-action.com/episode/2551460910007760899": """
+                <html>
+                  <head><title>第51話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <div class="viewer-colophon-update-container">
+                      <p class="viewer-colophon-next-update">次回更新： 4月4日</p>
+                    </div>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual(
+            "https://comic-action.com/episode/2551460910007760899",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第51話", latest["episodeTitle"])
+        self.assertEqual("4月4日", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/episode/2550689798784879524",
+                "https://comic-action.com/rss/series/13933686331663374228",
+                "https://comic-action.com/episode/2551460910007760899",
+            ],
+            client.calls,
+        )
+
     def test_comic_walker_fetch_latest_extracts_next_update_label(self):
         adapter = ComicWalkerAdapter()
         work = adapter.normalize("https://comic-walker.com/detail/KC_123456_S")
