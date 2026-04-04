@@ -216,28 +216,20 @@ runner が backend に送る update event は次の schema です。
 
 ## Supported sources
 
-| Source | `watchlist add` accepted inputs | Stored `seed_url` | `work_id` | `latest_key` |
+| Source | Discord `/add` accepted inputs | Stored `seed_url` | `work_id` | `latest_key` |
 | --- | --- | --- | --- | --- |
 | ComicWalker | canonical series URL, episode URL | `https://comic-walker.com/detail/<series>` | `KC_XXXXXX_S` | `episodeCode` |
 | webアクション | episode URL, RSS/Atom series feed URL | canonical episode URL または canonical series feed URL | `comic-action:<series_id>` | 最終到達 episode URL |
 | Champion Cross | episode URL, series URL, series RSS URL | canonical episode URL / canonical series URL / canonical series RSS URL | `champion-cross:<series_hash>` | 最新 episode URL |
 | Kakuyomu | work URL, episode URL | 入力 URL のまま | `kakuyomu:<numeric_work_id>` | 最新 episode id |
 
-Phase 1 では source ごとの capability 差を隠しません。`watchlist add` が受け付ける URL 種別は上の表だけです。
+Phase 1 では source ごとの capability 差を隠しません。作品追加で受け付ける URL 種別は上の表だけです。
 
-## Watchlist add CLI
+## Discord `/add`
 
-```bash
-python3 -m manga_watch.watchlist add <url>
-python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
-```
+作品追加の正式導線は Discord slash command `/add url:<作品URL>` です。内部では shared add logic が URL を normalize し、duplicate / unsupported 判定を行ってから watchlist を更新します。
 
-- デフォルトの watchlist パスは `MANGA_WATCH_WATCHLIST`、未設定時は `MANGA_WATCH_URLS`、さらに未設定なら `manga_watch/watchlist.json`
-- 出力は常に JSON
-- `action=added` と `action=duplicate` は exit code `0`
-- `action=error` は exit code `1`
-
-成功時は normalize preview を `entry` に返します。
+成功時は normalize preview 相当の結果から、登録された `work_id` と `seed_url` を返します。
 
 ```json
 {
@@ -266,14 +258,14 @@ python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
 }
 ```
 
-エラー時は `kind`, `message`, `next_action` を返します。`kind` は少なくとも `invalid_url`, `unsupported_source`, `unsupported_url_type`, `normalize_failed` を使います。
+エラー時は shared add logic の `kind`, `message`, `next_action` をもとに応答します。`kind` は少なくとも `invalid_url`, `unsupported_source`, `unsupported_url_type`, `normalize_failed` を使います。
 
 ```json
 {
   "action": "error",
   "error": {
     "kind": "unsupported_url_type",
-    "message": "comic-action does not support this URL type for `watchlist add`: https://comic-action.com/series/123",
+    "message": "comic-action does not support this URL type for work registration: https://comic-action.com/series/123",
     "next_action": "Supported input types for comic-action: episode URL, series feed URL. Examples: https://comic-action.com/episode/123456 / https://comic-action.com/rss/series/123456"
   }
 }
@@ -402,7 +394,7 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 .venv/bin/python -m manga_watch.replay_outbox
 ```
 
-Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、既存 `watchlist add` ロジックで対応できる URL のみクロール対象へ追加します。
+Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、shared add logic で対応できる URL のみクロール対象へ追加します。
 Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/remove` を扱います。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 
@@ -487,7 +479,7 @@ drift を検知したら、次の順で進めます。
 - `manga_watch/discord_text.py`: Discord 表示向け label fallback / truncate helper
 - `manga_watch/discord_outbound.py`: Discord daily notification / run report formatter と sender
 - `manga_watch/notifier.py`: update event schema + stdout/webhook backend
-- `manga_watch/watchlist.py`: `watchlist add <url>` CLI
+- `manga_watch/watchlist.py`: Discord `/add` が使う shared add logic と source capability 定義
 - `manga_watch/runner.py`: スケジューラ + notifier fan-out + Discord outbound orchestration
 - `manga_watch/update_classification.py`: 更新種別と既定通知対象の分類ロジック
 - `manga_watch/watchlist.json`: watchlist v2 sample

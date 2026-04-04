@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from manga_watch.watchlist import add_watchlist_url
+from manga_watch.watchlist import WatchlistAddError, add_watchlist_url
 
 
 def write_watchlist(path: Path, works):
@@ -25,41 +25,27 @@ class StaticHttpClient:
         return self.responses[url]
 
 
-class WatchlistCliTests(unittest.TestCase):
+class WatchlistAddLogicTests(unittest.TestCase):
     maxDiff = None
 
-    def run_watchlist_module(self, *args):
-        repo_root = Path(__file__).resolve().parents[1]
-        return subprocess.run(
-            [sys.executable, "-m", "manga_watch.watchlist", *args],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-    def test_watchlist_add_adds_entry_from_supported_work_url(self):
+    def test_add_watchlist_url_adds_entry_from_supported_work_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [])
 
-            result = self.run_watchlist_module(
-                "add",
+            payload = add_watchlist_url(
                 "https://kakuyomu.jp/works/123",
-                "--watchlist",
-                str(watchlist_path),
+                watchlist_path=str(watchlist_path),
             )
             saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        payload = json.loads(result.stdout)
         self.assertEqual("added", payload["action"])
         self.assertEqual("kakuyomu:123", payload["entry"]["id"])
         self.assertEqual("https://kakuyomu.jp/works/123", payload["entry"]["seed_url"])
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
-    def test_watchlist_add_reports_duplicate_without_writing_second_entry(self):
+    def test_add_watchlist_url_reports_duplicate_without_writing_second_entry(self):
         existing_entry = {
             "id": "kakuyomu:123",
             "source": "kakuyomu",
@@ -71,36 +57,28 @@ class WatchlistCliTests(unittest.TestCase):
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [existing_entry])
 
-            result = self.run_watchlist_module(
-                "add",
+            payload = add_watchlist_url(
                 "https://kakuyomu.jp/works/123",
-                "--watchlist",
-                str(watchlist_path),
+                watchlist_path=str(watchlist_path),
             )
             saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        payload = json.loads(result.stdout)
         self.assertEqual("duplicate", payload["action"])
         self.assertEqual(existing_entry, payload["existing"])
         self.assertEqual(1, payload["work_count"])
         self.assertEqual([existing_entry], saved["works"])
 
-    def test_watchlist_add_adds_entry_from_comic_action_series_feed_url(self):
+    def test_add_watchlist_url_adds_entry_from_comic_action_series_feed_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [])
 
-            result = self.run_watchlist_module(
-                "add",
+            payload = add_watchlist_url(
                 "https://comic-action.com/rss/series/13933686331606207128?free_only=1",
-                "--watchlist",
-                str(watchlist_path),
+                watchlist_path=str(watchlist_path),
             )
             saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        payload = json.loads(result.stdout)
         self.assertEqual("added", payload["action"])
         self.assertEqual("comic-action:13933686331606207128", payload["entry"]["id"])
         self.assertEqual(
@@ -110,7 +88,7 @@ class WatchlistCliTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
-    def test_watchlist_add_reports_duplicate_for_comic_action_series_feed_url(self):
+    def test_add_watchlist_url_reports_duplicate_for_comic_action_series_feed_url(self):
         existing_entry = {
             "id": "comic-action:13933686331606207128",
             "source": "comic-action",
@@ -122,22 +100,18 @@ class WatchlistCliTests(unittest.TestCase):
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [existing_entry])
 
-            result = self.run_watchlist_module(
-                "add",
+            payload = add_watchlist_url(
                 "https://comic-action.com/atom/series/13933686331606207128",
-                "--watchlist",
-                str(watchlist_path),
+                watchlist_path=str(watchlist_path),
             )
             saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        payload = json.loads(result.stdout)
         self.assertEqual("duplicate", payload["action"])
         self.assertEqual(existing_entry, payload["existing"])
         self.assertEqual(1, payload["work_count"])
         self.assertEqual([existing_entry], saved["works"])
 
-    def test_watchlist_add_accepts_champion_cross_episode_url(self):
+    def test_add_watchlist_url_accepts_champion_cross_episode_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [])
@@ -168,7 +142,7 @@ class WatchlistCliTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
-    def test_watchlist_add_accepts_takecomic_series_url(self):
+    def test_add_watchlist_url_accepts_takecomic_series_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [])
@@ -190,72 +164,76 @@ class WatchlistCliTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
-    def test_watchlist_add_reports_unsupported_source(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            watchlist_path = Path(tmpdir) / "watchlist.json"
-            write_watchlist(watchlist_path, [])
 
-            result = self.run_watchlist_module(
-                "add",
-                "https://example.com/work/1",
-                "--watchlist",
-                str(watchlist_path),
-            )
+class WatchlistCliRetirementTests(unittest.TestCase):
+    maxDiff = None
 
-        self.assertEqual(1, result.returncode)
-        payload = json.loads(result.stdout)
-        self.assertEqual("error", payload["action"])
-        self.assertEqual("unsupported_source", payload["error"]["kind"])
+    def run_watchlist_module(self, *args):
+        repo_root = Path(__file__).resolve().parents[1]
+        return subprocess.run(
+            [sys.executable, "-m", "manga_watch.watchlist", *args],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
 
-    def test_watchlist_add_reports_unsupported_url_type_for_supported_source(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            watchlist_path = Path(tmpdir) / "watchlist.json"
-            write_watchlist(watchlist_path, [])
-
-            result = self.run_watchlist_module(
-                "add",
-                "https://comic-action.com/series/123",
-                "--watchlist",
-                str(watchlist_path),
-            )
+    def test_watchlist_cli_reports_deprecated_when_called_with_add(self):
+        result = self.run_watchlist_module("add", "https://example.com/work/1")
 
         self.assertEqual(1, result.returncode)
         payload = json.loads(result.stdout)
         self.assertEqual("error", payload["action"])
-        self.assertEqual("unsupported_url_type", payload["error"]["kind"])
+        self.assertEqual("deprecated_cli", payload["error"]["kind"])
+        self.assertIn("retired", payload["error"]["message"])
+        self.assertIn("/add", payload["error"]["next_action"])
 
-    def test_watchlist_add_reports_invalid_url(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            watchlist_path = Path(tmpdir) / "watchlist.json"
-            write_watchlist(watchlist_path, [])
-
-            result = self.run_watchlist_module(
-                "add",
-                "not-a-url",
-                "--watchlist",
-                str(watchlist_path),
-            )
-
-        self.assertEqual(1, result.returncode)
-        payload = json.loads(result.stdout)
-        self.assertEqual("error", payload["action"])
-        self.assertEqual("invalid_url", payload["error"]["kind"])
-
-    def test_watchlist_add_reports_usage_errors_as_json(self):
+    def test_watchlist_cli_reports_deprecated_without_arguments(self):
         result = self.run_watchlist_module()
 
         self.assertEqual(1, result.returncode)
         payload = json.loads(result.stdout)
         self.assertEqual("error", payload["action"])
-        self.assertEqual("usage", payload["error"]["kind"])
+        self.assertEqual("deprecated_cli", payload["error"]["kind"])
 
-    def test_watchlist_add_missing_url_reports_usage_as_json(self):
-        result = self.run_watchlist_module("add")
+    def test_add_watchlist_url_reports_unsupported_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
 
-        self.assertEqual(1, result.returncode)
-        payload = json.loads(result.stdout)
-        self.assertEqual("error", payload["action"])
-        self.assertEqual("usage", payload["error"]["kind"])
+            with self.assertRaisesRegex(WatchlistAddError, "Unsupported source host: example.com"):
+                add_watchlist_url(
+                    "https://example.com/work/1",
+                    watchlist_path=str(watchlist_path),
+                )
+
+    def test_add_watchlist_url_reports_unsupported_url_type_for_supported_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            with self.assertRaisesRegex(
+                WatchlistAddError,
+                "does not support this URL type for work registration",
+            ):
+                add_watchlist_url(
+                    "https://comic-action.com/series/123",
+                    watchlist_path=str(watchlist_path),
+                )
+
+    def test_add_watchlist_url_reports_invalid_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            with self.assertRaisesRegex(
+                WatchlistAddError,
+                "Input must be an absolute http\\(s\\) URL",
+            ):
+                add_watchlist_url(
+                    "not-a-url",
+                    watchlist_path=str(watchlist_path),
+                )
 
 
 if __name__ == "__main__":

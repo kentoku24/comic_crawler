@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import argparse
 import json
 from dataclasses import dataclass
 from typing import Dict, Optional, Sequence
@@ -84,15 +83,6 @@ class WatchlistAddError(RuntimeError):
         }
 
 
-class WatchlistArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
-        raise WatchlistAddError(
-            "usage",
-            message,
-            "Run `python3 -m manga_watch.watchlist add <url> [--watchlist <path>]`.",
-        )
-
-
 def add_watchlist_url(
     url: str,
     *,
@@ -113,7 +103,7 @@ def add_watchlist_url(
         raise WatchlistAddError(
             "load_watchlist",
             f"Failed to load watchlist: {exc}",
-            "Fix the watchlist path or JSON payload, then rerun `watchlist add`.",
+            "Fix the watchlist path or JSON payload, then retry the work registration flow.",
         ) from exc
 
     existing = find_duplicate_entry(watchlist["works"], str(entry["id"]))
@@ -136,7 +126,7 @@ def add_watchlist_url(
         raise WatchlistAddError(
             "save_watchlist",
             f"Failed to save watchlist: {exc}",
-            "Check write permissions and disk state, then rerun `watchlist add`.",
+            "Check write permissions and disk state, then retry the work registration flow.",
         ) from exc
 
     return {
@@ -174,7 +164,7 @@ def build_watchlist_preview(
         if message.startswith("Unsupported URL:") or "could not parse" in message:
             raise WatchlistAddError(
                 "unsupported_url_type",
-                f"{capability.source} does not support this URL type for `watchlist add`: {url}",
+                f"{capability.source} does not support this URL type for work registration: {url}",
                 capability_hint(capability),
             ) from exc
         raise WatchlistAddError(
@@ -218,38 +208,24 @@ def find_duplicate_entry(works, work_id: str) -> Optional[Dict[str, object]]:
     return None
 
 
-def parse_args(argv=None):
-    parser = WatchlistArgumentParser(description="Manage comic_crawler watchlist v2.")
-    subparsers = parser.add_subparsers(dest="command")
-
-    add_parser = subparsers.add_parser("add", help="Normalize a URL and add it to watchlist v2.")
-    add_parser.add_argument("url")
-    add_parser.add_argument("--watchlist", dest="watchlist_path")
-    return parser.parse_args(argv)
+def retired_cli_payload() -> Dict[str, object]:
+    error = WatchlistAddError(
+        "deprecated_cli",
+        "`python -m manga_watch.watchlist add ...` has been retired.",
+        "Use Discord `/add url:<作品URL>` for work registration.",
+    )
+    return {
+        "action": "error",
+        "input_url": "",
+        "watchlist_path": get_watchlist_path(),
+        "error": error.to_dict(),
+    }
 
 
 def main(argv=None) -> int:
-    args = None
-    try:
-        args = parse_args(argv)
-        if args.command != "add":
-            raise WatchlistAddError(
-                "usage",
-                "missing command",
-                "Run `python3 -m manga_watch.watchlist add <url> [--watchlist <path>]`.",
-            )
-        payload = add_watchlist_url(args.url, watchlist_path=args.watchlist_path)
-        print(json.dumps(payload, ensure_ascii=False))
-        return 0
-    except WatchlistAddError as exc:
-        payload = {
-            "action": "error",
-            "input_url": str(getattr(args, "url", "") or "").strip(),
-            "watchlist_path": getattr(args, "watchlist_path", None) or get_watchlist_path(),
-            "error": exc.to_dict(),
-        }
-        print(json.dumps(payload, ensure_ascii=False))
-        return 1
+    del argv
+    print(json.dumps(retired_cli_payload(), ensure_ascii=False))
+    return 1
 
 
 if __name__ == "__main__":
