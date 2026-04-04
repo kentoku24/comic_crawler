@@ -5,12 +5,14 @@ from .champion_cross import ChampionCrossAdapter
 from .comic_action import ComicActionAdapter
 from .comic_walker import ComicWalkerAdapter
 from .kakuyomu import KakuyomuAdapter
+from .takecomic import TakecomicAdapter
 
 # Explicit runtime registration contract for every supported source adapter.
 REGISTERED_ADAPTERS = (
     ComicWalkerAdapter(),
     ComicActionAdapter(),
     ChampionCrossAdapter(),
+    TakecomicAdapter(),
     KakuyomuAdapter(),
 )
 REGISTERED_SOURCES = tuple(adapter.source for adapter in REGISTERED_ADAPTERS)
