@@ -173,16 +173,16 @@ jobs:
             --project="${GCP_PROJECT_ID}" \
             --region="${GCP_REGION}" \
             --format='value(status.latestReadyRevisionName)')"
-          service_image_digest="$(gcloud run revisions describe "${latest_ready_revision}" \
+          service_image_ref="$(gcloud run services describe comic-crawler-service \
             --project="${GCP_PROJECT_ID}" \
             --region="${GCP_REGION}" \
-            --format='value(status.imageDigest)')"
+            --format='value(spec.template.spec.containers[0].image)')"
           job_image_ref="$(gcloud run jobs describe comic-crawler-job \
             --project="${GCP_PROJECT_ID}" \
             --region="${GCP_REGION}" \
-            --format='value(spec.template.template.containers[0].image)')"
-          if [[ "${service_image_digest}" != "${IMAGE_DIGEST}" ]]; then
-            echo "service digest mismatch: expected ${IMAGE_DIGEST}, got ${service_image_digest}" >&2
+            --format='value(spec.template.template.spec.containers[0].image)')"
+          if [[ "${service_image_ref}" != "${IMAGE_REF}" ]]; then
+            echo "service image ref mismatch: expected ${IMAGE_REF}, got ${service_image_ref}" >&2
             exit 1
           fi
           if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]; then
@@ -190,7 +190,7 @@ jobs:
             exit 1
           fi
           echo "latest_ready_revision=${latest_ready_revision}" >> "${GITHUB_OUTPUT}"
-          echo "service_image_digest=${service_image_digest}" >> "${GITHUB_OUTPUT}"
+          echo "service_image_ref=${service_image_ref}" >> "${GITHUB_OUTPUT}"
           echo "job_image_ref=${job_image_ref}" >> "${GITHUB_OUTPUT}"
 
       - name: Summarize deploy output
@@ -202,6 +202,6 @@ jobs:
             echo "- Image digest: \`${IMAGE_DIGEST}\`"
             echo "- Image ref: \`${IMAGE_REF}\`"
             echo "- Latest ready revision: \`${{ steps.verify.outputs.latest_ready_revision }}\`"
-            echo "- Service image digest: \`${{ steps.verify.outputs.service_image_digest }}\`"
+            echo "- Service image ref: \`${{ steps.verify.outputs.service_image_ref }}\`"
             echo "- Job image ref: \`${{ steps.verify.outputs.job_image_ref }}\`"
           } >> "${GITHUB_STEP_SUMMARY}"
