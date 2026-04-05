@@ -4,9 +4,26 @@ from __future__ import annotations
 import os
 import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import urlsplit
 
 from manga_watch.discord_command_registration import ensure_commands_registered_from_env
-from manga_watch.discord_interactions import build_interaction_service_from_env
+from manga_watch.discord_interactions import build_interaction_service_from_env, text_response
+
+HEALTH_CHECK_PATH = "/healthz"
+HEALTH_CHECK_BODY = "ok"
+
+
+def build_http_response(service, *, method, path, headers, body):
+    if urlsplit(path).path == HEALTH_CHECK_PATH:
+        if method not in {"GET", "HEAD"}:
+            return text_response(405, "method not allowed")
+        return text_response(200, HEALTH_CHECK_BODY)
+    return service.handle_request(
+        method=method,
+        path=path,
+        headers=headers,
+        body=body,
+    )
 
 
 def build_request_handler(service):
@@ -23,7 +40,8 @@ def build_request_handler(service):
         def _handle(self) -> None:
             content_length = int(self.headers.get("Content-Length") or 0)
             body = self.rfile.read(content_length)
-            response = service.handle_request(
+            response = build_http_response(
+                service,
                 method=self.command,
                 path=self.path,
                 headers={key: value for key, value in self.headers.items()},

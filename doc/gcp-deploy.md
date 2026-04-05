@@ -186,6 +186,14 @@ canonical name は `comic-crawler-service`。deploy / rollback では `python -m
 - `DISCORD_BOT_TOKEN_SECRET_VERSION=projects/star-light-breaker/secrets/comic-crawler-discord-bot-token/versions/latest`
 - `DISCORD_APPLICATION_PUBLIC_KEY=comic-crawler-discord-application-public-key:latest`
 
+service behavior notes:
+
+- Discord interaction endpoint は public ingress を前提にし、Slash Command の `POST /` は Discord request signature で認証する
+- lightweight keep-warm / monitoring 用に `GET /healthz` は signature なしで `200 ok` を返す
+- production では `MANGA_WATCH_INSECURE_DISABLE_VERIFICATION=true` を使わない
+- `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のとき `fetch` は Cloud Run Jobs API へ manual override 付きで handoff する
+- local fallback として `MANGA_WATCH_FETCH_BACKEND=coordinator` を使って in-process 実行もできる
+
 ## 7. Post-deploy verification
 
 deploy / rollback 後の客観的確認は、GitHub Actions の target digest と GCP 上の実 digest を照合して行う。
@@ -215,6 +223,17 @@ gcloud run revisions describe <latest-ready-revision> \
   --project=star-light-breaker \
   --region=asia-northeast1 \
   --format='value(status.imageDigest)'
+```
+
+### 7.4 Service health endpoint
+
+```bash
+SERVICE_URL="$(gcloud run services describe comic-crawler-service \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --format='value(status.url)')"
+
+curl -fsS "$SERVICE_URL/healthz"
 ```
 
 完了判定:
@@ -315,6 +334,30 @@ helper script は次を固定で出力する。
 - time zone default: `Asia/Tokyo`
 
 `SCHEDULE` の cron 自体は deployment decision であり、この task では canonical 値として固定しない。
+
+### 10.1 Keep-warm ping for Cloud Run Service
+
+Cloud Run Service の scale-to-zero 緩和を目的として、Scheduler から service 自体へ `GET /healthz` を送る keep-warm ping を別 job として持ってよい。
+
+```bash
+SERVICE_URL="$(gcloud run services describe comic-crawler-service \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --format='value(status.url)')"
+
+gcloud scheduler jobs create http comic-crawler-service-keep-warm \
+  --project=star-light-breaker \
+  --location=asia-northeast1 \
+  --schedule='*/15 * * * *' \
+  --uri="${SERVICE_URL}/healthz" \
+  --http-method=GET
+```
+
+補足:
+
+- この ping は cold start 発生率を下げるための best effort であり、`min instances=1` ほどの保証はない
+- 初期値は 15 分間隔とし、不十分なら運用しながら短くする
+- `comic-crawler-scheduled-run` とは別用途なので、job 名は分ける
 
 ## 9. Practical run / verify
 

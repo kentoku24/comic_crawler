@@ -7,6 +7,27 @@ from nacl.signing import SigningKey
 from manga_watch import run_service
 
 
+class FakeInteractionService:
+    def __init__(self, response=None):
+        self.response = response or mock.Mock(
+            status_code=200,
+            body=b"delegated",
+            content_type="text/plain; charset=utf-8",
+        )
+        self.calls = []
+
+    def handle_request(self, *, method, path, headers, body):
+        self.calls.append(
+            {
+                "method": method,
+                "path": path,
+                "headers": dict(headers),
+                "body": body,
+            }
+        )
+        return self.response
+
+
 class FakeServer:
     instances = []
 
@@ -26,6 +47,47 @@ class FakeServer:
 class RunServiceTests(unittest.TestCase):
     def setUp(self):
         FakeServer.instances = []
+
+    def test_build_http_response_returns_ok_for_healthz_get(self):
+        service = FakeInteractionService()
+
+        response = run_service.build_http_response(
+            service,
+            method="GET",
+            path="/healthz",
+            headers={},
+            body=b"",
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(b"ok", response.body)
+        self.assertEqual("text/plain; charset=utf-8", response.content_type)
+        self.assertEqual([], service.calls)
+
+    def test_build_http_response_delegates_non_health_requests_to_interaction_service(self):
+        service = FakeInteractionService()
+
+        response = run_service.build_http_response(
+            service,
+            method="POST",
+            path="/",
+            headers={"X-Test": "1"},
+            body=b'{"type":1}',
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(b"delegated", response.body)
+        self.assertEqual(
+            [
+                {
+                    "method": "POST",
+                    "path": "/",
+                    "headers": {"X-Test": "1"},
+                    "body": b'{"type":1}',
+                }
+            ],
+            service.calls,
+        )
 
     def test_main_boots_with_cloud_run_job_backend_minimal_env(self):
         public_key = SigningKey.generate().verify_key.encode().hex()

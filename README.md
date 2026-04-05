@@ -421,6 +421,8 @@ startup registration だけを手動で確認したいときは次を使いま�
 .venv/bin/python scripts/register_discord_commands.py
 ```
 
+`manga_watch.run_service` は Slash Command 用の `POST /` に加えて、署名検証なしの lightweight health check として `GET /healthz` を返します。Cloud Run の scale-to-zero を完全には防げませんが、Cloud Scheduler から `15` 分おきに `GET /healthz` を送って warm 状態を維持しやすくできます。不十分なら、運用しながら間隔を短くします。
+
 ## Status CLI
 
 `--status` は crawl を走らせず、現在の health を確認するための自己診断モードです。
