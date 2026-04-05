@@ -291,6 +291,23 @@ class SourceAdapterTests(unittest.TestCase):
             work.to_dict(),
         )
 
+    def test_firecross_normalize_accepts_ebook_series_url(self):
+        adapter = ADAPTERS["firecross"]()
+        work = adapter.normalize("https://firecross.jp/ebook/series/358?sort=latest")
+
+        self.assertEqual(
+            {
+                "source": "firecross",
+                "kind": "firecross",
+                "workId": "firecross:358",
+                "seedUrl": "https://firecross.jp/ebook/series/358",
+                "series": "firecross:358",
+                "seriesId": "358",
+                "seriesUrl": "https://firecross.jp/ebook/series/358",
+            },
+            work.to_dict(),
+        )
+
     def test_nicovideo_manga_normalize_accepts_sp_comic_url(self):
         work = NicovideoMangaAdapter().normalize("https://sp.manga.nicovideo.jp/comic/53764?track=share")
 
@@ -893,6 +910,44 @@ class SourceAdapterTests(unittest.TestCase):
 
         with self.assertRaisesRegex(SourceParseError, "firecross: latest reader URL not found"):
             adapter.fetch_latest(work, client)
+
+    def test_firecross_fetch_latest_accepts_ebook_series_url(self):
+        adapter = ADAPTERS["firecross"]()
+        work = adapter.normalize("https://firecross.jp/ebook/series/358?sort=latest")
+        client = StaticHttpClient(
+            {
+                "https://firecross.jp/ebook/series/358?sort=latest": """
+                <html>
+                  <head><title>作品E | ファイアCROSS</title></head>
+                  <body>
+                    <a href="https://firecross.jp/reader/19420?from=series">第13話</a>
+                    <a href="https://firecross.jp/reader/19000">第10話</a>
+                  </body>
+                </html>
+                """,
+                "https://firecross.jp/reader/19420": """
+                <html>
+                  <head><title>第13話 / 作品E | ファイアCROSS</title></head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://firecross.jp/reader/19420", latest["latestKey"])
+        self.assertEqual("https://firecross.jp/reader/19420", latest["url"])
+        self.assertEqual("firecross:358", latest["series"])
+        self.assertEqual("作品E", latest["seriesTitle"])
+        self.assertEqual("第13話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://firecross.jp/ebook/series/358?sort=latest",
+                "https://firecross.jp/reader/19420",
+            ],
+            client.calls,
+        )
 
     def test_nicovideo_manga_fetch_latest_accepts_comic_url(self):
         adapter = NicovideoMangaAdapter()
