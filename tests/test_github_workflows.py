@@ -46,7 +46,7 @@ class GitHubWorkflowContractTests(unittest.TestCase):
         content = read_workflow("deploy-production.yml")
 
         self.assertIn("--format='value(spec.template.spec.containers[0].image)'", content)
-        self.assertIn("--format='value(spec.template.template.spec.containers[0].image)'", content)
+        self.assertIn("--format='value(spec.template.spec.template.spec.containers[0].image)'", content)
         self.assertIn('if [[ "${service_image_ref}" != "${IMAGE_REF}" ]]', content)
         self.assertIn('if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]', content)
 

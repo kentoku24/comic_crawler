@@ -180,7 +180,7 @@ jobs:
           job_image_ref="$(gcloud run jobs describe comic-crawler-job \
             --project="${GCP_PROJECT_ID}" \
             --region="${GCP_REGION}" \
-            --format='value(spec.template.template.spec.containers[0].image)')"
+            --format='value(spec.template.spec.template.spec.containers[0].image)')"
           if [[ "${service_image_ref}" != "${IMAGE_REF}" ]]; then
             echo "service image ref mismatch: expected ${IMAGE_REF}, got ${service_image_ref}" >&2
             exit 1
