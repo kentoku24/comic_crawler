@@ -16,17 +16,8 @@ _SERIES_URL = re.compile(
 _SERIES_URL_IN_HTML = re.compile(
     rf"(?:https?://(?:www\.)?{_HOST})?/series/([0-9A-Za-z_-]+)(?:[/?#\"']|$)"
 )
-_LATEST_READER_LINK_IN_HTML = re.compile(
-    rf'<a[^>]*class="[^"]*\blatest[^"]*"[^>]*href="([^"]*(?:https?://(?:www\.)?{_HOST})?/reader/[0-9A-Za-z_-]+[^"]*)"',
-    re.IGNORECASE | re.DOTALL,
-)
-_LATEST_READER_TEXT_LINK_IN_HTML = re.compile(
-    rf'<a[^>]*href="([^"]*(?:https?://(?:www\.)?{_HOST})?/reader/[0-9A-Za-z_-]+[^"]*)"[^>]*>\s*最新',
-    re.IGNORECASE | re.DOTALL,
-)
-_READER_URL_IN_HTML = re.compile(
-    rf"(?:https?://(?:www\.)?{_HOST})?/reader/([0-9A-Za-z_-]+)(?:[/?#\"']|$)"
-)
+_ANCHOR_TAG_IN_HTML = re.compile(r"<a\b(?P<attrs>[^>]*)>(?P<body>.*?)</a>", re.IGNORECASE | re.DOTALL)
+_ANCHOR_HREF = re.compile(r"""href\s*=\s*(["'])(?P<href>.*?)\1""", re.IGNORECASE | re.DOTALL)
 _TITLE_SITE_SUFFIX = re.compile(r"\s*\|\s*ファイアCROSS\s*$")
 
 
@@ -76,18 +67,19 @@ def extract_firecross_latest_reader_url(html_text: str) -> Optional[str]:
     if not html_text:
         return None
     normalized = html.unescape(html_text).replace("\\/", "/").replace('\\"', '"')
-    for pattern in (_LATEST_READER_LINK_IN_HTML, _LATEST_READER_TEXT_LINK_IN_HTML):
-        match = pattern.search(normalized)
-        if not match:
+    for match in _ANCHOR_TAG_IN_HTML.finditer(normalized):
+        attrs = match.group("attrs") or ""
+        body = match.group("body") or ""
+        href_match = _ANCHOR_HREF.search(attrs)
+        if not href_match:
             continue
-        parsed = parse_firecross_reader_url(match.group(1))
+        latest_signal = "latest" in attrs.lower() or "最新" in attrs or "最新" in body
+        if not latest_signal:
+            continue
+        parsed = parse_firecross_reader_url(href_match.group("href"))
         if parsed:
             return parsed
-
-    match = _READER_URL_IN_HTML.search(normalized)
-    if not match:
-        return None
-    return canonical_firecross_reader_url(match.group(1))
+    return None
 
 
 def parse_firecross_reader_title(page_title: str) -> Tuple[Optional[str], Optional[str]]:

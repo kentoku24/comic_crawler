@@ -866,6 +866,34 @@ class SourceAdapterTests(unittest.TestCase):
             client.calls,
         )
 
+    def test_firecross_fetch_latest_requires_explicit_latest_signal(self):
+        adapter = ADAPTERS["firecross"]()
+        work = adapter.normalize("https://firecross.jp/reader/19386?trial=0&token=temp")
+        client = StaticHttpClient(
+            {
+                "https://firecross.jp/reader/19386": """
+                <html>
+                  <head><title>第12話 / 作品E | ファイアCROSS</title></head>
+                  <body>
+                    <a href="https://firecross.jp/series/series-abc">作品詳細</a>
+                  </body>
+                </html>
+                """,
+                "https://firecross.jp/series/series-abc": """
+                <html>
+                  <head><title>作品E | ファイアCROSS</title></head>
+                  <body>
+                    <a href="https://firecross.jp/reader/19000">第10話</a>
+                    <a href="https://firecross.jp/reader/19420">第13話</a>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        with self.assertRaisesRegex(SourceParseError, "firecross: latest reader URL not found"):
+            adapter.fetch_latest(work, client)
+
     def test_nicovideo_manga_fetch_latest_accepts_comic_url(self):
         adapter = NicovideoMangaAdapter()
         work = adapter.normalize("https://sp.manga.nicovideo.jp/comic/53764")
