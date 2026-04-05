@@ -49,9 +49,10 @@ SOURCE_CAPABILITIES = (
     SourceCapability(
         source="firecross",
         domains=("firecross.jp",),
-        input_labels=("reader URL",),
+        input_labels=("reader URL", "ebook series URL"),
         examples=(
             "https://firecross.jp/reader/19386",
+            "https://firecross.jp/ebook/series/358",
         ),
     ),
     SourceCapability(

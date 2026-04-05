@@ -10,6 +10,9 @@ _HOST = "firecross.jp"
 _READER_URL = re.compile(
     rf"^https?://(?:www\.)?{_HOST}/reader/([0-9A-Za-z_-]+)(?:/)?(?:\?.*)?$"
 )
+_EBOOK_SERIES_URL = re.compile(
+    rf"^https?://(?:www\.)?{_HOST}/ebook/series/([0-9A-Za-z_-]+)(?:/)?(?:\?.*)?$"
+)
 _SERIES_URL = re.compile(
     rf"^https?://(?:www\.)?{_HOST}/series/([0-9A-Za-z_-]+)(?:/)?(?:\?.*)?$"
 )
@@ -29,11 +32,26 @@ def canonical_firecross_series_url(series_id: str) -> str:
     return f"https://{_HOST}/series/{series_id}"
 
 
+def canonical_firecross_ebook_series_url(series_id: str) -> str:
+    return f"https://{_HOST}/ebook/series/{series_id}"
+
+
+def firecross_latest_ebook_series_url(series_id: str) -> str:
+    return f"{canonical_firecross_ebook_series_url(series_id)}?sort=latest"
+
+
 def parse_firecross_reader_url(seed_url: str) -> Optional[str]:
     match = _READER_URL.match(seed_url)
     if not match:
         return None
     return canonical_firecross_reader_url(match.group(1))
+
+
+def parse_firecross_ebook_series_url(seed_url: str) -> Optional[str]:
+    match = _EBOOK_SERIES_URL.match(seed_url)
+    if not match:
+        return None
+    return canonical_firecross_ebook_series_url(match.group(1))
 
 
 def parse_firecross_series_url(url: str) -> Optional[str]:
@@ -82,6 +100,21 @@ def extract_firecross_latest_reader_url(html_text: str) -> Optional[str]:
     return None
 
 
+def extract_first_firecross_reader_url(html_text: str) -> Optional[str]:
+    if not html_text:
+        return None
+    normalized = html.unescape(html_text).replace("\\/", "/").replace('\\"', '"')
+    for match in _ANCHOR_TAG_IN_HTML.finditer(normalized):
+        attrs = match.group("attrs") or ""
+        href_match = _ANCHOR_HREF.search(attrs)
+        if not href_match:
+            continue
+        parsed = parse_firecross_reader_url(href_match.group("href"))
+        if parsed:
+            return parsed
+    return None
+
+
 def parse_firecross_reader_title(page_title: str) -> Tuple[Optional[str], Optional[str]]:
     normalized = _TITLE_SITE_SUFFIX.sub("", str(page_title or "").strip())
     if not normalized:
@@ -105,22 +138,40 @@ class FirecrossAdapter(SourceAdapter):
     source = "firecross"
 
     def can_handle(self, seed_url: str) -> bool:
-        return bool(parse_firecross_reader_url(seed_url))
+        return bool(parse_firecross_reader_url(seed_url) or parse_firecross_ebook_series_url(seed_url))
 
     def normalize(self, seed_url: str) -> WorkDescriptor:
         normalized_reader_url = parse_firecross_reader_url(seed_url)
-        if not normalized_reader_url:
+        if normalized_reader_url:
+            return WorkDescriptor(
+                source=self.source,
+                work_id=normalized_reader_url,
+                seed_url=normalized_reader_url,
+            )
+
+        normalized_series_url = parse_firecross_ebook_series_url(seed_url)
+        if not normalized_series_url:
             raise RuntimeError(f"firecross: could not parse seed URL: {seed_url}")
+
+        series_id = normalized_series_url.rsplit("/", 1)[-1]
+        stable_series = f"{self.source}:{series_id}"
         return WorkDescriptor(
             source=self.source,
-            work_id=normalized_reader_url,
-            seed_url=normalized_reader_url,
+            work_id=stable_series,
+            seed_url=normalized_series_url,
+            metadata={
+                "series": stable_series,
+                "seriesId": series_id,
+                "seriesUrl": normalized_series_url,
+            },
         )
 
     def fetch_latest(self, work: WorkDescriptor, http_client: HttpClient) -> LatestEpisode:
         series_id, series_url = self._resolve_series(work, http_client)
         series_html = http_client.get_text(series_url)
         latest_url = extract_firecross_latest_reader_url(series_html)
+        if not latest_url and parse_firecross_ebook_series_url(series_url):
+            latest_url = extract_first_firecross_reader_url(series_html)
         if not latest_url:
             raise SourceParseError("firecross: latest reader URL not found")
 
@@ -140,10 +191,15 @@ class FirecrossAdapter(SourceAdapter):
 
     def _resolve_series(self, work: WorkDescriptor, http_client: HttpClient) -> Tuple[str, str]:
         series_id = str(work.metadata.get("seriesId") or "")
+        series_url = str(work.metadata.get("seriesUrl") or "")
         if not series_id and str(work.work_id).startswith(f"{self.source}:"):
             series_id = str(work.work_id).split(":", 1)[1]
         if series_id:
-            return series_id, canonical_firecross_series_url(series_id)
+            if parse_firecross_ebook_series_url(series_url) or parse_firecross_ebook_series_url(work.seed_url):
+                return series_id, firecross_latest_ebook_series_url(series_id)
+            if not series_url:
+                series_url = canonical_firecross_series_url(series_id)
+            return series_id, series_url
 
         normalized_reader_url = parse_firecross_reader_url(work.seed_url)
         if not normalized_reader_url:
