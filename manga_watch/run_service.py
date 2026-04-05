@@ -14,7 +14,9 @@ HEALTH_CHECK_BODY = "ok"
 
 
 def build_http_response(service, *, method, path, headers, body):
-    if urlsplit(path).path == HEALTH_CHECK_PATH:
+    request_path = urlsplit(path).path
+    interaction_path = str(getattr(service, "interaction_path", "") or "")
+    if request_path == HEALTH_CHECK_PATH and request_path != interaction_path:
         if method not in {"GET", "HEAD"}:
             return text_response(405, "method not allowed")
         return text_response(200, HEALTH_CHECK_BODY)

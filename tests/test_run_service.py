@@ -14,6 +14,7 @@ class FakeInteractionService:
             body=b"delegated",
             content_type="text/plain; charset=utf-8",
         )
+        self.interaction_path = "/"
         self.calls = []
 
     def handle_request(self, *, method, path, headers, body):
@@ -84,6 +85,32 @@ class RunServiceTests(unittest.TestCase):
                     "path": "/",
                     "headers": {"X-Test": "1"},
                     "body": b'{"type":1}',
+                }
+            ],
+            service.calls,
+        )
+
+    def test_build_http_response_delegates_when_health_path_matches_interaction_path(self):
+        service = FakeInteractionService()
+        service.interaction_path = "/healthz"
+
+        response = run_service.build_http_response(
+            service,
+            method="GET",
+            path="/healthz",
+            headers={"X-Test": "1"},
+            body=b"",
+        )
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(b"delegated", response.body)
+        self.assertEqual(
+            [
+                {
+                    "method": "GET",
+                    "path": "/healthz",
+                    "headers": {"X-Test": "1"},
+                    "body": b"",
                 }
             ],
             service.calls,
