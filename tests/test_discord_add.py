@@ -93,6 +93,44 @@ class DiscordAddTests(unittest.TestCase):
         self.assertIn("追加しました", payload["content"])
         self.assertIn("nicovideo-manga:53764", payload["content"])
 
+    def test_start_accepts_firecross_reader_url_via_watchlist_logic(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            watchlist_path.write_text(
+                json.dumps({"version": 2, "works": []}, ensure_ascii=False),
+                encoding="utf-8",
+            )
+
+            handler = AddCommandHandler(
+                add_subscription=lambda url, *, watchlist_path=None: add_watchlist_url(
+                    url,
+                    watchlist_path=watchlist_path,
+                    http_client=type(
+                        "StaticHttpClient",
+                        (),
+                        {
+                            "get_text": lambda self, request_url: {
+                                "https://firecross.jp/reader/19386": """
+                                <html>
+                                  <body>
+                                    <a href="https://firecross.jp/series/series-abc">作品詳細</a>
+                                  </body>
+                                </html>
+                                """
+                            }[request_url]
+                        },
+                    )(),
+                )
+            )
+
+            payload = handler.start(
+                url="https://firecross.jp/reader/19386?trial=0&token=temp&vertical=0",
+                watchlist_path=str(watchlist_path),
+            )
+
+        self.assertIn("追加しました", payload["content"])
+        self.assertIn("firecross:series-abc", payload["content"])
+
     def test_start_reports_unsupported_source_to_github_issue(self):
         calls = []
 

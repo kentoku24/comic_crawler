@@ -17,6 +17,12 @@ from .sources.champion_cross import (
 )
 from .sources.comic_action import ComicActionAdapter, extract_comic_action_series_id, parse_comic_action_title
 from .sources.comic_walker import ComicWalkerAdapter, parse_comic_walker_title
+from .sources.firecross import (
+    FirecrossAdapter,
+    extract_firecross_latest_reader_url,
+    extract_firecross_series_id,
+    parse_firecross_reader_title,
+)
 from .sources.kakuyomu import KakuyomuAdapter
 from .sources.nicovideo_manga import (
     NicovideoMangaAdapter,
@@ -108,6 +114,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "seed episode page exposes a stable series hash",
             "series RSS feed keeps the latest episode URL",
             "series RSS feed keeps the latest episode title",
+        ),
+    ),
+    "firecross": SourceCanaryContract(
+        source="firecross",
+        seed_url="https://firecross.jp/reader/19386",
+        fixture_bundle="tests/fixtures/firecross/normal",
+        monitored_signals=(
+            "reader page exposes a stable series id",
+            "series page keeps the latest reader URL",
+            "latest reader page title is still readable",
         ),
     ),
     "kakuyomu": SourceCanaryContract(
@@ -317,6 +333,39 @@ def _takecomic_canary(
     )
 
 
+def _firecross_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = FirecrossAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    reader_html = http_client.get_text(work.seed_url)
+    series_id = extract_firecross_series_id(reader_html)
+    if not series_id:
+        raise SourceParseError("firecross: series id not found")
+
+    series_url = f"https://firecross.jp/series/{series_id}"
+    series_html = http_client.get_text(series_url)
+    latest_url = extract_firecross_latest_reader_url(series_html)
+    if not latest_url:
+        raise SourceParseError("firecross: latest reader URL not found")
+
+    latest_html = http_client.get_text(latest_url)
+    latest_title, _ = parse_firecross_reader_title(html_title(latest_html) or "")
+    if not latest_title:
+        raise SourceParseError("firecross: latest episode title not found")
+
+    return (
+        (work.seed_url, series_url, latest_url),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", latest_title),
+        ),
+    )
+
+
 def _nicovideo_manga_canary(
     contract: SourceCanaryContract,
     http_client: HttpClient,
@@ -343,6 +392,7 @@ CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
     "champion-cross": _champion_cross_canary,
+    "firecross": _firecross_canary,
     "kakuyomu": _kakuyomu_canary,
     "nicovideo-manga": _nicovideo_manga_canary,
     "takecomic": _takecomic_canary,
