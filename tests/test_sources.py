@@ -42,6 +42,9 @@ SOURCE_CASES = {
         "normal",
         "episode_seed_missing_next_update",
     ),
+    "firecross": (
+        "normal",
+    ),
     "takecomic": (
         "days_of_week_json_only",
         "genre_tag_before_update_label",
@@ -77,6 +80,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
     "champion-cross": {
         "normal": "main_story",
         "episode_seed_missing_next_update": "main_story",
+    },
+    "firecross": {
+        "normal": "main_story",
     },
     "takecomic": {
         "days_of_week_json_only": "main_story",
@@ -174,7 +180,7 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "champion-cross", "takecomic", "nicovideo-manga", "kakuyomu"),
+            ("comic-walker", "comic-action", "champion-cross", "firecross", "takecomic", "nicovideo-manga", "kakuyomu"),
             REGISTERED_SOURCES,
         )
 
@@ -201,6 +207,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_champion_cross_fixtures(self):
         self._assert_fixture_matrix("champion-cross")
+
+    def test_firecross_fixtures(self):
+        self._assert_fixture_matrix("firecross")
 
     def test_takecomic_fixtures(self):
         self._assert_fixture_matrix("takecomic")
@@ -264,6 +273,20 @@ class SourceAdapterTests(unittest.TestCase):
                 "seedUrl": "https://takecomic.jp/series/3f846451aff2d",
                 "series": "takecomic:3f846451aff2d",
                 "seriesHash": "3f846451aff2d",
+            },
+            work.to_dict(),
+        )
+
+    def test_firecross_normalize_accepts_reader_url(self):
+        adapter = ADAPTERS["firecross"]()
+        work = adapter.normalize("https://firecross.jp/reader/19386?trial=0&token=temp&vertical=0")
+
+        self.assertEqual(
+            {
+                "source": "firecross",
+                "kind": "firecross",
+                "workId": "https://firecross.jp/reader/19386",
+                "seedUrl": "https://firecross.jp/reader/19386",
             },
             work.to_dict(),
         )
@@ -793,6 +816,52 @@ class SourceAdapterTests(unittest.TestCase):
             [
                 "https://takecomic.jp/series/3f846451aff2d/rss",
                 "https://takecomic.jp/episodes/abc12345",
+            ],
+            client.calls,
+        )
+
+    def test_firecross_fetch_latest_accepts_reader_url(self):
+        adapter = ADAPTERS["firecross"]()
+        work = adapter.normalize("https://firecross.jp/reader/19386?trial=0&token=temp")
+        client = StaticHttpClient(
+            {
+                "https://firecross.jp/reader/19386": """
+                <html>
+                  <head><title>第12話 / 作品E | ファイアCROSS</title></head>
+                  <body>
+                    <a href="https://firecross.jp/series/series-abc">作品詳細</a>
+                  </body>
+                </html>
+                """,
+                "https://firecross.jp/series/series-abc": """
+                <html>
+                  <head><title>作品E | ファイアCROSS</title></head>
+                  <body>
+                    <a class="latest-episode" href="https://firecross.jp/reader/19420?from=series">最新話</a>
+                  </body>
+                </html>
+                """,
+                "https://firecross.jp/reader/19420": """
+                <html>
+                  <head><title>第13話 / 作品E | ファイアCROSS</title></head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://firecross.jp/reader/19420", latest["latestKey"])
+        self.assertEqual("https://firecross.jp/reader/19420", latest["url"])
+        self.assertEqual("firecross:series-abc", latest["series"])
+        self.assertEqual("作品E", latest["seriesTitle"])
+        self.assertEqual("第13話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://firecross.jp/reader/19386",
+                "https://firecross.jp/series/series-abc",
+                "https://firecross.jp/reader/19420",
             ],
             client.calls,
         )

@@ -47,6 +47,14 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="firecross",
+        domains=("firecross.jp",),
+        input_labels=("reader URL",),
+        examples=(
+            "https://firecross.jp/reader/19386",
+        ),
+    ),
+    SourceCapability(
         source="takecomic",
         domains=("takecomic.jp",),
         input_labels=("episode URL", "series URL", "series RSS URL"),

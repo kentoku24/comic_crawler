@@ -164,6 +164,38 @@ class WatchlistAddLogicTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
+    def test_add_watchlist_url_accepts_firecross_reader_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://firecross.jp/reader/19386?trial=0&token=temp&vertical=0",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://firecross.jp/reader/19386": """
+                        <html>
+                          <body>
+                            <a href="https://firecross.jp/series/series-abc">作品詳細</a>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("firecross:series-abc", payload["entry"]["id"])
+        self.assertEqual(
+            "https://firecross.jp/reader/19386",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("firecross", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
     def test_watchlist_add_accepts_nicovideo_sp_comic_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
@@ -244,6 +276,20 @@ class WatchlistCliRetirementTests(unittest.TestCase):
             ):
                 add_watchlist_url(
                     "https://comic-action.com/series/123",
+                    watchlist_path=str(watchlist_path),
+                )
+
+    def test_add_watchlist_url_reports_unsupported_url_type_for_firecross_series_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            with self.assertRaisesRegex(
+                WatchlistAddError,
+                "does not support this URL type for work registration",
+            ):
+                add_watchlist_url(
+                    "https://firecross.jp/series/series-abc",
                     watchlist_path=str(watchlist_path),
                 )
 

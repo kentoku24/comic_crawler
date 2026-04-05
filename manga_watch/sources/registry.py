@@ -4,6 +4,7 @@ from .base import HttpClient, LatestEpisode, RequestsHttpClient, SourceAdapter, 
 from .champion_cross import ChampionCrossAdapter
 from .comic_action import ComicActionAdapter
 from .comic_walker import ComicWalkerAdapter
+from .firecross import FirecrossAdapter
 from .kakuyomu import KakuyomuAdapter
 from .nicovideo_manga import NicovideoMangaAdapter
 from .takecomic import TakecomicAdapter
@@ -13,6 +14,7 @@ REGISTERED_ADAPTERS = (
     ComicWalkerAdapter(),
     ComicActionAdapter(),
     ChampionCrossAdapter(),
+    FirecrossAdapter(),
     TakecomicAdapter(),
     NicovideoMangaAdapter(),
     KakuyomuAdapter(),
