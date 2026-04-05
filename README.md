@@ -223,7 +223,7 @@ runner が backend に送る update event は次の schema です。
 | Champion Cross | episode URL, series URL, series RSS URL | canonical episode URL / canonical series URL / canonical series RSS URL | `champion-cross:<series_hash>` | 最新 episode URL |
 | Kakuyomu | work URL, episode URL | 入力 URL のまま | `kakuyomu:<numeric_work_id>` | 最新 episode id |
 
-Phase 1 では source ごとの capability 差を隠しません。作品追加で受け付ける URL 種別は上の表だけです。
+Phase 1 では source ごとの capability 差を隠しません。作品追加で受け付ける URL 種別は上の表だけです。内部の source capability / normalize 契約もこの表を source of truth とします。
 
 ## Discord `/add`
 
