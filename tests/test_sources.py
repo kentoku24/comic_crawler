@@ -13,6 +13,7 @@ from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
+from manga_watch.sources.magapoke import MagapokeAdapter
 from manga_watch.sources.nicovideo_manga import NicovideoMangaAdapter
 from manga_watch.sources.util import html_title
 from manga_watch.sources.takecomic import TakecomicAdapter
@@ -41,6 +42,9 @@ SOURCE_CASES = {
     "champion-cross": (
         "normal",
         "episode_seed_missing_next_update",
+    ),
+    "magapoke": (
+        "normal",
     ),
     "firecross": (
         "normal",
@@ -80,6 +84,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
     "champion-cross": {
         "normal": "main_story",
         "episode_seed_missing_next_update": "main_story",
+    },
+    "magapoke": {
+        "normal": "main_story",
     },
     "firecross": {
         "normal": "main_story",
@@ -180,7 +187,16 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "champion-cross", "firecross", "takecomic", "nicovideo-manga", "kakuyomu"),
+            (
+                "comic-walker",
+                "comic-action",
+                "champion-cross",
+                "magapoke",
+                "firecross",
+                "takecomic",
+                "nicovideo-manga",
+                "kakuyomu",
+            ),
             REGISTERED_SOURCES,
         )
 
@@ -211,11 +227,81 @@ class SourceAdapterTests(unittest.TestCase):
     def test_firecross_fixtures(self):
         self._assert_fixture_matrix("firecross")
 
+    def test_magapoke_fixtures(self):
+        self._assert_fixture_matrix("magapoke")
+
     def test_takecomic_fixtures(self):
         self._assert_fixture_matrix("takecomic")
 
     def test_nicovideo_manga_fixtures(self):
         self._assert_fixture_matrix("nicovideo-manga")
+
+    def test_magapoke_normalize_accepts_episode_url(self):
+        work = MagapokeAdapter().normalize(
+            "https://pocket.shonenmagazine.com/title/03021/episode/427856?utm_source=share"
+        )
+
+        self.assertEqual(
+            {
+                "source": "magapoke",
+                "kind": "magapoke",
+                "workId": "magapoke:3021",
+                "seedUrl": "https://pocket.shonenmagazine.com/title/03021",
+                "series": "magapoke:3021",
+                "titleId": "3021",
+                "titleSlug": "03021",
+            },
+            work.to_dict(),
+        )
+
+    def test_magapoke_fetch_latest_reads_series_rss_from_title_page(self):
+        adapter = MagapokeAdapter()
+        work = adapter.normalize("https://pocket.shonenmagazine.com/title/03021/episode/427856")
+        client = StaticHttpClient(
+            {
+                "https://pocket.shonenmagazine.com/title/03021": """
+                <html>
+                  <head>
+                    <title>普通の本はありません！ / マガポケ</title>
+                    <link rel="alternate" type="application/rss+xml" href="https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml">
+                  </head>
+                  <body>
+                    <p class="p-episode__update-txt">次回更新は4/20(月曜)予定です。</p>
+                  </body>
+                </html>
+                """,
+                "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml": """
+                <rss>
+                  <channel>
+                    <title>マガポケ（普通の本はありません！）</title>
+                    <item>
+                      <title>【＃17】ハルとギンギン丸</title>
+                      <link>https://pocket.shonenmagazine.com/title/03021/episode/434393</link>
+                      <description>普通の本はありません！</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("magapoke:3021", latest["workId"])
+        self.assertEqual(
+            "https://pocket.shonenmagazine.com/title/03021/episode/434393",
+            latest["latestKey"],
+        )
+        self.assertEqual("普通の本はありません！", latest["seriesTitle"])
+        self.assertEqual("【＃17】ハルとギンギン丸", latest["episodeTitle"])
+        self.assertEqual("次回更新は4/20(月曜)予定です。", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://pocket.shonenmagazine.com/title/03021",
+                "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml",
+            ],
+            client.calls,
+        )
 
     def test_comic_walker_normalize_accepts_canonical_series_url(self):
         work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")

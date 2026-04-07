@@ -1,0 +1,32 @@
+{
+  "seedUrl": "https://pocket.shonenmagazine.com/title/03021",
+  "expectedWork": {
+    "source": "magapoke",
+    "kind": "magapoke",
+    "workId": "magapoke:3021",
+    "seedUrl": "https://pocket.shonenmagazine.com/title/03021",
+    "series": "magapoke:3021",
+    "titleId": "3021",
+    "titleSlug": "03021"
+  },
+  "steps": [
+    {
+      "url": "https://pocket.shonenmagazine.com/title/03021",
+      "response": "01-title.html"
+    },
+    {
+      "url": "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml",
+      "response": "02-feed.xml"
+    }
+  ],
+  "expectedLatest": {
+    "source": "magapoke",
+    "workId": "magapoke:3021",
+    "latestKey": "https://pocket.shonenmagazine.com/title/03021/episode/434393",
+    "url": "https://pocket.shonenmagazine.com/title/03021/episode/434393",
+    "series": "magapoke:3021",
+    "seriesTitle": "普通の本はありません！",
+    "episodeTitle": "【＃17】ハルとギンギン丸",
+    "nextUpdateLabel": "次回更新は4/20(月曜)予定です。"
+  }
+}
