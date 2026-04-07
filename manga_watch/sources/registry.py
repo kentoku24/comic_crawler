@@ -6,6 +6,7 @@ from .comic_action import ComicActionAdapter
 from .comic_walker import ComicWalkerAdapter
 from .firecross import FirecrossAdapter
 from .kakuyomu import KakuyomuAdapter
+from .magapoke import MagapokeAdapter
 from .nicovideo_manga import NicovideoMangaAdapter
 from .takecomic import TakecomicAdapter
 
@@ -14,6 +15,7 @@ REGISTERED_ADAPTERS = (
     ComicWalkerAdapter(),
     ComicActionAdapter(),
     ChampionCrossAdapter(),
+    MagapokeAdapter(),
     FirecrossAdapter(),
     TakecomicAdapter(),
     NicovideoMangaAdapter(),

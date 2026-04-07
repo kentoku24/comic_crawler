@@ -47,6 +47,15 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="magapoke",
+        domains=("pocket.shonenmagazine.com",),
+        input_labels=("title URL", "episode URL"),
+        examples=(
+            "https://pocket.shonenmagazine.com/title/03021",
+            "https://pocket.shonenmagazine.com/title/03021/episode/427856",
+        ),
+    ),
+    SourceCapability(
         source="firecross",
         domains=("firecross.jp",),
         input_labels=("reader URL", "ebook series URL"),

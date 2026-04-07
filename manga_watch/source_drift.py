@@ -24,6 +24,13 @@ from .sources.firecross import (
     parse_firecross_reader_title,
 )
 from .sources.kakuyomu import KakuyomuAdapter
+from .sources.magapoke import (
+    MagapokeAdapter,
+    canonical_magapoke_rss_url,
+    extract_magapoke_next_update_label,
+    extract_magapoke_rss_url,
+    parse_magapoke_rss_latest,
+)
 from .sources.nicovideo_manga import (
     NicovideoMangaAdapter,
     canonical_nicovideo_manga_latest_url,
@@ -114,6 +121,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "seed episode page exposes a stable series hash",
             "series RSS feed keeps the latest episode URL",
             "series RSS feed keeps the latest episode title",
+        ),
+    ),
+    "magapoke": SourceCanaryContract(
+        source="magapoke",
+        seed_url="https://pocket.shonenmagazine.com/title/03021",
+        fixture_bundle="tests/fixtures/magapoke/normal",
+        monitored_signals=(
+            "title page exposes the series RSS feed URL",
+            "title page exposes the next update label",
+            "series RSS feed keeps the latest episode URL and title",
         ),
     ),
     "firecross": SourceCanaryContract(
@@ -302,6 +319,42 @@ def _champion_cross_canary(
     )
 
 
+def _magapoke_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = MagapokeAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    title_html = http_client.get_text(work.seed_url)
+    rss_url = extract_magapoke_rss_url(title_html)
+    if not rss_url:
+        title_id = str(work.metadata.get("titleId") or "")
+        if not title_id:
+            raise SourceParseError("magapoke: title id not found")
+        rss_url = canonical_magapoke_rss_url(title_id)
+
+    next_update_label = extract_magapoke_next_update_label(title_html)
+    if not next_update_label:
+        raise SourceParseError("magapoke: next update label not found")
+
+    feed_text = http_client.get_text(rss_url)
+    latest_url, latest_title, series_title = parse_magapoke_rss_latest(feed_text)
+    if not latest_title:
+        raise SourceParseError("magapoke: latest episode title not found")
+
+    return (
+        (work.seed_url, rss_url),
+        (
+            CanaryObservation("rss_url", rss_url),
+            CanaryObservation("next_update_label", next_update_label),
+            CanaryObservation("series_title", series_title or ""),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", latest_title),
+        ),
+    )
+
+
 def _takecomic_canary(
     contract: SourceCanaryContract,
     http_client: HttpClient,
@@ -392,6 +445,7 @@ CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
     "champion-cross": _champion_cross_canary,
+    "magapoke": _magapoke_canary,
     "firecross": _firecross_canary,
     "kakuyomu": _kakuyomu_canary,
     "nicovideo-manga": _nicovideo_manga_canary,
