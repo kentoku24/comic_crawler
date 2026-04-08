@@ -17,6 +17,7 @@ from manga_watch.sources.comic_trail import extract_comic_trail_series_id, parse
 from manga_watch.sources.comicborder import parse_comicborder_title
 from manga_watch.sources.kuragebunch import parse_kuragebunch_title
 from manga_watch.sources.shonenjumpplus import parse_shonenjumpplus_title
+from manga_watch.sources.sunday_webry import parse_sunday_webry_title
 from manga_watch.sources import registered_sources
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures"
@@ -187,6 +188,16 @@ class SourceDriftTests(unittest.TestCase):
             )
         if source == "shonenjumpplus":
             parsed_episode_title, parsed_series_title = parse_shonenjumpplus_title(
+                expected_latest["pageTitle"]
+            )
+            return (
+                CanaryObservation("series_id", expected_work["seriesId"]),
+                CanaryObservation("latest_episode_url", expected_latest["url"]),
+                CanaryObservation("latest_episode_title", parsed_episode_title or ""),
+                CanaryObservation("series_title", parsed_series_title or ""),
+            )
+        if source == "sunday-webry":
+            parsed_episode_title, parsed_series_title = parse_sunday_webry_title(
                 expected_latest["pageTitle"]
             )
             return (
