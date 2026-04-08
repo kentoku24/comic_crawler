@@ -477,6 +477,7 @@ drift を検知したら、次の順で進めます。
 5. `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check tests.test_runner` を実行する
 
 2 を忘れると `tests.test_sources.SourceAdapterTests.test_registry_covers_every_concrete_adapter_module` が失敗します。
+source expansion の Issue / PR review には [`docs/source-expansion-review-rubric.md`](docs/source-expansion-review-rubric.md) を使って、implementation readiness と merge readiness を分けて評価してください。
 
 ## Repository layout
 
