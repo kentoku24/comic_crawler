@@ -1,0 +1,26 @@
+{
+  "seedUrl": "https://comic-trail.com/rss/series/14079602755560047206",
+  "expectedWork": {
+    "source": "comic-trail",
+    "kind": "comic-trail",
+    "workId": "comic-trail:14079602755560047206",
+    "seedUrl": "https://comic-trail.com/rss/series/14079602755560047206",
+    "series": "comic-trail:14079602755560047206",
+    "seriesId": "14079602755560047206",
+    "feedKind": "rss"
+  },
+  "expectedError": {
+    "type": "SourceParseError",
+    "message": "comic-trail: latest episode title could not be parsed from page title"
+  },
+  "steps": [
+    {
+      "url": "https://comic-trail.com/rss/series/14079602755560047206",
+      "response": "01-rss.xml"
+    },
+    {
+      "url": "https://comic-trail.com/episode/2550912965721039352",
+      "response": "02-latest.html"
+    }
+  ]
+}

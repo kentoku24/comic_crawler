@@ -142,6 +142,44 @@ class WatchlistAddLogicTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
+    def test_add_watchlist_url_accepts_comic_trail_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://comic-trail.com/episode/2550689798402927313?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://comic-trail.com/episode/2550689798402927313": """
+                        <html>
+                          <head>
+                            <title>第1話 始まり / 作品E | コミックトレイル</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://comic-trail.com/rss/series/14079602755560047206">
+                          </head>
+                          <body>
+                            <script>
+                              window.__DATA__ = {"series_id":"14079602755560047206"};
+                            </script>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("comic-trail:14079602755560047206", payload["entry"]["id"])
+        self.assertEqual(
+            "https://comic-trail.com/rss/series/14079602755560047206",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("comic-trail", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
     def test_add_watchlist_url_accepts_magapoke_episode_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
@@ -262,6 +300,40 @@ class WatchlistAddLogicTests(unittest.TestCase):
             payload["entry"]["seed_url"],
         )
         self.assertEqual("comicborder", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_comic_earthstar_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://comic-earthstar.com/episode/12207421983526541742?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://comic-earthstar.com/episode/12207421983526541742": """
+                        <html>
+                          <head>
+                            <title>第1話 / 魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～ - 漫画：大林ポチ子/原作：Mikura/キャラクター原案：中西達哉 | コミック アース・スター</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://comic-earthstar.com/rss/series/12207421983526538413">
+                          </head>
+                          <body></body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("comic-earthstar:12207421983526538413", payload["entry"]["id"])
+        self.assertEqual(
+            "https://comic-earthstar.com/rss/series/12207421983526538413",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("comic-earthstar", payload["entry"]["source"])
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 

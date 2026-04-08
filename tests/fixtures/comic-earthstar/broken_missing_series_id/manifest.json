@@ -1,0 +1,19 @@
+{
+  "seedUrl": "https://comic-earthstar.com/episode/12207421983526541742",
+  "expectedWork": {
+    "source": "comic-earthstar",
+    "kind": "comic-earthstar",
+    "workId": "https://comic-earthstar.com/episode/12207421983526541742",
+    "seedUrl": "https://comic-earthstar.com/episode/12207421983526541742"
+  },
+  "expectedError": {
+    "type": "SourceParseError",
+    "message": "comic-earthstar: series id not found"
+  },
+  "steps": [
+    {
+      "url": "https://comic-earthstar.com/episode/12207421983526541742",
+      "response": "01-episode.html"
+    }
+  ]
+}

@@ -37,6 +37,16 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="comic-earthstar",
+        domains=("comic-earthstar.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comic-earthstar.com/episode/12207421983526541742",
+            "https://comic-earthstar.com/rss/series/12207421983526538413",
+            "https://comic-earthstar.com/atom/series/12207421983526538413",
+        ),
+    ),
+    SourceCapability(
         source="comicborder",
         domains=("comicborder.com",),
         input_labels=("episode URL", "series RSS URL", "series Atom URL"),
@@ -44,6 +54,16 @@ SOURCE_CAPABILITIES = (
             "https://comicborder.com/episode/12207421983437812169",
             "https://comicborder.com/rss/series/12207421983437805229",
             "https://comicborder.com/atom/series/12207421983437805229",
+        ),
+    ),
+    SourceCapability(
+        source="comic-trail",
+        domains=("comic-trail.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comic-trail.com/episode/2550689798402927313",
+            "https://comic-trail.com/rss/series/14079602755560047206",
+            "https://comic-trail.com/atom/series/14079602755560047206",
         ),
     ),
     SourceCapability(
