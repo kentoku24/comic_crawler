@@ -57,6 +57,16 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="kuragebunch",
+        domains=("kuragebunch.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://kuragebunch.com/episode/2550912964856491139",
+            "https://kuragebunch.com/rss/series/2550912964856487532",
+            "https://kuragebunch.com/atom/series/2550912964856487532",
+        ),
+    ),
+    SourceCapability(
         source="shonenjumpplus",
         domains=("shonenjumpplus.com",),
         input_labels=("episode URL", "series RSS URL", "series Atom URL"),
