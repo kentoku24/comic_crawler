@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 
-FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "takecomic" / "contract"
+FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "takecomic-contract"
 ORIGIN = "https://takecomic.jp"
 
 

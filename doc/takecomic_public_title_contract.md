@@ -107,6 +107,6 @@ takecomic is implementation-ready for Family B if a follow-up adapter:
 
 ## Evidence captured in this branch
 
-- `tests/fixtures/takecomic/contract/historical_root_redirect.json`
-- `tests/fixtures/takecomic/contract/series_a3c3f4363f8d5.json`
+- `tests/fixtures/takecomic-contract/historical_root_redirect.json`
+- `tests/fixtures/takecomic-contract/series_a3c3f4363f8d5.json`
 - `tests/test_takecomic_contract.py`
