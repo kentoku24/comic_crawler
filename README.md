@@ -222,6 +222,7 @@ runner が backend に送る update event は次の schema です。
 | webアクション | episode URL, RSS/Atom series feed URL | canonical episode URL または canonical series feed URL | `comic-action:<series_id>` | 最終到達 episode URL |
 | コミック アース・スター | episode URL, RSS/Atom series feed URL | `https://comic-earthstar.com/rss/series/<series_id>` | `comic-earthstar:<series_id>` | 最新 episode URL |
 | コミックボーダー | episode URL, RSS/Atom series feed URL | `https://comicborder.com/rss/series/<series_id>` | `comicborder:<series_id>` | 最新 episode URL |
+| コミックトレイル | episode URL, RSS/Atom series feed URL | `https://comic-trail.com/rss/series/<series_id>` | `comic-trail:<series_id>` | 最新 episode URL |
 | くらげバンチ | episode URL, RSS/Atom series feed URL | `https://kuragebunch.com/rss/series/<series_id>` | `kuragebunch:<series_id>` | 最新 episode URL |
 | 少年ジャンプ＋ | episode URL, RSS/Atom series feed URL | `https://shonenjumpplus.com/rss/series/<series_id>` | `shonenjumpplus:<series_id>` | 最新 episode URL |
 | Champion Cross | episode URL, series URL, series RSS URL | canonical episode URL / canonical series URL / canonical series RSS URL | `champion-cross:<series_hash>` | 最新 episode URL |
@@ -464,6 +465,7 @@ fixture regression だけでは拾えない upstream HTML / embedded JSON drift 
 | webアクション | `https://comic-action.com/episode/2550689798784879524` | seed episode page の `series_id`、`nextReadableProductUri`、最終到達 episode page title parse | `tests/fixtures/comic-action/normal` |
 | コミック アース・スター | `https://comic-earthstar.com/episode/12207421983526541742` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comic-earthstar/normal` |
 | コミックボーダー | `https://comicborder.com/episode/12207421983437812169` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comicborder/normal` |
+| コミックトレイル | `https://comic-trail.com/episode/2550689798402927313` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comic-trail/normal` |
 | くらげバンチ | `https://kuragebunch.com/episode/2550912964856491139` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/kuragebunch/normal` |
 | 少年ジャンプ＋ | `https://shonenjumpplus.com/episode/17107419589191805801` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/shonenjumpplus/normal` |
 | マガポケ | `https://pocket.shonenmagazine.com/title/03021` | title page の RSS feed URL、title page の次回更新ラベル、series RSS の最新 episode URL/title | `tests/fixtures/magapoke/normal` |
