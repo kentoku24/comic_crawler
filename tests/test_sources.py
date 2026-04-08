@@ -18,6 +18,7 @@ from manga_watch.sources.base import SourceParseError, WorkDescriptor
 from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_earthstar import ComicEarthstarAdapter
+from manga_watch.sources.comic_trail import parse_comic_trail_title
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
 from manga_watch.sources.magapoke import MagapokeAdapter
@@ -501,6 +502,56 @@ class SourceAdapterTests(unittest.TestCase):
             ],
             client.calls,
         )
+
+    def test_parse_comic_trail_title_strips_author_suffix_from_live_title_shape(self):
+        page_title = (
+            "Pain.1 僕の好きな人 / 僕の彼女は春を売る - 後藤ねぎ | "
+            "コミックトレイル｜漫画とつながるフェス空間！"
+        )
+
+        self.assertEqual(
+            ("Pain.1 僕の好きな人", "僕の彼女は春を売る"),
+            parse_comic_trail_title(page_title),
+        )
+
+    def test_shonenjumpplus_fetch_latest_backfills_series_title_from_page_title(self):
+        work = WorkDescriptor(
+            source="shonenjumpplus",
+            work_id="shonenjumpplus:3269754496881854342",
+            seed_url="https://shonenjumpplus.com/rss/series/3269754496881854342",
+            metadata={
+                "series": "shonenjumpplus:3269754496881854342",
+                "seriesId": "3269754496881854342",
+                "feedKind": "rss",
+            },
+        )
+        client = StaticHttpClient(
+            {
+                "https://shonenjumpplus.com/rss/series/3269754496881854342": """
+                <rss version="2.0">
+                  <channel>
+                    <title>少年ジャンプ＋</title>
+                    <item>
+                      <title>[159話]マリッジトキシン</title>
+                      <link>https://shonenjumpplus.com/episode/17107419589191805801</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://shonenjumpplus.com/episode/17107419589191805801": """
+                <html>
+                  <head>
+                    <title>[159話]マリッジトキシン - 静脈/依田瑞稀 | 少年ジャンプ＋</title>
+                  </head>
+                </html>
+                """,
+            }
+        )
+
+        latest = ShonenJumpPlusAdapter().fetch_latest(work, client).to_dict()
+
+        self.assertEqual("マリッジトキシン", latest["seriesTitle"])
+        self.assertEqual("[159話]マリッジトキシン", latest["episodeTitle"])
 
     def test_takecomic_normalize_accepts_series_url(self):
         work = TakecomicAdapter().normalize("https://takecomic.jp/series/3f846451aff2d/?ref=top")

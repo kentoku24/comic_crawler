@@ -122,10 +122,13 @@ def parse_comic_trail_title(page_title: str) -> Tuple[Optional[str], Optional[st
     if not title:
         return None, None
     main = title.split("|", 1)[0].strip()
-    parts = [part.strip() for part in main.split("/")]
-    if len(parts) >= 2:
-        return parts[0] or None, parts[1] or None
-    return None, None
+    left, separator, right = main.rpartition(" / ")
+    if not separator:
+        return None, None
+    episode_title = left.strip() or None
+    series_part = right.strip()
+    series_title = series_part.split(" - ", 1)[0].strip() or None
+    return episode_title, series_title
 
 
 def extract_comic_trail_next_update_label(html_text: str) -> Optional[str]:

@@ -23,6 +23,7 @@ _SERIES_ID_PATTERNS = (
     re.compile(r'&quot;series_id&quot;\s*:\s*&quot;(\d+)&quot;'),
     re.compile(rf"https?://(?:www\.)?{_HOST}/(?:rss|atom)/series/(\d+)"),
 )
+_GENERIC_SERIES_TITLES = {"少年ジャンプ＋"}
 
 
 def canonical_shonenjumpplus_episode_url(episode_id: str) -> str:
@@ -199,8 +200,11 @@ class ShonenJumpPlusAdapter(SourceAdapter):
         feed_text = http_client.get_text(feed_url)
         latest_url, episode_title, series_title = parse_shonenjumpplus_feed_latest(feed_text)
         page_title = html_title(http_client.get_text(latest_url))
+        parsed_episode_title, parsed_series_title = parse_shonenjumpplus_title(page_title or "")
         if not episode_title:
-            episode_title, _ = parse_shonenjumpplus_title(page_title or "")
+            episode_title = parsed_episode_title
+        if (not series_title or series_title in _GENERIC_SERIES_TITLES) and parsed_series_title:
+            series_title = parsed_series_title
 
         return LatestEpisode(
             source=self.source,
