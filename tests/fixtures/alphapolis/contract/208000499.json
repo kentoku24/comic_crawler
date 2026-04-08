@@ -1,0 +1,26 @@
+{
+  "observedAt": "2026-04-08",
+  "inputUrl": "https://www.alphapolis.co.jp/manga/official/208000499",
+  "canonicalUrl": "https://www.alphapolis.co.jp/manga/official/208000499",
+  "pageTitle": "ワーキングダンジョン！~新卒勇者の異世界業務日誌~ | 公式Web漫画 | アルファポリス",
+  "scheduleLabel": "毎月第３月曜日更新",
+  "nextUpdateLabel": "2026.04.27",
+  "inlinePayload": {
+    "mangaId": 208000499,
+    "mangaTitle": "ワーキングダンジョン！~新卒勇者の異世界業務日誌~",
+    "episodes": [
+      {
+        "episodeNo": 11595,
+        "url": "/manga/official/208000499/11595",
+        "mainTitle": "連載再開のご挨拶 『期間限定全話無料公開！』",
+        "upTime": "2026.03.30更新"
+      },
+      {
+        "episodeNo": 11676,
+        "url": "/manga/official/208000499/11676",
+        "mainTitle": "Episode04-01『夢幻の龍が墜ちる時 Part1』",
+        "upTime": "2026.04.06更新"
+      }
+    ]
+  }
+}
