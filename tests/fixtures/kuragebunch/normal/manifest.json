@@ -1,0 +1,34 @@
+{
+  "seedUrl": "https://kuragebunch.com/rss/series/2550912964856487532",
+  "expectedWork": {
+    "source": "kuragebunch",
+    "kind": "kuragebunch",
+    "workId": "kuragebunch:2550912964856487532",
+    "seedUrl": "https://kuragebunch.com/rss/series/2550912964856487532",
+    "series": "kuragebunch:2550912964856487532",
+    "seriesId": "2550912964856487532",
+    "feedKind": "rss"
+  },
+  "expectedLatest": {
+    "workId": "kuragebunch:2550912964856487532",
+    "latestKey": "https://kuragebunch.com/episode/12207421983430264919",
+    "url": "https://kuragebunch.com/episode/12207421983430264919",
+    "series": "kuragebunch:2550912964856487532",
+    "seriesTitle": "赤と青のガウン",
+    "episodeTitle": "第15話",
+    "pageTitle": "赤と青のガウン - 彬子女王/池辺葵 / 第15話 | くらげバンチ"
+  },
+  "missingLatestKeys": [
+    "nextUpdateLabel"
+  ],
+  "steps": [
+    {
+      "url": "https://kuragebunch.com/rss/series/2550912964856487532",
+      "response": "01-rss.xml"
+    },
+    {
+      "url": "https://kuragebunch.com/episode/12207421983430264919",
+      "response": "02-latest.html"
+    }
+  ]
+}
