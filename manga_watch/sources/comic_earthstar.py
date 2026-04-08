@@ -137,7 +137,7 @@ def parse_comic_earthstar_title(page_title: str) -> Tuple[Optional[str], Optiona
 def _series_title_from_channel_title(channel_title: str) -> Optional[str]:
     if not channel_title:
         return None
-    match = re.search(r"（(.+?)）", channel_title)
+    match = re.search(r"^[^（]*（(.+)）\s*$", channel_title)
     if match:
         return match.group(1).strip() or None
     return channel_title or None

@@ -1037,6 +1037,49 @@ class SourceAdapterTests(unittest.TestCase):
             client.calls,
         )
 
+    def test_comic_earthstar_feed_parser_keeps_nested_parentheses_in_series_title_fallback(self):
+        latest = ComicEarthstarAdapter().fetch_latest(
+            WorkDescriptor(
+                source="comic-earthstar",
+                work_id="comic-earthstar:12207421983526538413",
+                seed_url="https://comic-earthstar.com/rss/series/12207421983526538413",
+                metadata={
+                    "series": "comic-earthstar:12207421983526538413",
+                    "seriesId": "12207421983526538413",
+                    "feedKind": "rss",
+                },
+            ),
+            StaticHttpClient(
+                {
+                    "https://comic-earthstar.com/rss/series/12207421983526538413": """
+                    <rss version="2.0">
+                      <channel>
+                        <title>コミック アース・スター｜毎週木曜・最新話更新！無料で漫画が読めるWEBコミック誌（魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～）</title>
+                        <item>
+                          <title>第2話②</title>
+                          <link>https://comic-earthstar.com/episode/12207421983562435589</link>
+                        </item>
+                      </channel>
+                    </rss>
+                    """,
+                    "https://comic-earthstar.com/episode/12207421983562435589": """
+                    <html>
+                      <head>
+                        <title>第2話② / 魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～ - 漫画：大林ポチ子/原作：Mikura/キャラクター原案：中西達哉 | コミック アース・スター</title>
+                      </head>
+                    </html>
+                    """,
+                }
+            ),
+        ).to_dict()
+
+        self.assertEqual("https://comic-earthstar.com/episode/12207421983562435589", latest["latestKey"])
+        self.assertEqual("第2話②", latest["episodeTitle"])
+        self.assertEqual(
+            "魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～",
+            latest["seriesTitle"],
+        )
+
     def test_comicborder_fetch_latest_accepts_canonical_feed_seed(self):
         work = WorkDescriptor(
             source="comicborder",
