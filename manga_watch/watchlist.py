@@ -58,7 +58,7 @@ SOURCE_CAPABILITIES = (
     ),
     SourceCapability(
         source="sunday-webry",
-        domains=("www.sunday-webry.com",),
+        domains=("sunday-webry.com", "www.sunday-webry.com"),
         input_labels=("episode URL", "series RSS URL", "series Atom URL"),
         examples=(
             "https://www.sunday-webry.com/episode/12207421983581042977",
