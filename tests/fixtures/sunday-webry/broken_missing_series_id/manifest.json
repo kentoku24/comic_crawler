@@ -1,0 +1,19 @@
+{
+  "seedUrl": "https://www.sunday-webry.com/episode/12207421983581042977",
+  "expectedWork": {
+    "source": "sunday-webry",
+    "kind": "sunday-webry",
+    "workId": "https://www.sunday-webry.com/episode/12207421983581042977",
+    "seedUrl": "https://www.sunday-webry.com/episode/12207421983581042977"
+  },
+  "expectedError": {
+    "type": "SourceParseError",
+    "message": "sunday-webry: series id not found"
+  },
+  "steps": [
+    {
+      "url": "https://www.sunday-webry.com/episode/12207421983581042977",
+      "response": "01-episode.html"
+    }
+  ]
+}

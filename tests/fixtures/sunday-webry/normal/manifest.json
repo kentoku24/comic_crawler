@@ -1,0 +1,32 @@
+{
+  "seedUrl": "https://www.sunday-webry.com/rss/series/12207421983580960894",
+  "expectedWork": {
+    "source": "sunday-webry",
+    "kind": "sunday-webry",
+    "workId": "sunday-webry:12207421983580960894",
+    "seedUrl": "https://www.sunday-webry.com/rss/series/12207421983580960894",
+    "series": "sunday-webry:12207421983580960894",
+    "seriesId": "12207421983580960894",
+    "feedKind": "rss"
+  },
+  "expectedLatest": {
+    "workId": "sunday-webry:12207421983580960894",
+    "latestKey": "https://www.sunday-webry.com/episode/12207421983581042977",
+    "url": "https://www.sunday-webry.com/episode/12207421983581042977",
+    "series": "sunday-webry:12207421983580960894",
+    "seriesTitle": "しっぽと逆鱗",
+    "episodeTitle": "diary1 つきこと先生",
+    "pageTitle": "diary1 つきこと先生 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり"
+  },
+  "missingLatestKeys": [],
+  "steps": [
+    {
+      "url": "https://www.sunday-webry.com/rss/series/12207421983580960894",
+      "response": "01-rss.xml"
+    },
+    {
+      "url": "https://www.sunday-webry.com/episode/12207421983581042977",
+      "response": "02-latest.html"
+    }
+  ]
+}

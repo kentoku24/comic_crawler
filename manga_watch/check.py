@@ -40,6 +40,12 @@ from manga_watch.sources.shonenjumpplus import (
     extract_shonenjumpplus_series_id,
     extract_shonenjumpplus_series_id_from_seed_url,
 )
+from manga_watch.sources.sunday_webry import (
+    canonical_sunday_webry_series_feed_url,
+    extract_sunday_webry_series_feed_url,
+    extract_sunday_webry_series_id,
+    extract_sunday_webry_series_id_from_seed_url,
+)
 from manga_watch.storage import (
     NOTIFICATION_POLICY_MODE_ALL,
     evaluate_notification_policy,
@@ -627,6 +633,26 @@ def stable_work_id_for_item(
             raise RuntimeError("shonenjumpplus: series id not found")
         return f"shonenjumpplus:{series_id}"
 
+    if source == "sunday-webry":
+        stable_series = str(item.get("series") or "")
+        if stable_series.startswith("sunday-webry:"):
+            return stable_series
+
+        seed_url = str(item.get("seedUrl") or "")
+        if not seed_url:
+            raise RuntimeError("sunday-webry: seedUrl is required to derive work_id")
+
+        series_id = str(item.get("seriesId") or "") or extract_sunday_webry_series_id_from_seed_url(seed_url)
+        if series_id:
+            return f"sunday-webry:{series_id}"
+
+        client = http_client or RequestsHttpClient()
+        html = client.get_text(seed_url)
+        series_id = extract_sunday_webry_series_id(html)
+        if not series_id:
+            raise RuntimeError("sunday-webry: series id not found")
+        return f"sunday-webry:{series_id}"
+
     if source != "comic-action":
         return item_id_for_state(item)
 
@@ -672,6 +698,22 @@ def canonical_seed_url_for_item(
         if not series_id:
             raise RuntimeError("comicborder: series id not found")
         return canonical_comicborder_series_feed_url(series_id)
+
+    if source == "sunday-webry":
+        series_id = str(item.get("seriesId") or "") or extract_sunday_webry_series_id_from_seed_url(seed_url)
+        if series_id:
+            return canonical_sunday_webry_series_feed_url(series_id)
+
+        client = http_client or RequestsHttpClient()
+        html = client.get_text(seed_url)
+        feed_url = extract_sunday_webry_series_feed_url(html)
+        if feed_url:
+            return feed_url
+
+        series_id = extract_sunday_webry_series_id(html)
+        if not series_id:
+            raise RuntimeError("sunday-webry: series id not found")
+        return canonical_sunday_webry_series_feed_url(series_id)
 
     if source != "shonenjumpplus":
         return seed_url

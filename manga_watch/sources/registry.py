@@ -10,6 +10,7 @@ from .kakuyomu import KakuyomuAdapter
 from .magapoke import MagapokeAdapter
 from .nicovideo_manga import NicovideoMangaAdapter
 from .shonenjumpplus import ShonenJumpPlusAdapter
+from .sunday_webry import SundayWebryAdapter
 from .takecomic import TakecomicAdapter
 
 # Explicit runtime registration contract for every supported source adapter.
@@ -18,6 +19,7 @@ REGISTERED_ADAPTERS = (
     ComicActionAdapter(),
     ComicBorderAdapter(),
     ShonenJumpPlusAdapter(),
+    SundayWebryAdapter(),
     ChampionCrossAdapter(),
     MagapokeAdapter(),
     FirecrossAdapter(),

@@ -47,6 +47,13 @@ from .sources.shonenjumpplus import (
     parse_shonenjumpplus_title,
     parse_shonenjumpplus_feed_latest,
 )
+from .sources.sunday_webry import (
+    SundayWebryAdapter,
+    canonical_sunday_webry_series_feed_url,
+    extract_sunday_webry_series_id,
+    parse_sunday_webry_feed_latest,
+    parse_sunday_webry_title,
+)
 from .sources.takecomic import (
     TakecomicAdapter,
     canonical_takecomic_series_rss_url,
@@ -139,6 +146,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
         source="shonenjumpplus",
         seed_url="https://shonenjumpplus.com/episode/17107419589191805801",
         fixture_bundle="tests/fixtures/shonenjumpplus/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "sunday-webry": SourceCanaryContract(
+        source="sunday-webry",
+        seed_url="https://www.sunday-webry.com/episode/12207421983581042977",
+        fixture_bundle="tests/fixtures/sunday-webry/normal",
         monitored_signals=(
             "seed episode page exposes a stable series id",
             "series RSS feed keeps the latest episode URL",
@@ -397,6 +414,58 @@ def _comicborder_canary(
     )
 
 
+def _sunday_webry_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = SundayWebryAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    checked_urls = []
+    if work.seed_url.endswith("/rss") or "/rss/series/" in work.seed_url:
+        rss_url = work.seed_url
+        series_id = str(work.metadata.get("seriesId") or "") or rss_url.rstrip("/").rsplit("/", 1)[-1]
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_sunday_webry_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+    else:
+        episode_html = http_client.get_text(work.seed_url)
+        checked_urls.append(work.seed_url)
+        series_id = extract_sunday_webry_series_id(episode_html)
+        if not series_id:
+            raise SourceParseError("sunday-webry: series id not found")
+        rss_url = canonical_sunday_webry_series_feed_url(series_id)
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_sunday_webry_feed_latest(feed_text)
+        latest_html = episode_html if latest_url == work.seed_url else http_client.get_text(latest_url)
+        if latest_url != work.seed_url:
+            checked_urls.append(latest_url)
+
+    page_title = html_title(latest_html) or ""
+    if not latest_title:
+        raise SourceParseError("sunday-webry: latest episode title not found")
+    if not page_title:
+        raise SourceParseError("sunday-webry: latest episode page title not found")
+    parsed_episode_title, parsed_series_title = parse_sunday_webry_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("sunday-webry: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("sunday-webry: series title could not be parsed from page title")
+
+    return (
+        tuple(checked_urls),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
+        ),
+    )
+
+
 def _kakuyomu_canary(contract: SourceCanaryContract, http_client: HttpClient) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
     adapter = KakuyomuAdapter()
     work = adapter.normalize(contract.seed_url)
@@ -582,6 +651,7 @@ CANARY_RUNNERS = {
     "comic-action": _comic_action_canary,
     "comicborder": _comicborder_canary,
     "shonenjumpplus": _shonenjumpplus_canary,
+    "sunday-webry": _sunday_webry_canary,
     "champion-cross": _champion_cross_canary,
     "magapoke": _magapoke_canary,
     "firecross": _firecross_canary,
