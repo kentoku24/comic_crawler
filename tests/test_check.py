@@ -53,6 +53,26 @@ class FakeAdapter(SourceAdapter):
         )
 
 
+class CanonicalizingFakeAdapter(FakeAdapter):
+    def can_handle(self, seed_url: str) -> bool:
+        return seed_url == "https://example.com/canonicalize"
+
+    def normalize(self, seed_url: str) -> WorkDescriptor:
+        return WorkDescriptor(
+            source=self.source,
+            work_id="https://example.com/canonicalize",
+            seed_url=seed_url,
+        )
+
+    def canonicalize_item(self, item, http_client) -> WorkDescriptor:
+        return WorkDescriptor(
+            source=self.source,
+            work_id="fake:series-1",
+            seed_url="https://example.com/series/1",
+            metadata={"series": "fake:series-1"},
+        )
+
+
 def watchlist_entry(
     *,
     work_id="work-1",
@@ -283,6 +303,16 @@ class CheckTests(unittest.TestCase):
 
         self.assertEqual("kakuyomu:123", entry["id"])
         self.assertEqual("https://kakuyomu.jp/works/123/", entry["seed_url"])
+
+    def test_build_watchlist_entry_prefers_adapter_canonicalization_contract(self):
+        entry = check.build_watchlist_entry(
+            "https://example.com/canonicalize",
+            adapters=[CanonicalizingFakeAdapter([])],
+        )
+
+        self.assertEqual("fake:series-1", entry["id"])
+        self.assertEqual("fake", entry["source"])
+        self.assertEqual("https://example.com/series/1", entry["seed_url"])
 
     def test_build_watchlist_entry_uses_stable_comic_action_work_id(self):
         fake_client = mock.Mock()
