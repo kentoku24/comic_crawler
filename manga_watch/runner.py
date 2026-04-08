@@ -36,6 +36,7 @@ from manga_watch.storage import (
     load_state,
     record_run_summary,
     save_state,
+    state_notification_outbox,
 )
 from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES
 
@@ -152,47 +153,28 @@ def resolve_named_notifiers(
 
 
 def load_notification_outbox(state: Dict[str, object]) -> List[Dict[str, object]]:
-    outbox = state.get(NOTIFICATION_OUTBOX_KEY, [])
-    if outbox is None:
-        return []
-    if not isinstance(outbox, list):
-        raise RuntimeError("state.notification_outbox must be a list")
+    try:
+        outbox = state_notification_outbox(state)
+    except ValueError as exc:
+        raise RuntimeError(str(exc)) from exc
 
     normalized_entries: List[Dict[str, object]] = []
     for index, entry in enumerate(outbox):
-        if not isinstance(entry, dict):
-            raise RuntimeError(f"state.notification_outbox[{index}] must be an object")
         try:
             event = event_from_payload(entry.get("event") or {})
         except ValueError as exc:
             raise RuntimeError(f"state.notification_outbox[{index}] is invalid: {exc}") from exc
 
-        pending_backends = entry.get("pending_backends", entry.get("pendingBackends", []))
-        if pending_backends is None:
-            pending_backends = []
-        if not isinstance(pending_backends, list):
-            raise RuntimeError(f"state.notification_outbox[{index}].pending_backends must be a list")
-
-        normalized_pending_backends: List[str] = []
-        seen_backends = set()
-        for backend in pending_backends:
-            normalized_backend = str(backend).strip()
-            if not normalized_backend or normalized_backend in seen_backends:
-                continue
-            seen_backends.add(normalized_backend)
-            normalized_pending_backends.append(normalized_backend)
-
-        if not normalized_pending_backends:
+        if not entry["pending_backends"]:
             continue
 
         normalized_entries.append(
             {
                 "event": event.as_payload(),
-                "pending_backends": normalized_pending_backends,
-                "attempt_count": max(0, int(entry.get("attempt_count", entry.get("attemptCount", 0)) or 0)),
-                "last_attempted_at": str(entry.get("last_attempted_at", entry.get("lastAttemptedAt")) or "").strip()
-                or None,
-                "last_error": str(entry.get("last_error", entry.get("lastError")) or "").strip() or None,
+                "pending_backends": list(entry["pending_backends"]),
+                "attempt_count": int(entry["attempt_count"]),
+                "last_attempted_at": entry["last_attempted_at"],
+                "last_error": entry["last_error"],
             }
         )
     return normalized_entries

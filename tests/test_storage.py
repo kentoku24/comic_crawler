@@ -6,7 +6,12 @@ from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 from unittest import mock
 
-from manga_watch.storage import load_state, save_state
+from manga_watch.storage import (
+    load_state,
+    save_state,
+    state_daily_notification_delivery,
+    state_notification_outbox,
+)
 
 
 def make_state(*, latest_key: str, last_run_at: int) -> dict:
@@ -43,6 +48,92 @@ def make_state(*, latest_key: str, last_run_at: int) -> dict:
 
 
 class StorageTests(unittest.TestCase):
+    def test_state_notification_outbox_normalizes_entries_in_place(self):
+        state = {
+            "notification_outbox": [
+                {
+                    "event": {"event_id": "event-1"},
+                    "pendingBackends": ["stdout", "stdout", " webhook "],
+                    "attemptCount": "2",
+                    "lastAttemptedAt": "2023-11-14T22:13:20Z",
+                    "lastError": "timed out",
+                    "extraField": "kept",
+                }
+            ]
+        }
+
+        outbox = state_notification_outbox(state)
+
+        self.assertEqual(
+            [
+                {
+                    "event": {"event_id": "event-1"},
+                    "pending_backends": ["stdout", "webhook"],
+                    "attempt_count": 2,
+                    "last_attempted_at": "2023-11-14T22:13:20Z",
+                    "last_error": "timed out",
+                    "extra_field": "kept",
+                }
+            ],
+            outbox,
+        )
+        self.assertEqual(outbox, state["notification_outbox"])
+
+    def test_state_daily_notification_delivery_normalizes_legacy_shape_in_place(self):
+        state = {
+            "discordDelivery": {
+                "dailyNotification": {
+                    "deliveredLatestKeys": {
+                        "work-1": {
+                            "latestKey": "episode-2",
+                            "deliveredAt": "2023-11-14T22:13:20Z",
+                        }
+                    },
+                    "pendingMessages": [
+                        {
+                            "channelId": "main-channel",
+                            "content": "pending daily message",
+                            "messageKeys": [
+                                {"workId": "work-1", "latestKey": "episode-2"},
+                                {"workId": "work-1", "latestKey": "episode-2"},
+                            ],
+                            "createdAt": "2023-11-14T22:13:20Z",
+                            "attemptCount": "1",
+                            "lastAttemptedAt": "2023-11-14T22:14:00Z",
+                            "lastError": "discord delivery failed",
+                        }
+                    ],
+                }
+            }
+        }
+
+        daily_notification = state_daily_notification_delivery(state)
+
+        self.assertEqual(
+            {
+                "delivered_latest_keys": {
+                    "work-1": {
+                        "latest_key": "episode-2",
+                        "delivered_at": "2023-11-14T22:13:20Z",
+                    }
+                },
+                "pending_messages": [
+                    {
+                        "channel_id": "main-channel",
+                        "content": "pending daily message",
+                        "message_keys": [{"work_id": "work-1", "latest_key": "episode-2"}],
+                        "created_at": "2023-11-14T22:13:20Z",
+                        "attempt_count": 1,
+                        "last_attempted_at": "2023-11-14T22:14:00Z",
+                        "last_error": "discord delivery failed",
+                    }
+                ],
+            },
+            daily_notification,
+        )
+        self.assertEqual(daily_notification, state["discord_delivery"]["daily_notification"])
+        self.assertNotIn("discordDelivery", state)
+
     def test_save_state_keeps_previous_json_when_write_fails_before_replace(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             state_path = Path(tmpdir) / "state.json"

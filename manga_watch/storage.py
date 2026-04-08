@@ -89,6 +89,25 @@ def default_state() -> Dict[str, object]:
     }
 
 
+def state_notification_outbox(state: Dict[str, object]) -> List[Dict[str, object]]:
+    normalized_outbox = normalize_notification_outbox(state.get("notification_outbox"))
+    state["notification_outbox"] = normalized_outbox
+    return normalized_outbox
+
+
+def state_discord_delivery(state: Dict[str, object]) -> Dict[str, object]:
+    normalized_discord_delivery = normalize_discord_delivery(
+        state.get("discord_delivery", state.get("discordDelivery"))
+    )
+    state.pop("discordDelivery", None)
+    state["discord_delivery"] = normalized_discord_delivery
+    return normalized_discord_delivery
+
+
+def state_daily_notification_delivery(state: Dict[str, object]) -> Dict[str, object]:
+    return state_discord_delivery(state)["daily_notification"]
+
+
 def load_watchlist(
     path: Optional[str] = None,
     *,
