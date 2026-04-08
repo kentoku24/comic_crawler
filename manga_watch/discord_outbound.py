@@ -10,6 +10,7 @@ import requests
 
 from manga_watch.secret_redaction import redact_secret_text
 from manga_watch.secret_resolver import resolve_env_value
+from manga_watch.storage import state_daily_notification_delivery
 from manga_watch.discord_text import (
     episode_label_for_snapshot,
     series_label_for_snapshot,
@@ -194,25 +195,7 @@ class DiscordChannelClient:
 
 
 def _daily_notification_state(state: Dict[str, object]) -> Dict[str, object]:
-    discord_delivery = state.setdefault(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, dict):
-        discord_delivery = {}
-        state[DISCORD_DELIVERY_STATE_KEY] = discord_delivery
-
-    daily_notification = discord_delivery.setdefault(
-        DAILY_NOTIFICATION_STATE_KEY,
-        {
-            "delivered_latest_keys": {},
-            "pending_messages": [],
-        },
-    )
-    if not isinstance(daily_notification, dict):
-        daily_notification = {
-            "delivered_latest_keys": {},
-            "pending_messages": [],
-        }
-        discord_delivery[DAILY_NOTIFICATION_STATE_KEY] = daily_notification
-    return daily_notification
+    return state_daily_notification_delivery(state)
 
 
 def daily_notification_key(update: Mapping[str, object]) -> Optional[Tuple[str, str]]:
@@ -227,26 +210,14 @@ def daily_notification_key(update: Mapping[str, object]) -> Optional[Tuple[str, 
 
 
 def _pending_daily_notification_keys(state: Mapping[str, object]) -> set[Tuple[str, str]]:
-    discord_delivery = state.get(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, Mapping):
+    if not isinstance(state, dict):
         return set()
-    daily_notification = discord_delivery.get(DAILY_NOTIFICATION_STATE_KEY, {})
-    if not isinstance(daily_notification, Mapping):
-        return set()
-    pending_messages = daily_notification.get("pending_messages", [])
-    if not isinstance(pending_messages, list):
-        return set()
+    pending_messages = _daily_notification_state(state).get("pending_messages", [])
 
     keys: set[Tuple[str, str]] = set()
     for entry in pending_messages:
-        if not isinstance(entry, Mapping):
-            continue
         message_keys = entry.get("message_keys", [])
-        if not isinstance(message_keys, list):
-            continue
         for message_key in message_keys:
-            if not isinstance(message_key, Mapping):
-                continue
             work_id = _coerce_text(message_key.get("work_id"))
             latest_key = _coerce_text(message_key.get("latest_key"))
             if work_id and latest_key:
@@ -255,34 +226,19 @@ def _pending_daily_notification_keys(state: Mapping[str, object]) -> set[Tuple[s
 
 
 def pending_daily_notification_count(state: Mapping[str, object]) -> int:
-    discord_delivery = state.get(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, Mapping):
+    if not isinstance(state, dict):
         return 0
-    daily_notification = discord_delivery.get(DAILY_NOTIFICATION_STATE_KEY, {})
-    if not isinstance(daily_notification, Mapping):
-        return 0
-    pending_messages = daily_notification.get("pending_messages", [])
-    return len(pending_messages) if isinstance(pending_messages, list) else 0
+    return len(_daily_notification_state(state).get("pending_messages", []))
 
 
 def _delivered_latest_keys(state: Mapping[str, object]) -> Dict[str, str]:
-    discord_delivery = state.get(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, Mapping):
+    if not isinstance(state, dict):
         return {}
-    daily_notification = discord_delivery.get(DAILY_NOTIFICATION_STATE_KEY, {})
-    if not isinstance(daily_notification, Mapping):
-        return {}
-    delivered = daily_notification.get("delivered_latest_keys", {})
-    if not isinstance(delivered, Mapping):
-        return {}
+    delivered = _daily_notification_state(state).get("delivered_latest_keys", {})
 
     normalized: Dict[str, str] = {}
     for work_id, entry in delivered.items():
-        latest_key = None
-        if isinstance(entry, Mapping):
-            latest_key = _coerce_text(entry.get("latest_key"))
-        else:
-            latest_key = _coerce_text(entry)
+        latest_key = _coerce_text(entry.get("latest_key")) if isinstance(entry, Mapping) else _coerce_text(entry)
         if latest_key:
             normalized[str(work_id)] = latest_key
     return normalized
