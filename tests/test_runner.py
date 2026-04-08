@@ -24,6 +24,8 @@ from manga_watch.runner import (
     TRIGGER_SOURCE_DISCORD_FETCH,
     TRIGGER_SOURCE_SCHEDULED,
     TRIGGER_SOURCE_STARTUP,
+    _run_generic_notification_phase,
+    _send_run_report_phase,
     RunCoordinator,
     RunnerConfig,
     replay_outbox_once,
@@ -692,6 +694,37 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn("work-1: update event work-1 is missing latest_key", errors[0])
 
+    def test_generic_notification_phase_continues_delivering_valid_updates_when_one_payload_is_invalid(self):
+        notifier = FakeNotifier()
+        errors = {"sources": [], "run": []}
+        store, load_from_store, save_to_store = self.make_state_store()
+        invalid_update = self.make_update()
+        invalid_update["to"] = {
+            "series_title": "作品A",
+            "episode_title": "第2話",
+            "update_type": "main_story",
+            "default_notify": True,
+        }
+
+        phase = _run_generic_notification_phase(
+            state=load_from_store(),
+            notify_updates=[invalid_update, self.make_update(latest_key="episode-3")],
+            named_notifiers={"stdout": notifier},
+            detected_at="2023-11-14T22:13:20Z",
+            state_saver=save_to_store,
+            errors=errors,
+            redaction_secrets=(),
+        )
+
+        self.assertEqual(0, phase.outbox_pending_count)
+        self.assertEqual([], phase.delivery_failures)
+        self.assertEqual(1, len(notifier.events))
+        self.assertEqual("episode-3", notifier.events[0].latest_key)
+        self.assertEqual(1, len(errors["run"]))
+        self.assertEqual("build_update_event", errors["run"][0]["stage"])
+        self.assertIn("work-1: update event work-1 is missing latest_key", errors["run"][0]["message"])
+        self.assertEqual([], store["notification_outbox"])
+
     def test_build_update_event_requires_explicit_latest_key_without_fallback(self):
         invalid_update = self.make_update()
         invalid_update["to"] = {
@@ -914,6 +947,29 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(outcome["ok"])
         self.assertEqual(1, len(discord.calls))
         self.assertEqual("run-report-channel", discord.calls[0]["channel_id"])
+        self.assertEqual(1, len(errors))
+        self.assertIn("run report 自体の送信に失敗しました", errors[0])
+        self.assertIn("トリガー: scheduled", errors[0])
+
+    def test_send_run_report_phase_logs_delivery_error_and_returns_exception(self):
+        config = self.make_config(with_discord=True)
+        discord = FakeDiscordClient(fail_channels={"run-report-channel"})
+        errors = []
+
+        run_report_delivery_error = _send_run_report_phase(
+            config=config,
+            resolved_discord_client=discord,
+            run_report="report body",
+            timestamp="2023-11-14 22:13:20 JST",
+            trigger_source=TRIGGER_SOURCE_SCHEDULED,
+            error_logger=errors.append,
+            redaction_secrets=(),
+        )
+
+        self.assertIsInstance(run_report_delivery_error, RuntimeError)
+        self.assertEqual(1, len(discord.calls))
+        self.assertEqual("run-report-channel", discord.calls[0]["channel_id"])
+        self.assertEqual("report body", discord.calls[0]["content"])
         self.assertEqual(1, len(errors))
         self.assertIn("run report 自体の送信に失敗しました", errors[0])
         self.assertIn("トリガー: scheduled", errors[0])

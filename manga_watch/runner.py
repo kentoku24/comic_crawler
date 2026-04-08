@@ -357,6 +357,25 @@ def runner_error_record(
 
 
 @dataclass(frozen=True)
+class CheckerPhaseResult:
+    updates: List[Dict[str, object]]
+    errors: Dict[str, List[Dict[str, object]]]
+    primary_failure: Optional[Exception]
+
+
+@dataclass(frozen=True)
+class GenericNotificationPhaseResult:
+    outbox_pending_count: int
+    delivery_failures: List[str]
+
+
+@dataclass(frozen=True)
+class DiscordDailyPhaseResult:
+    daily_notification_sent: bool
+    delivery_failures: List[str]
+
+
+@dataclass(frozen=True)
 class RunnerConfig:
     timezone_name: str
     watchlist_path: str
@@ -458,44 +477,15 @@ def runner_redaction_secrets(config: "RunnerConfig") -> tuple[str, ...]:
     return tuple(secrets)
 
 
-def run_once(
-    config: RunnerConfig,
+def _run_checker_phase(
     *,
-    notifier: Optional[Notifier] = None,
-    named_notifiers: Optional[Mapping[str, Notifier]] = None,
-    discord_client: Optional[DiscordTransport] = None,
-    checker: Callable[[str], Dict[str, object]] = run_check,
-    state_loader: Callable[[], Dict[str, object]] = load_state,
-    state_saver: Callable[[Dict[str, object]], None] = save_state,
-    run_recorder: Callable[[Mapping[str, object]], Optional[str]] = record_run_summary,
-    now_fn: Callable[[], float] = time.time,
-    report_logger: Callable[[str], None] = report_to_stdout,
-    error_logger: Callable[[str], None] = report_to_stderr,
-    trigger_source: str = TRIGGER_SOURCE_SCHEDULED,
-) -> Dict[str, object]:
-    redaction_secrets = runner_redaction_secrets(config)
-    named_notifiers = resolve_named_notifiers(
-        config,
-        notifier=notifier,
-        named_notifiers=named_notifiers,
-    )
-    resolved_discord_client = discord_client
-    if resolved_discord_client is None and config.discord_outbound_config is not None:
-        resolved_discord_client = DiscordChannelClient(config.discord_outbound_config)
-    now = now_fn()
-    timestamp = format_timestamp(now, config.timezone_name)
-    detected_at = detected_at_for_timestamp(now)
+    config: RunnerConfig,
+    checker: Callable[[str], Dict[str, object]],
+    redaction_secrets: tuple[str, ...],
+) -> CheckerPhaseResult:
     updates: List[Dict[str, object]] = []
     errors: Dict[str, List[Dict[str, object]]] = {"sources": [], "run": []}
-    delivery_failures: List[str] = []
-    state: Optional[Dict[str, object]] = None
     primary_failure: Optional[Exception] = None
-    run_report_delivery_error: Optional[Exception] = None
-    update_count = 0
-    notified_update_count = 0
-    suppressed_update_count = 0
-    outbox_pending_count = 0
-    daily_notification_sent = False
 
     try:
         result = checker(config.watchlist_path)
@@ -528,12 +518,21 @@ def run_once(
             runner_error_record("checker", exc, redaction_secrets=redaction_secrets)
         )
 
-    update_count = len(updates)
-    notify_updates, suppressed_updates = partition_updates_by_notification_policy(updates)
-    notified_update_count = len(notify_updates)
-    suppressed_update_count = len(suppressed_updates)
-    checker_completed = primary_failure is None
+    return CheckerPhaseResult(
+        updates=updates,
+        errors=errors,
+        primary_failure=primary_failure,
+    )
 
+
+def _load_runner_state_phase(
+    *,
+    state_loader: Callable[[], Dict[str, object]],
+    errors: Dict[str, List[Dict[str, object]]],
+    primary_failure: Optional[Exception],
+    redaction_secrets: tuple[str, ...],
+) -> tuple[Dict[str, object], Optional[Exception]]:
+    state: Optional[Dict[str, object]] = None
     try:
         # Re-open the durable snapshot written by the checker for delivery/outbox persistence.
         state = state_loader()
@@ -547,44 +546,198 @@ def run_once(
     if state is None:
         state = {}
 
-    if checker_completed and isinstance(state, dict):
+    return state, primary_failure
+
+
+def _run_generic_notification_phase(
+    *,
+    state: Dict[str, object],
+    notify_updates: List[Dict[str, object]],
+    named_notifiers: Mapping[str, Notifier],
+    detected_at: str,
+    state_saver: Callable[[Dict[str, object]], None],
+    errors: Dict[str, List[Dict[str, object]]],
+    redaction_secrets: tuple[str, ...],
+) -> GenericNotificationPhaseResult:
+    pending_events = []
+    for update in notify_updates:
         try:
-            pending_events = []
-            for update in notify_updates:
-                try:
-                    pending_events.append(build_update_event(update, detected_at=detected_at))
-                except Exception as exc:
-                    work_id = str(update.get("work_id") or update.get("id") or "<unknown>")
-                    errors["run"].append(
-                        runner_error_record(
-                            "build_update_event",
-                            RuntimeError(f"{work_id}: {exc}"),
-                            redaction_secrets=redaction_secrets,
-                        )
-                    )
-
-            # Generic notifier delivery owns the durable outbox. It is the only
-            # pending queue that the manual replay CLI is allowed to touch.
-            had_existing_outbox = bool(load_notification_outbox(state))
-            enqueued_count = enqueue_notification_events(
-                state,
-                events=pending_events,
-                backend_names=list(named_notifiers.keys()),
+            pending_events.append(build_update_event(update, detected_at=detected_at))
+        except Exception as exc:
+            work_id = str(update.get("work_id") or update.get("id") or "<unknown>")
+            errors["run"].append(
+                runner_error_record(
+                    "build_update_event",
+                    RuntimeError(f"{work_id}: {exc}"),
+                    redaction_secrets=redaction_secrets,
+                )
             )
-            if enqueued_count > 0:
-                state_saver(state)
 
-            delivery = deliver_notification_outbox(
-                state,
-                named_notifiers=named_notifiers,
-                attempted_at=detected_at,
+    # Generic notifier delivery owns the durable outbox. It is the only
+    # pending queue that the manual replay CLI is allowed to touch.
+    had_existing_outbox = bool(load_notification_outbox(state))
+    enqueued_count = enqueue_notification_events(
+        state,
+        events=pending_events,
+        backend_names=list(named_notifiers.keys()),
+    )
+    if enqueued_count > 0:
+        state_saver(state)
+
+    delivery = deliver_notification_outbox(
+        state,
+        named_notifiers=named_notifiers,
+        attempted_at=detected_at,
+        redaction_secrets=redaction_secrets,
+    )
+    outbox_pending_count = int(delivery["remainingCount"])
+    if had_existing_outbox or enqueued_count > 0 or outbox_pending_count > 0:
+        state_saver(state)
+    return GenericNotificationPhaseResult(
+        outbox_pending_count=outbox_pending_count,
+        delivery_failures=list(delivery["errors"]),
+    )
+
+
+def _run_discord_daily_phase(
+    *,
+    state: Dict[str, object],
+    notify_updates: List[Dict[str, object]],
+    config: RunnerConfig,
+    resolved_discord_client: DiscordTransport,
+    now: float,
+    detected_at: str,
+    state_saver: Callable[[Dict[str, object]], None],
+    redaction_secrets: tuple[str, ...],
+) -> DiscordDailyPhaseResult:
+    discord_config = config.discord_outbound_config
+    assert discord_config is not None
+
+    # Discord daily delivery owns its own pending state and replays
+    # it on the next run rather than through replay_outbox.py.
+    enqueue_result = enqueue_daily_notification(
+        state,
+        updates=notify_updates,
+        channel_id=discord_config.main_channel_id,
+        now_ts=now,
+        timezone_name=config.timezone_name,
+        created_at=detected_at,
+    )
+    if enqueue_result["queued"]:
+        state_saver(state)
+
+    daily_delivery = deliver_daily_notifications(
+        state,
+        client=resolved_discord_client,
+        attempted_at=detected_at,
+        redaction_secrets=redaction_secrets,
+    )
+    if enqueue_result["queued"] or int(daily_delivery["attemptedCount"]) > 0:
+        state_saver(state)
+    return DiscordDailyPhaseResult(
+        daily_notification_sent=int(daily_delivery["deliveredCount"]) > 0,
+        delivery_failures=list(daily_delivery["errors"]),
+    )
+
+
+def _send_run_report_phase(
+    *,
+    config: RunnerConfig,
+    resolved_discord_client: Optional[DiscordTransport],
+    run_report: str,
+    timestamp: str,
+    trigger_source: str,
+    error_logger: Callable[[str], None],
+    redaction_secrets: tuple[str, ...],
+) -> Optional[Exception]:
+    if resolved_discord_client is None or config.discord_outbound_config is None:
+        return None
+
+    try:
+        resolved_discord_client.send_message(
+            config.discord_outbound_config.run_report_channel_id,
+            run_report,
+        )
+    except Exception as exc:
+        error_logger(
+            format_run_report_delivery_failure(
+                timestamp=timestamp,
+                trigger_source=trigger_source,
+                exc=exc,
                 redaction_secrets=redaction_secrets,
             )
-            outbox_pending_count = int(delivery["remainingCount"])
-            if had_existing_outbox or enqueued_count > 0 or outbox_pending_count > 0:
-                state_saver(state)
-            if delivery["errors"]:
-                delivery_failures.extend(delivery["errors"])
+        )
+        return exc
+
+    return None
+
+
+def run_once(
+    config: RunnerConfig,
+    *,
+    notifier: Optional[Notifier] = None,
+    named_notifiers: Optional[Mapping[str, Notifier]] = None,
+    discord_client: Optional[DiscordTransport] = None,
+    checker: Callable[[str], Dict[str, object]] = run_check,
+    state_loader: Callable[[], Dict[str, object]] = load_state,
+    state_saver: Callable[[Dict[str, object]], None] = save_state,
+    run_recorder: Callable[[Mapping[str, object]], Optional[str]] = record_run_summary,
+    now_fn: Callable[[], float] = time.time,
+    report_logger: Callable[[str], None] = report_to_stdout,
+    error_logger: Callable[[str], None] = report_to_stderr,
+    trigger_source: str = TRIGGER_SOURCE_SCHEDULED,
+) -> Dict[str, object]:
+    redaction_secrets = runner_redaction_secrets(config)
+    named_notifiers = resolve_named_notifiers(
+        config,
+        notifier=notifier,
+        named_notifiers=named_notifiers,
+    )
+    resolved_discord_client = discord_client
+    if resolved_discord_client is None and config.discord_outbound_config is not None:
+        resolved_discord_client = DiscordChannelClient(config.discord_outbound_config)
+    now = now_fn()
+    timestamp = format_timestamp(now, config.timezone_name)
+    detected_at = detected_at_for_timestamp(now)
+    delivery_failures: List[str] = []
+    run_report_delivery_error: Optional[Exception] = None
+    outbox_pending_count = 0
+    daily_notification_sent = False
+
+    checker_phase = _run_checker_phase(
+        config=config,
+        checker=checker,
+        redaction_secrets=redaction_secrets,
+    )
+    updates = checker_phase.updates
+    errors = checker_phase.errors
+    primary_failure = checker_phase.primary_failure
+    update_count = len(updates)
+    notify_updates, suppressed_updates = partition_updates_by_notification_policy(updates)
+    notified_update_count = len(notify_updates)
+    suppressed_update_count = len(suppressed_updates)
+    checker_completed = primary_failure is None
+
+    state, primary_failure = _load_runner_state_phase(
+        state_loader=state_loader,
+        errors=errors,
+        primary_failure=primary_failure,
+        redaction_secrets=redaction_secrets,
+    )
+
+    if checker_completed and isinstance(state, dict):
+        try:
+            generic_phase = _run_generic_notification_phase(
+                state=state,
+                notify_updates=notify_updates,
+                named_notifiers=named_notifiers,
+                detected_at=detected_at,
+                state_saver=state_saver,
+                errors=errors,
+                redaction_secrets=redaction_secrets,
+            )
+            outbox_pending_count = generic_phase.outbox_pending_count
+            delivery_failures.extend(generic_phase.delivery_failures)
         except Exception as exc:
             errors["run"].append(
                 runner_error_record("generic_notification", exc, redaction_secrets=redaction_secrets)
@@ -594,30 +747,18 @@ def run_once(
 
         if resolved_discord_client is not None and config.discord_outbound_config is not None:
             try:
-                # Discord daily delivery owns its own pending state and replays
-                # it on the next run rather than through replay_outbox.py.
-                enqueue_result = enqueue_daily_notification(
-                    state,
-                    updates=notify_updates,
-                    channel_id=config.discord_outbound_config.main_channel_id,
-                    now_ts=now,
-                    timezone_name=config.timezone_name,
-                    created_at=detected_at,
-                )
-                if enqueue_result["queued"]:
-                    state_saver(state)
-
-                daily_delivery = deliver_daily_notifications(
-                    state,
-                    client=resolved_discord_client,
-                    attempted_at=detected_at,
+                discord_phase = _run_discord_daily_phase(
+                    state=state,
+                    notify_updates=notify_updates,
+                    config=config,
+                    resolved_discord_client=resolved_discord_client,
+                    now=now,
+                    detected_at=detected_at,
+                    state_saver=state_saver,
                     redaction_secrets=redaction_secrets,
                 )
-                daily_notification_sent = int(daily_delivery["deliveredCount"]) > 0
-                if enqueue_result["queued"] or int(daily_delivery["attemptedCount"]) > 0:
-                    state_saver(state)
-                if daily_delivery["errors"]:
-                    delivery_failures.extend(daily_delivery["errors"])
+                daily_notification_sent = discord_phase.daily_notification_sent
+                delivery_failures.extend(discord_phase.delivery_failures)
             except Exception as exc:
                 errors["run"].append(
                     runner_error_record(
@@ -646,22 +787,15 @@ def run_once(
         redaction_secrets=redaction_secrets,
     )
 
-    if resolved_discord_client is not None and config.discord_outbound_config is not None:
-        try:
-            resolved_discord_client.send_message(
-                config.discord_outbound_config.run_report_channel_id,
-                run_report,
-            )
-        except Exception as exc:
-            run_report_delivery_error = exc
-            error_logger(
-                format_run_report_delivery_failure(
-                    timestamp=timestamp,
-                    trigger_source=trigger_source,
-                    exc=exc,
-                    redaction_secrets=redaction_secrets,
-                )
-            )
+    run_report_delivery_error = _send_run_report_phase(
+        config=config,
+        resolved_discord_client=resolved_discord_client,
+        run_report=run_report,
+        timestamp=timestamp,
+        trigger_source=trigger_source,
+        error_logger=error_logger,
+        redaction_secrets=redaction_secrets,
+    )
 
     outcome = {
         "ok": error_count == 0 and not delivery_failures and run_report_delivery_error is None,
