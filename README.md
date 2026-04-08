@@ -225,6 +225,7 @@ runner が backend に送る update event は次の schema です。
 | コミックトレイル | episode URL, RSS/Atom series feed URL | `https://comic-trail.com/rss/series/<series_id>` | `comic-trail:<series_id>` | 最新 episode URL |
 | くらげバンチ | episode URL, RSS/Atom series feed URL | `https://kuragebunch.com/rss/series/<series_id>` | `kuragebunch:<series_id>` | 最新 episode URL |
 | 少年ジャンプ＋ | episode URL, RSS/Atom series feed URL | `https://shonenjumpplus.com/rss/series/<series_id>` | `shonenjumpplus:<series_id>` | 最新 episode URL |
+| サンデーうぇぶり | episode URL, RSS/Atom series feed URL | `https://www.sunday-webry.com/rss/series/<series_id>` | `sunday-webry:<series_id>` | 最新 episode URL |
 | Champion Cross | episode URL, series URL, series RSS URL | canonical episode URL / canonical series URL / canonical series RSS URL | `champion-cross:<series_hash>` | 最新 episode URL |
 | マガポケ | title URL, episode URL | `https://pocket.shonenmagazine.com/title/<title_id>` | `magapoke:<title_id>` | 最新 episode URL |
 | Kakuyomu | work URL, episode URL | 入力 URL のまま | `kakuyomu:<numeric_work_id>` | 最新 episode id |
@@ -468,6 +469,7 @@ fixture regression だけでは拾えない upstream HTML / embedded JSON drift 
 | コミックトレイル | `https://comic-trail.com/episode/2550689798402927313` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comic-trail/normal` |
 | くらげバンチ | `https://kuragebunch.com/episode/2550912964856491139` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/kuragebunch/normal` |
 | 少年ジャンプ＋ | `https://shonenjumpplus.com/episode/17107419589191805801` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/shonenjumpplus/normal` |
+| サンデーうぇぶり | `https://www.sunday-webry.com/episode/12207421983581042977` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/sunday-webry/normal` |
 | マガポケ | `https://pocket.shonenmagazine.com/title/03021` | title page の RSS feed URL、title page の次回更新ラベル、series RSS の最新 episode URL/title | `tests/fixtures/magapoke/normal` |
 | Kakuyomu | `https://kakuyomu.jp/works/16818093092974667738/episodes/822139844009936710` | work page の `__NEXT_DATA__`、最新 episode id/title、最新 episode page title | `tests/fixtures/kakuyomu/normal` |
 

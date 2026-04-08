@@ -337,6 +337,43 @@ class WatchlistAddLogicTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
+    def test_add_watchlist_url_accepts_sunday_webry_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://www.sunday-webry.com/episode/12207421983581042977?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://www.sunday-webry.com/episode/12207421983581042977": """
+                        <html>
+                          <head>
+                            <title>diary1 つきこと先生 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり</title>
+                            <link rel="alternate" type="application/atom+xml" title="Atom" href="https://www.sunday-webry.com/atom/series/12207421983580960894">
+                            <link rel="alternate" type="application/rss+xml" title="RSS2.0" href="https://www.sunday-webry.com/rss/series/12207421983580960894">
+                          </head>
+                          <body>
+                            <script id="episode-json" type="text/json" data-value='{&quot;readableProduct&quot;:{&quot;series&quot;:{&quot;id&quot;:&quot;12207421983580960894&quot;}}}'></script>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("sunday-webry:12207421983580960894", payload["entry"]["id"])
+        self.assertEqual(
+            "https://www.sunday-webry.com/rss/series/12207421983580960894",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("sunday-webry", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
     def test_add_watchlist_url_accepts_kuragebunch_episode_url_and_canonicalizes_to_rss(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
@@ -370,6 +407,43 @@ class WatchlistAddLogicTests(unittest.TestCase):
             payload["entry"]["seed_url"],
         )
         self.assertEqual("kuragebunch", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_sunday_webry_apex_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://sunday-webry.com/episode/12207421983581042977?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://www.sunday-webry.com/episode/12207421983581042977": """
+                        <html>
+                          <head>
+                            <title>diary1 つきこと先生 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり</title>
+                            <link rel="alternate" type="application/atom+xml" title="Atom" href="https://www.sunday-webry.com/atom/series/12207421983580960894">
+                            <link rel="alternate" type="application/rss+xml" title="RSS2.0" href="https://www.sunday-webry.com/rss/series/12207421983580960894">
+                          </head>
+                          <body>
+                            <script id="episode-json" type="text/json" data-value='{&quot;readableProduct&quot;:{&quot;series&quot;:{&quot;id&quot;:&quot;12207421983580960894&quot;}}}'></script>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("sunday-webry:12207421983580960894", payload["entry"]["id"])
+        self.assertEqual(
+            "https://www.sunday-webry.com/rss/series/12207421983580960894",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("sunday-webry", payload["entry"]["source"])
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
