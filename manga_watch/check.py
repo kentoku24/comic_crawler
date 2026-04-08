@@ -33,6 +33,12 @@ from manga_watch.sources.comicborder import (
     extract_comicborder_series_id,
     extract_comicborder_series_id_from_seed_url,
 )
+from manga_watch.sources.comic_trail import (
+    canonical_comic_trail_series_feed_url,
+    extract_comic_trail_series_feed_url,
+    extract_comic_trail_series_id,
+    extract_comic_trail_series_id_from_seed_url,
+)
 from manga_watch.sources.firecross import extract_firecross_series_id
 from manga_watch.sources.shonenjumpplus import (
     canonical_shonenjumpplus_series_feed_url,
@@ -607,6 +613,26 @@ def stable_work_id_for_item(
             raise RuntimeError("comicborder: series id not found")
         return f"comicborder:{series_id}"
 
+    if source == "comic-trail":
+        stable_series = str(item.get("series") or "")
+        if stable_series.startswith("comic-trail:"):
+            return stable_series
+
+        seed_url = str(item.get("seedUrl") or "")
+        if not seed_url:
+            raise RuntimeError("comic-trail: seedUrl is required to derive work_id")
+
+        series_id = str(item.get("seriesId") or "") or extract_comic_trail_series_id_from_seed_url(seed_url)
+        if series_id:
+            return f"comic-trail:{series_id}"
+
+        client = http_client or RequestsHttpClient()
+        html = client.get_text(seed_url)
+        series_id = extract_comic_trail_series_id(html)
+        if not series_id:
+            raise RuntimeError("comic-trail: series id not found")
+        return f"comic-trail:{series_id}"
+
     if source == "shonenjumpplus":
         stable_series = str(item.get("series") or "")
         if stable_series.startswith("shonenjumpplus:"):
@@ -672,6 +698,22 @@ def canonical_seed_url_for_item(
         if not series_id:
             raise RuntimeError("comicborder: series id not found")
         return canonical_comicborder_series_feed_url(series_id)
+
+    if source == "comic-trail":
+        series_id = str(item.get("seriesId") or "") or extract_comic_trail_series_id_from_seed_url(seed_url)
+        if series_id:
+            return canonical_comic_trail_series_feed_url(series_id)
+
+        client = http_client or RequestsHttpClient()
+        html = client.get_text(seed_url)
+        feed_url = extract_comic_trail_series_feed_url(html)
+        if feed_url:
+            return feed_url
+
+        series_id = extract_comic_trail_series_id(html)
+        if not series_id:
+            raise RuntimeError("comic-trail: series id not found")
+        return canonical_comic_trail_series_feed_url(series_id)
 
     if source != "shonenjumpplus":
         return seed_url

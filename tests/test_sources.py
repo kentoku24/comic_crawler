@@ -50,6 +50,10 @@ SOURCE_CASES = {
         "normal",
         "broken_missing_series_id",
     ),
+    "comic-trail": (
+        "normal",
+        "broken_missing_series_id",
+    ),
     "shonenjumpplus": (
         "broken_missing_series_id",
         "normal",
@@ -97,6 +101,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "broken_loop": "main_story",
     },
     "comicborder": {
+        "normal": "main_story",
+    },
+    "comic-trail": {
         "normal": "main_story",
     },
     "shonenjumpplus": {
@@ -212,6 +219,7 @@ class SourceAdapterTests(unittest.TestCase):
                 "comic-walker",
                 "comic-action",
                 "comicborder",
+                "comic-trail",
                 "shonenjumpplus",
                 "champion-cross",
                 "magapoke",
@@ -246,6 +254,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_comicborder_fixtures(self):
         self._assert_fixture_matrix("comicborder")
+
+    def test_comic_trail_fixtures(self):
+        self._assert_fixture_matrix("comic-trail")
 
     def test_kakuyomu_fixtures(self):
         self._assert_fixture_matrix("kakuyomu")
@@ -375,6 +386,86 @@ class SourceAdapterTests(unittest.TestCase):
                 "seriesHash": "abc123",
             },
             work.to_dict(),
+        )
+
+    def test_comic_trail_normalize_accepts_episode_and_feed_urls(self):
+        episode_work = normalize_seed_url("https://comic-trail.com/episode/2550689798402927313?from=share").to_dict()
+        rss_work = normalize_seed_url("https://comic-trail.com/rss/series/14079602755560047206?from=share").to_dict()
+        atom_work = normalize_seed_url("https://comic-trail.com/atom/series/14079602755560047206?from=share").to_dict()
+
+        self.assertEqual(
+            {
+                "source": "comic-trail",
+                "kind": "comic-trail",
+                "workId": "https://comic-trail.com/episode/2550689798402927313",
+                "seedUrl": "https://comic-trail.com/episode/2550689798402927313",
+            },
+            episode_work,
+        )
+        expected_feed = {
+            "source": "comic-trail",
+            "kind": "comic-trail",
+            "workId": "comic-trail:14079602755560047206",
+            "seedUrl": "https://comic-trail.com/rss/series/14079602755560047206",
+            "series": "comic-trail:14079602755560047206",
+            "seriesId": "14079602755560047206",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected_feed, rss_work)
+        self.assertEqual(expected_feed, atom_work)
+
+    def test_comic_trail_fetch_latest_accepts_canonical_feed_seed(self):
+        work = WorkDescriptor(
+            source="comic-trail",
+            work_id="comic-trail:14079602755560047206",
+            seed_url="https://comic-trail.com/rss/series/14079602755560047206",
+            metadata={
+                "series": "comic-trail:14079602755560047206",
+                "seriesId": "14079602755560047206",
+                "feedKind": "rss",
+            },
+        )
+        client = StaticHttpClient(
+            {
+                "https://comic-trail.com/rss/series/14079602755560047206": """
+                <rss version="2.0">
+                  <channel>
+                    <title>コミックトレイル（作品E）</title>
+                    <item>
+                      <title>第3話 新章</title>
+                      <link>https://comic-trail.com/episode/2550912965721039352?from=rss</link>
+                      <description>作品E</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-trail.com/episode/2550912965721039352": """
+                <html>
+                  <head>
+                    <title>第3話 新章 / 作品E | コミックトレイル</title>
+                  </head>
+                  <body>
+                    <span class="schedule-label">次回更新：毎月第2金曜</span>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = fetch_latest_for_work(work, http_client=client).to_dict()
+
+        self.assertEqual("comic-trail:14079602755560047206", latest["workId"])
+        self.assertEqual("comic-trail:14079602755560047206", latest["series"])
+        self.assertEqual("https://comic-trail.com/episode/2550912965721039352", latest["latestKey"])
+        self.assertEqual("作品E", latest["seriesTitle"])
+        self.assertEqual("第3話 新章", latest["episodeTitle"])
+        self.assertEqual("次回更新：毎月第2金曜", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://comic-trail.com/rss/series/14079602755560047206",
+                "https://comic-trail.com/episode/2550912965721039352",
+            ],
+            client.calls,
         )
 
     def test_takecomic_normalize_accepts_series_url(self):

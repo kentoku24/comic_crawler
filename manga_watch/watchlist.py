@@ -47,6 +47,16 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="comic-trail",
+        domains=("comic-trail.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comic-trail.com/episode/2550689798402927313",
+            "https://comic-trail.com/rss/series/14079602755560047206",
+            "https://comic-trail.com/atom/series/14079602755560047206",
+        ),
+    ),
+    SourceCapability(
         source="shonenjumpplus",
         domains=("shonenjumpplus.com",),
         input_labels=("episode URL", "series RSS URL", "series Atom URL"),
