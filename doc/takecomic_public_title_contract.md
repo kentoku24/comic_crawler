@@ -43,13 +43,14 @@ Decision:
 
 ## Stable identifier
 
-- `work_id` rule: `takecomic:<series.indexId>`
+- `work_id` rule: `takecomic:<series_hash>`
 - Evidence on `https://takecomic.jp/series/a3c3f4363f8d5`:
-  - canonical URL carries the public `series_hash`
-  - the public Next payload repeats a numeric `series.indexId` of `15055`
+  - the existing takecomic adapter and fixtures already key the work by `series_hash`
+  - canonical URL carries the same public `series_hash`
+  - the public Next payload also repeats a numeric `series.indexId` of `15055`
   - the same payload also exposes `series.name`, `updatedOn`, and `numEpisodes`
 
-This gives a stable adapter-facing identifier while keeping the accepted seed on the public series URL.
+This preserves backward compatibility with the current runtime/state contract while keeping the accepted seed on the public series URL. `series.indexId` remains useful as corroborating metadata, but not as the primary `work_id`.
 
 ## Latest detection contract
 
@@ -64,13 +65,13 @@ Rule:
 1. Parse the public series page.
 2. Read `lastEpisode.id` from the public payload.
 3. Build the normalized latest episode URL as:
-   - `https://takecomic.jp/episodes/<lastEpisode.id>/`
+   - `https://takecomic.jp/episodes/<lastEpisode.id>`
 
 For `https://takecomic.jp/series/a3c3f4363f8d5`, the observed latest public episode on 2026-04-08 was:
 
 - `lastEpisode.id`: `110db269ebfe8`
 - `lastEpisode.title`: `5話`
-- `latest_key`: `https://takecomic.jp/episodes/110db269ebfe8/`
+- `latest_key`: `https://takecomic.jp/episodes/110db269ebfe8`
 
 ## RSS corroboration
 
@@ -84,7 +85,7 @@ For the representative series:
 - latest item guid: `110db269ebfe8`
 - latest item link: `https://takecomic.jp/episodes/110db269ebfe8/?utm_source=rss&utm_medium=referral`
 
-The RSS latest item matches the series-page `lastEpisode.id` after normalizing away the RSS tracking query string. This makes RSS a useful corroborating surface, but not a required seed surface.
+The RSS latest item matches the series-page `lastEpisode.id` after normalizing away the RSS tracking query string and removing the optional trailing slash. This makes RSS a useful corroborating surface, but not a required seed surface.
 
 ## Non-authoritative signals
 
@@ -100,8 +101,8 @@ takecomic is implementation-ready for Family B if a follow-up adapter:
 
 - accepts only `https://takecomic.jp/series/<series_hash>` seeds
 - records the historical domain successor note from `mangalifewin.takeshobo.co.jp` to `takecomic.jp`
-- derives `work_id = takecomic:<series.indexId>`
-- derives `latest_key = https://takecomic.jp/episodes/<lastEpisode.id>/`
+- preserves `work_id = takecomic:<series_hash>` for backward compatibility
+- derives `latest_key = https://takecomic.jp/episodes/<lastEpisode.id>`
 - optionally cross-checks the public RSS item for the same latest episode id
 
 ## Evidence captured in this branch

@@ -12,11 +12,11 @@ def load_fixture(name: str):
 
 
 def candidate_work_id(payload):
-    return f"takecomic:{payload['series']['indexId']}"
+    return f"takecomic:{payload['seriesHash']}"
 
 
 def candidate_latest_key(payload):
-    return f"{ORIGIN}/episodes/{payload['lastEpisode']['id']}/"
+    return f"{ORIGIN}/episodes/{payload['lastEpisode']['id']}"
 
 
 class TakecomicContractTests(unittest.TestCase):
@@ -36,12 +36,12 @@ class TakecomicContractTests(unittest.TestCase):
 
         self.assertEqual(payload["inputUrl"], payload["canonicalUrl"])
         self.assertEqual("a3c3f4363f8d5", payload["seriesHash"])
-        self.assertEqual("takecomic:15055", candidate_work_id(payload))
+        self.assertEqual("takecomic:a3c3f4363f8d5", candidate_work_id(payload))
         self.assertEqual("水曜更新", payload["scheduleLabel"])
         self.assertEqual("https://takecomic.jp/series/a3c3f4363f8d5/rss", payload["rssUrl"])
         self.assertEqual("5話", payload["lastEpisode"]["title"])
         self.assertEqual("110db269ebfe8", payload["lastEpisode"]["id"])
-        self.assertEqual("https://takecomic.jp/episodes/110db269ebfe8/", candidate_latest_key(payload))
+        self.assertEqual("https://takecomic.jp/episodes/110db269ebfe8", candidate_latest_key(payload))
         self.assertEqual(candidate_latest_key(payload), payload["rssLatestItem"]["normalizedLink"])
 
 
