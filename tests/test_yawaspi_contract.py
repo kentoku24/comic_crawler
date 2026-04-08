@@ -98,4 +98,3 @@ class YawaspiContractTests(unittest.TestCase):
         self.assertIn("work_id", contents)
         self.assertIn("latest_key", contents)
         self.assertIn("implementation-ready", contents)
-
