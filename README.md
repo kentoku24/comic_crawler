@@ -226,6 +226,8 @@ runner が backend に送る update event は次の schema です。
 
 Phase 1 では source ごとの capability 差を隠しません。作品追加で受け付ける URL 種別は上の表だけです。内部の source capability / normalize 契約もこの表を source of truth とします。
 
+`Supported sources` にまだ入っていない host/domain の legacy/current 判定や successor mapping は、runtime contract を直接広げる前に `doc/` 配下の triage note へ残します。`comic-valkyrie.com -> comic-brise.com` の判定根拠は [`doc/source-triage-comic-valkyrie-comic-brise.md`](doc/source-triage-comic-valkyrie-comic-brise.md) を参照してください。
+
 ## Discord `/add`
 
 作品追加の正式導線は Discord slash command `/add url:<作品URL>` です。内部では shared add logic が URL を normalize し、duplicate / unsupported 判定を行ってから watchlist を更新します。
