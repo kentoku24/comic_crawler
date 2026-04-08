@@ -698,10 +698,11 @@ def build_watchlist_entry(
     http_client: Optional[HttpClient] = None,
 ) -> Dict[str, object]:
     item = normalize_item(url, adapters=adapters)
+    canonical_seed_url = canonical_seed_url_for_item(item, http_client=http_client)
     return {
         "id": stable_work_id_for_item(item, http_client=http_client),
         "source": str(item["source"]),
-        "seed_url": canonical_seed_url_for_item(item, http_client=http_client),
+        "seed_url": canonical_seed_url,
         "enabled": True,
         "notification_policy": {
             "mode": "all",

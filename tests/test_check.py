@@ -305,6 +305,35 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("comic-action:13933686331663374228", entry["id"])
         self.assertEqual("comic-action", entry["source"])
 
+    def test_build_watchlist_entry_canonicalizes_comicborder_episode_seed_to_rss(self):
+        fake_client = mock.Mock()
+        fake_client.get_text.return_value = """
+        <html>
+          <head>
+            <link rel="alternate" type="application/rss+xml" href="https://comicborder.com/rss/series/12207421983437805229">
+          </head>
+          <body>
+            <div data-gtm-data-layer="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;12207421983437805229&quot;}}"></div>
+          </body>
+        </html>
+        """
+        with mock.patch(
+            "manga_watch.check.normalize_item",
+            return_value={
+                "source": "comicborder",
+                "workId": "https://comicborder.com/episode/12207421983437812169",
+                "seedUrl": "https://comicborder.com/episode/12207421983437812169",
+            },
+        ):
+            entry = check.build_watchlist_entry(
+                "https://comicborder.com/episode/12207421983437812169",
+                http_client=fake_client,
+            )
+
+        self.assertEqual("comicborder:12207421983437805229", entry["id"])
+        self.assertEqual("https://comicborder.com/rss/series/12207421983437805229", entry["seed_url"])
+        self.assertEqual("comicborder", entry["source"])
+
     def test_build_watchlist_entry_uses_stable_champion_cross_work_id(self):
         fake_client = mock.Mock()
         fake_client.get_text.return_value = """
