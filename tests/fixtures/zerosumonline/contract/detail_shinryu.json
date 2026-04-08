@@ -1,0 +1,19 @@
+{
+  "inputUrl": "https://zerosumonline.com/detail/shinryu",
+  "canonicalUrl": "https://zerosumonline.com/detail/shinryu",
+  "tag": "shinryu",
+  "pageTitle": "神竜の後継者 出来損ないと二人の守護竜|ゼロサムオンライン",
+  "ogImage": "https://contents.zerosumonline.com/title_thumbnail/197.webp",
+  "api": {
+    "baseUrl": "https://api.zerosumonline.com/api/v1",
+    "titlePath": "/title",
+    "titleQuery": {
+      "tag": "shinryu"
+    }
+  },
+  "publicSignals": {
+    "titleField": "latestChapterId",
+    "titleViewField": "chapters",
+    "episodePathTemplate": "/episode/<tag>/chapter/<latestChapterId>"
+  }
+}

@@ -1,0 +1,16 @@
+{
+  "inputUrl": "https://zerosumonline.com/works/series",
+  "canonicalUrl": "https://zerosumonline.com/works/series",
+  "pageTitle": "連載作品 | ゼロサムオンライン",
+  "api": {
+    "baseUrl": "https://api.zerosumonline.com/api/v1",
+    "listPath": "/list",
+    "listQuery": {
+      "category": "series",
+      "sort": "date"
+    }
+  },
+  "routing": {
+    "titlePathTemplate": "/detail/<tag>"
+  }
+}
