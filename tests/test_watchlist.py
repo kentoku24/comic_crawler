@@ -231,6 +231,40 @@ class WatchlistAddLogicTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
+    def test_add_watchlist_url_accepts_comicborder_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://comicborder.com/episode/12207421983437812169?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://comicborder.com/episode/12207421983437812169": """
+                        <html>
+                          <head>
+                            <title>マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道 - 神影龍之介/馬路まんじ / 第01話 死んでサイタマ　～異世界全方位成り上がりRTA開始（※望んでない）～ | コミックボーダー</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://comicborder.com/rss/series/12207421983437805229">
+                          </head>
+                          <body></body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("comicborder:12207421983437805229", payload["entry"]["id"])
+        self.assertEqual(
+            "https://comicborder.com/rss/series/12207421983437805229",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("comicborder", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
     def test_add_watchlist_url_accepts_firecross_reader_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"

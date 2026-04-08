@@ -1,0 +1,34 @@
+{
+  "seedUrl": "https://comicborder.com/rss/series/12207421983437805229",
+  "expectedWork": {
+    "source": "comicborder",
+    "kind": "comicborder",
+    "workId": "comicborder:12207421983437805229",
+    "seedUrl": "https://comicborder.com/rss/series/12207421983437805229",
+    "series": "comicborder:12207421983437805229",
+    "seriesId": "12207421983437805229",
+    "feedKind": "rss"
+  },
+  "expectedLatest": {
+    "workId": "comicborder:12207421983437805229",
+    "latestKey": "https://comicborder.com/episode/12207421983437812169",
+    "url": "https://comicborder.com/episode/12207421983437812169",
+    "series": "comicborder:12207421983437805229",
+    "seriesTitle": "マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道",
+    "episodeTitle": "第01話 死んでサイタマ　～異世界全方位成り上がりRTA開始（※望んでない）～",
+    "pageTitle": "マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道 - 神影龍之介/馬路まんじ / 第01話 死んでサイタマ ～異世界全方位成り上がりRTA開始（※望んでない）～ | コミックボーダー"
+  },
+  "missingLatestKeys": [
+    "nextUpdateLabel"
+  ],
+  "steps": [
+    {
+      "url": "https://comicborder.com/rss/series/12207421983437805229",
+      "response": "01-rss.xml"
+    },
+    {
+      "url": "https://comicborder.com/episode/12207421983437812169",
+      "response": "02-latest.html"
+    }
+  ]
+}

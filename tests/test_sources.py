@@ -7,8 +7,14 @@ import unittest
 from pathlib import Path
 
 import manga_watch.sources as source_package
-from manga_watch.sources import REGISTERED_ADAPTERS, REGISTERED_SOURCES, SourceAdapter
-from manga_watch.sources.base import SourceParseError
+from manga_watch.sources import (
+    REGISTERED_ADAPTERS,
+    REGISTERED_SOURCES,
+    SourceAdapter,
+    fetch_latest_for_work,
+    normalize_seed_url,
+)
+from manga_watch.sources.base import SourceParseError, WorkDescriptor
 from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
@@ -39,6 +45,10 @@ SOURCE_CASES = {
         "escaped_next_uri",
         "broken_missing_next",
         "broken_loop",
+    ),
+    "comicborder": (
+        "normal",
+        "broken_missing_series_id",
     ),
     "shonenjumpplus": (
         "broken_missing_series_id",
@@ -85,6 +95,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "escaped_next_uri": "main_story",
         "broken_missing_next": "main_story",
         "broken_loop": "main_story",
+    },
+    "comicborder": {
+        "normal": "main_story",
     },
     "shonenjumpplus": {
         "normal": "main_story",
@@ -198,6 +211,7 @@ class SourceAdapterTests(unittest.TestCase):
             (
                 "comic-walker",
                 "comic-action",
+                "comicborder",
                 "shonenjumpplus",
                 "champion-cross",
                 "magapoke",
@@ -229,6 +243,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_shonenjumpplus_fixtures(self):
         self._assert_fixture_matrix("shonenjumpplus")
+
+    def test_comicborder_fixtures(self):
+        self._assert_fixture_matrix("comicborder")
 
     def test_kakuyomu_fixtures(self):
         self._assert_fixture_matrix("kakuyomu")
@@ -891,6 +908,83 @@ class SourceAdapterTests(unittest.TestCase):
                 "https://shonenjumpplus.com/episode/17107419589191805801",
                 "https://shonenjumpplus.com/rss/series/3269754496881854342",
                 "https://shonenjumpplus.com/episode/17107419589191805801",
+            ],
+            client.calls,
+        )
+
+    def test_comicborder_normalize_accepts_episode_and_feed_urls(self):
+        episode_work = normalize_seed_url("https://comicborder.com/episode/12207421983437812169?from=share").to_dict()
+        rss_work = normalize_seed_url("https://comicborder.com/rss/series/12207421983437805229?from=share").to_dict()
+        atom_work = normalize_seed_url("https://comicborder.com/atom/series/12207421983437805229").to_dict()
+
+        self.assertEqual(
+            {
+                "source": "comicborder",
+                "kind": "comicborder",
+                "workId": "https://comicborder.com/episode/12207421983437812169",
+                "seedUrl": "https://comicborder.com/episode/12207421983437812169",
+            },
+            episode_work,
+        )
+
+        expected_feed = {
+            "source": "comicborder",
+            "kind": "comicborder",
+            "workId": "comicborder:12207421983437805229",
+            "seedUrl": "https://comicborder.com/rss/series/12207421983437805229",
+            "series": "comicborder:12207421983437805229",
+            "seriesId": "12207421983437805229",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected_feed, rss_work)
+        self.assertEqual(expected_feed, atom_work)
+
+    def test_comicborder_fetch_latest_accepts_canonical_feed_seed(self):
+        work = WorkDescriptor(
+            source="comicborder",
+            work_id="comicborder:12207421983437805229",
+            seed_url="https://comicborder.com/rss/series/12207421983437805229",
+            metadata={
+                "series": "comicborder:12207421983437805229",
+                "seriesId": "12207421983437805229",
+                "feedKind": "rss",
+            },
+        )
+        client = StaticHttpClient(
+            {
+                "https://comicborder.com/rss/series/12207421983437805229": """
+                <rss version="2.0">
+                  <channel>
+                    <title>コミックボーダー（マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道）</title>
+                    <item>
+                      <title>第01話 死んでサイタマ　～異世界全方位成り上がりRTA開始（※望んでない）～</title>
+                      <link>https://comicborder.com/episode/12207421983437812169</link>
+                      <description>マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comicborder.com/episode/12207421983437812169": """
+                <html>
+                  <head>
+                    <title>マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道 - 神影龍之介/馬路まんじ / 第01話 死んでサイタマ　～異世界全方位成り上がりRTA開始（※望んでない）～ | コミックボーダー</title>
+                  </head>
+                </html>
+                """,
+            }
+        )
+
+        latest = fetch_latest_for_work(work, http_client=client).to_dict()
+
+        self.assertEqual("comicborder:12207421983437805229", latest["workId"])
+        self.assertEqual("comicborder:12207421983437805229", latest["series"])
+        self.assertEqual("https://comicborder.com/episode/12207421983437812169", latest["latestKey"])
+        self.assertEqual("マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道", latest["seriesTitle"])
+        self.assertEqual("第01話 死んでサイタマ　～異世界全方位成り上がりRTA開始（※望んでない）～", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comicborder.com/rss/series/12207421983437805229",
+                "https://comicborder.com/episode/12207421983437812169",
             ],
             client.calls,
         )
