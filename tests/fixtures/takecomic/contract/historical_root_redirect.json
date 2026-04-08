@@ -1,0 +1,13 @@
+{
+  "observedAt": "2026-04-08",
+  "inputUrl": "https://mangalifewin.takeshobo.co.jp/",
+  "redirectChain": [
+    {
+      "status": 302,
+      "location": "https://takecomic.jp/"
+    }
+  ],
+  "finalUrl": "https://takecomic.jp/",
+  "finalCanonicalUrl": "https://takecomic.jp",
+  "mappingDecision": "root_landing_only"
+}

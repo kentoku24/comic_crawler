@@ -1,0 +1,30 @@
+{
+  "observedAt": "2026-04-08",
+  "inputUrl": "https://takecomic.jp/series/a3c3f4363f8d5",
+  "canonicalUrl": "https://takecomic.jp/series/a3c3f4363f8d5",
+  "seriesHash": "a3c3f4363f8d5",
+  "pageTitle": "異世界ハーレムマッサージ 神の指圧で悩めるモンスター娘たちを揉みほぐす！ - サカヤギ | 竹コミ！",
+  "scheduleLabel": "水曜更新",
+  "series": {
+    "indexId": 15055,
+    "name": "異世界ハーレムマッサージ 神の指圧で悩めるモンスター娘たちを揉みほぐす！",
+    "updatedOn": 1773198000,
+    "numEpisodes": 5,
+    "defaultSort": "newest"
+  },
+  "lastEpisode": {
+    "id": "110db269ebfe8",
+    "indexId": 444308,
+    "title": "5話",
+    "datePublished": 1773198000,
+    "accessType": "paidContent"
+  },
+  "rssUrl": "https://takecomic.jp/series/a3c3f4363f8d5/rss",
+  "rssLatestItem": {
+    "guid": "110db269ebfe8",
+    "title": "5話",
+    "link": "https://takecomic.jp/episodes/110db269ebfe8/?utm_source=rss&utm_medium=referral",
+    "normalizedLink": "https://takecomic.jp/episodes/110db269ebfe8/",
+    "pubDate": "Wed, 11 Mar 2026 03:00:00 GMT"
+  }
+}
