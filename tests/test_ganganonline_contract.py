@@ -18,7 +18,7 @@ def candidate_work_id(payload):
 
 def candidate_latest_key(payload):
     for chapter in payload["chapters"]:
-        if chapter.get("appLaunchUrl"):
+        if "appLaunchUrl" in chapter:
             continue
         return f"{ORIGIN}/title/{payload['titleId']}/chapter/{chapter['id']}"
     return None
@@ -58,6 +58,20 @@ class GanganonlineContractTests(unittest.TestCase):
         self.assertEqual("9.-2", payload["chapterName"])
         self.assertEqual("https://www.ganganonline.com/share/2250/121212", payload["shareUrl"])
         self.assertGreaterEqual(payload["pagesCount"], 10)
+
+    def test_latest_selector_skips_app_routed_cards_even_when_app_launch_url_is_empty(self):
+        payload = {
+            "titleId": 2250,
+            "chapters": [
+                {"id": 999001, "mainText": "次回更新", "appLaunchUrl": ""},
+                {"id": 121212, "mainText": "9.-2"},
+            ],
+        }
+
+        self.assertEqual(
+            "https://www.ganganonline.com/title/2250/chapter/121212",
+            candidate_latest_key(payload),
+        )
 
 
 if __name__ == "__main__":
