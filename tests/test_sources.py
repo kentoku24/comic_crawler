@@ -15,6 +15,7 @@ from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
 from manga_watch.sources.magapoke import MagapokeAdapter
 from manga_watch.sources.nicovideo_manga import NicovideoMangaAdapter
+from manga_watch.sources.shonenjumpplus import ShonenJumpPlusAdapter
 from manga_watch.sources.util import html_title
 from manga_watch.sources.takecomic import TakecomicAdapter
 
@@ -38,6 +39,10 @@ SOURCE_CASES = {
         "escaped_next_uri",
         "broken_missing_next",
         "broken_loop",
+    ),
+    "shonenjumpplus": (
+        "broken_missing_series_id",
+        "normal",
     ),
     "champion-cross": (
         "normal",
@@ -80,6 +85,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "escaped_next_uri": "main_story",
         "broken_missing_next": "main_story",
         "broken_loop": "main_story",
+    },
+    "shonenjumpplus": {
+        "normal": "main_story",
     },
     "champion-cross": {
         "normal": "main_story",
@@ -190,6 +198,7 @@ class SourceAdapterTests(unittest.TestCase):
             (
                 "comic-walker",
                 "comic-action",
+                "shonenjumpplus",
                 "champion-cross",
                 "magapoke",
                 "firecross",
@@ -217,6 +226,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_comic_action_fixtures(self):
         self._assert_fixture_matrix("comic-action")
+
+    def test_shonenjumpplus_fixtures(self):
+        self._assert_fixture_matrix("shonenjumpplus")
 
     def test_kakuyomu_fixtures(self):
         self._assert_fixture_matrix("kakuyomu")
@@ -816,6 +828,69 @@ class SourceAdapterTests(unittest.TestCase):
             [
                 "https://comic-action.com/rss/series/13933686331606207128",
                 "https://comic-action.com/episode/11341664176570134078",
+            ],
+            client.calls,
+        )
+
+    def test_shonenjumpplus_normalize_accepts_series_feed_urls(self):
+        adapter = ShonenJumpPlusAdapter()
+
+        rss_work = adapter.normalize("https://shonenjumpplus.com/rss/series/3269754496881854342?from=share")
+        atom_work = adapter.normalize("https://shonenjumpplus.com/atom/series/3269754496881854342")
+
+        expected = {
+            "source": "shonenjumpplus",
+            "kind": "shonenjumpplus",
+            "workId": "shonenjumpplus:3269754496881854342",
+            "seedUrl": "https://shonenjumpplus.com/rss/series/3269754496881854342",
+            "series": "shonenjumpplus:3269754496881854342",
+            "seriesId": "3269754496881854342",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected, rss_work.to_dict())
+        self.assertEqual(expected, atom_work.to_dict())
+
+    def test_shonenjumpplus_fetch_latest_accepts_episode_seed(self):
+        adapter = ShonenJumpPlusAdapter()
+        work = adapter.normalize("https://shonenjumpplus.com/episode/17107419589191805801?from=episode")
+        client = StaticHttpClient(
+            {
+                "https://shonenjumpplus.com/episode/17107419589191805801": """
+                <html>
+                  <head>
+                    <title>[159話]マリッジトキシン - 静脈/依田瑞稀 | 少年ジャンプ＋</title>
+                    <link rel="alternate" type="application/rss+xml" title="RSS2.0" href="https://shonenjumpplus.com/rss/series/3269754496881854342">
+                  </head>
+                  <body>
+                    <script id='episode-json' type='text/json' data-value='{"readableProduct":{"nextReadableProductUri":null}}'></script>
+                  </body>
+                </html>
+                """,
+                "https://shonenjumpplus.com/rss/series/3269754496881854342": """
+                <rss>
+                  <channel>
+                    <title>少年ジャンプ＋（マリッジトキシン）</title>
+                    <item>
+                      <title>[159話]マリッジトキシン</title>
+                      <link>https://shonenjumpplus.com/episode/17107419589191805801</link>
+                      <description>マリッジトキシン</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://shonenjumpplus.com/episode/17107419589191805801", latest["latestKey"])
+        self.assertEqual("マリッジトキシン", latest["seriesTitle"])
+        self.assertEqual("[159話]マリッジトキシン", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://shonenjumpplus.com/episode/17107419589191805801",
+                "https://shonenjumpplus.com/rss/series/3269754496881854342",
+                "https://shonenjumpplus.com/episode/17107419589191805801",
             ],
             client.calls,
         )
