@@ -1,0 +1,19 @@
+{
+  "seedUrl": "https://shonenjumpplus.com/episode/17107419589191805801",
+  "expectedWork": {
+    "source": "shonenjumpplus",
+    "kind": "shonenjumpplus",
+    "workId": "https://shonenjumpplus.com/episode/17107419589191805801",
+    "seedUrl": "https://shonenjumpplus.com/episode/17107419589191805801"
+  },
+  "expectedError": {
+    "type": "SourceParseError",
+    "message": "shonenjumpplus: series id not found"
+  },
+  "steps": [
+    {
+      "url": "https://shonenjumpplus.com/episode/17107419589191805801",
+      "response": "01-episode.html"
+    }
+  ]
+}

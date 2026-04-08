@@ -1,0 +1,34 @@
+{
+  "seedUrl": "https://shonenjumpplus.com/rss/series/3269754496881854342",
+  "expectedWork": {
+    "source": "shonenjumpplus",
+    "kind": "shonenjumpplus",
+    "workId": "shonenjumpplus:3269754496881854342",
+    "seedUrl": "https://shonenjumpplus.com/rss/series/3269754496881854342",
+    "series": "shonenjumpplus:3269754496881854342",
+    "seriesId": "3269754496881854342",
+    "feedKind": "rss"
+  },
+  "expectedLatest": {
+    "workId": "shonenjumpplus:3269754496881854342",
+    "latestKey": "https://shonenjumpplus.com/episode/17107419589191805801",
+    "url": "https://shonenjumpplus.com/episode/17107419589191805801",
+    "series": "shonenjumpplus:3269754496881854342",
+    "seriesTitle": "マリッジトキシン",
+    "episodeTitle": "[159話]マリッジトキシン",
+    "pageTitle": "[159話]マリッジトキシン - 静脈/依田瑞稀 | 少年ジャンプ＋"
+  },
+  "missingLatestKeys": [
+    "nextUpdateLabel"
+  ],
+  "steps": [
+    {
+      "url": "https://shonenjumpplus.com/rss/series/3269754496881854342",
+      "response": "01-rss.xml"
+    },
+    {
+      "url": "https://shonenjumpplus.com/episode/17107419589191805801",
+      "response": "02-latest.html"
+    }
+  ]
+}

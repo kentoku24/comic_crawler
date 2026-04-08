@@ -37,6 +37,16 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="shonenjumpplus",
+        domains=("shonenjumpplus.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://shonenjumpplus.com/episode/17107419589191805801",
+            "https://shonenjumpplus.com/rss/series/3269754496881854342",
+            "https://shonenjumpplus.com/atom/series/3269754496881854342",
+        ),
+    ),
+    SourceCapability(
         source="champion-cross",
         domains=("championcross.jp",),
         input_labels=("episode URL", "series URL", "series RSS URL"),

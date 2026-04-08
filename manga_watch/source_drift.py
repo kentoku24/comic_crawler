@@ -35,6 +35,11 @@ from .sources.nicovideo_manga import (
     NicovideoMangaAdapter,
     canonical_nicovideo_manga_latest_url,
 )
+from .sources.shonenjumpplus import (
+    ShonenJumpPlusAdapter,
+    extract_shonenjumpplus_series_id,
+    parse_shonenjumpplus_feed_latest,
+)
 from .sources.takecomic import (
     TakecomicAdapter,
     canonical_takecomic_series_rss_url,
@@ -110,6 +115,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
         monitored_signals=(
             "seed episode page exposes series_id",
             "seed episode page exposes nextReadableProductUri",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "shonenjumpplus": SourceCanaryContract(
+        source="shonenjumpplus",
+        seed_url="https://shonenjumpplus.com/episode/17107419589191805801",
+        fixture_bundle="tests/fixtures/shonenjumpplus/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
             "latest episode page title still parses into series / episode labels",
         ),
     ),
@@ -257,6 +272,53 @@ def _comic_action_canary(contract: SourceCanaryContract, http_client: HttpClient
             CanaryObservation("series_id", series_id),
             CanaryObservation("next_readable_url", next_url),
             CanaryObservation("latest_episode_title", episode_title),
+        ),
+    )
+
+
+def _shonenjumpplus_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = ShonenJumpPlusAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    checked_urls = []
+    if work.seed_url.endswith("/rss") or "/rss/series/" in work.seed_url:
+        rss_url = work.seed_url
+        series_id = str(work.metadata.get("seriesId") or "") or rss_url.rstrip("/").rsplit("/", 1)[-1]
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_shonenjumpplus_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+    else:
+        episode_html = http_client.get_text(work.seed_url)
+        checked_urls.append(work.seed_url)
+        series_id = extract_shonenjumpplus_series_id(episode_html)
+        if not series_id:
+            raise SourceParseError("shonenjumpplus: series id not found")
+        rss_url = f"https://shonenjumpplus.com/rss/series/{series_id}"
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_shonenjumpplus_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+
+    page_title = html_title(latest_html) or ""
+    if not series_id:
+        raise SourceParseError("shonenjumpplus: series id not found")
+    if not latest_title:
+        raise SourceParseError("shonenjumpplus: latest episode title not found")
+    if not page_title:
+        raise SourceParseError("shonenjumpplus: latest episode page title not found")
+
+    return (
+        tuple(checked_urls),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", latest_title),
         ),
     )
 
@@ -444,6 +506,7 @@ def _nicovideo_manga_canary(
 CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
+    "shonenjumpplus": _shonenjumpplus_canary,
     "champion-cross": _champion_cross_canary,
     "magapoke": _magapoke_canary,
     "firecross": _firecross_canary,
