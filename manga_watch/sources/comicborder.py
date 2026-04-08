@@ -170,6 +170,30 @@ class ComicBorderAdapter(SourceAdapter):
             },
         )
 
+    def canonicalize_item(
+        self,
+        item,
+        http_client: HttpClient,
+    ) -> WorkDescriptor:
+        seed_url = str(item.get("seedUrl") or "")
+        series_id = str(item.get("seriesId") or "") or extract_comicborder_series_id_from_seed_url(seed_url)
+        if series_id:
+            return self.normalize(canonical_comicborder_series_feed_url(series_id))
+
+        episode_url = parse_comicborder_episode_url(seed_url)
+        if not episode_url:
+            raise RuntimeError("comicborder: unsupported seed URL")
+
+        episode_html = http_client.get_text(episode_url)
+        feed_url = extract_comicborder_series_feed_url(episode_html)
+        if feed_url:
+            return self.normalize(feed_url)
+
+        series_id = extract_comicborder_series_id(episode_html)
+        if not series_id:
+            raise RuntimeError("comicborder: series id not found")
+        return self.normalize(canonical_comicborder_series_feed_url(series_id))
+
     def fetch_latest(self, work: WorkDescriptor, http_client: HttpClient) -> LatestEpisode:
         series = str(work.metadata.get("series") or work.work_id)
         series_id = str(work.metadata.get("seriesId") or "")

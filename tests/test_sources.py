@@ -329,6 +329,126 @@ class SourceAdapterTests(unittest.TestCase):
             work.to_dict(),
         )
 
+    def test_feed_family_canonicalize_item_promotes_episode_seed_to_stable_series_descriptor(self):
+        cases = (
+            (
+                "comic-earthstar",
+                normalize_seed_url(
+                    "https://comic-earthstar.com/episode/12207421983526541742?from=share"
+                ).to_dict(),
+                {
+                    "https://comic-earthstar.com/episode/12207421983526541742": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://comic-earthstar.com/rss/series/12207421983526538413">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://comic-earthstar.com/rss/series/12207421983526538413"
+                ).to_dict(),
+            ),
+            (
+                "comicborder",
+                normalize_seed_url(
+                    "https://comicborder.com/episode/12207421983437812169?from=share"
+                ).to_dict(),
+                {
+                    "https://comicborder.com/episode/12207421983437812169": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://comicborder.com/rss/series/12207421983437805229">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://comicborder.com/rss/series/12207421983437805229"
+                ).to_dict(),
+            ),
+            (
+                "comic-trail",
+                normalize_seed_url(
+                    "https://comic-trail.com/episode/2550689798402927313?from=share"
+                ).to_dict(),
+                {
+                    "https://comic-trail.com/episode/2550689798402927313": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://comic-trail.com/rss/series/14079602755560047206">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://comic-trail.com/rss/series/14079602755560047206"
+                ).to_dict(),
+            ),
+            (
+                "kuragebunch",
+                normalize_seed_url(
+                    "https://kuragebunch.com/episode/2550912964856491139?from=share"
+                ).to_dict(),
+                {
+                    "https://kuragebunch.com/episode/2550912964856491139": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://kuragebunch.com/rss/series/2550912964856487532">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://kuragebunch.com/rss/series/2550912964856487532"
+                ).to_dict(),
+            ),
+            (
+                "shonenjumpplus",
+                normalize_seed_url(
+                    "https://shonenjumpplus.com/episode/17107419589191805801?from=episode"
+                ).to_dict(),
+                {
+                    "https://shonenjumpplus.com/episode/17107419589191805801": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://shonenjumpplus.com/rss/series/3269754496881854342">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://shonenjumpplus.com/rss/series/3269754496881854342"
+                ).to_dict(),
+            ),
+            (
+                "sunday-webry",
+                normalize_seed_url(
+                    "https://www.sunday-webry.com/episode/12207421983581042977?from=episode"
+                ).to_dict(),
+                {
+                    "https://www.sunday-webry.com/episode/12207421983581042977": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://www.sunday-webry.com/rss/series/12207421983580960894">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://www.sunday-webry.com/rss/series/12207421983580960894"
+                ).to_dict(),
+            ),
+        )
+
+        for source, item, responses, expected in cases:
+            with self.subTest(source=source):
+                client = StaticHttpClient(responses)
+                descriptor = ADAPTERS[source]().canonicalize_item(item, client).to_dict()
+
+                self.assertEqual(expected, descriptor)
+                self.assertEqual([item["seedUrl"]], client.calls)
+
     def test_magapoke_fetch_latest_reads_series_rss_from_title_page(self):
         adapter = MagapokeAdapter()
         work = adapter.normalize("https://pocket.shonenmagazine.com/title/03021/episode/427856")

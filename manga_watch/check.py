@@ -27,43 +27,7 @@ from manga_watch.sources.comic_action import (
     extract_comic_action_series_id,
     extract_comic_action_series_id_from_seed_url,
 )
-from manga_watch.sources.comic_earthstar import (
-    canonical_comic_earthstar_series_feed_url,
-    extract_comic_earthstar_series_feed_url,
-    extract_comic_earthstar_series_id,
-    extract_comic_earthstar_series_id_from_seed_url,
-)
-from manga_watch.sources.comicborder import (
-    canonical_comicborder_series_feed_url,
-    extract_comicborder_series_feed_url,
-    extract_comicborder_series_id,
-    extract_comicborder_series_id_from_seed_url,
-)
-from manga_watch.sources.comic_trail import (
-    canonical_comic_trail_series_feed_url,
-    extract_comic_trail_series_feed_url,
-    extract_comic_trail_series_id,
-    extract_comic_trail_series_id_from_seed_url,
-)
 from manga_watch.sources.firecross import extract_firecross_series_id
-from manga_watch.sources.kuragebunch import (
-    canonical_kuragebunch_series_feed_url,
-    extract_kuragebunch_series_feed_url,
-    extract_kuragebunch_series_id,
-    extract_kuragebunch_series_id_from_seed_url,
-)
-from manga_watch.sources.shonenjumpplus import (
-    canonical_shonenjumpplus_series_feed_url,
-    extract_shonenjumpplus_series_feed_url,
-    extract_shonenjumpplus_series_id,
-    extract_shonenjumpplus_series_id_from_seed_url,
-)
-from manga_watch.sources.sunday_webry import (
-    canonical_sunday_webry_series_feed_url,
-    extract_sunday_webry_series_feed_url,
-    extract_sunday_webry_series_id,
-    extract_sunday_webry_series_id_from_seed_url,
-)
 from manga_watch.storage import (
     NOTIFICATION_POLICY_MODE_ALL,
     evaluate_notification_policy,
@@ -611,126 +575,6 @@ def stable_work_id_for_item(
             raise RuntimeError("champion-cross: series hash not found")
         return f"champion-cross:{series_hash}"
 
-    if source == "comic-earthstar":
-        stable_series = str(item.get("series") or "")
-        if stable_series.startswith("comic-earthstar:"):
-            return stable_series
-
-        seed_url = str(item.get("seedUrl") or "")
-        if not seed_url:
-            raise RuntimeError("comic-earthstar: seedUrl is required to derive work_id")
-
-        series_id = str(item.get("seriesId") or "") or extract_comic_earthstar_series_id_from_seed_url(seed_url)
-        if series_id:
-            return f"comic-earthstar:{series_id}"
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        series_id = extract_comic_earthstar_series_id(html)
-        if not series_id:
-            raise RuntimeError("comic-earthstar: series id not found")
-        return f"comic-earthstar:{series_id}"
-
-    if source == "comicborder":
-        stable_series = str(item.get("series") or "")
-        if stable_series.startswith("comicborder:"):
-            return stable_series
-
-        seed_url = str(item.get("seedUrl") or "")
-        if not seed_url:
-            raise RuntimeError("comicborder: seedUrl is required to derive work_id")
-
-        series_id = str(item.get("seriesId") or "") or extract_comicborder_series_id_from_seed_url(seed_url)
-        if series_id:
-            return f"comicborder:{series_id}"
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        series_id = extract_comicborder_series_id(html)
-        if not series_id:
-            raise RuntimeError("comicborder: series id not found")
-        return f"comicborder:{series_id}"
-
-    if source == "comic-trail":
-        stable_series = str(item.get("series") or "")
-        if stable_series.startswith("comic-trail:"):
-            return stable_series
-
-        seed_url = str(item.get("seedUrl") or "")
-        if not seed_url:
-            raise RuntimeError("comic-trail: seedUrl is required to derive work_id")
-
-        series_id = str(item.get("seriesId") or "") or extract_comic_trail_series_id_from_seed_url(seed_url)
-        if series_id:
-            return f"comic-trail:{series_id}"
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        series_id = extract_comic_trail_series_id(html)
-        if not series_id:
-            raise RuntimeError("comic-trail: series id not found")
-        return f"comic-trail:{series_id}"
-
-    if source == "kuragebunch":
-        stable_series = str(item.get("series") or "")
-        if stable_series.startswith("kuragebunch:"):
-            return stable_series
-
-        seed_url = str(item.get("seedUrl") or "")
-        if not seed_url:
-            raise RuntimeError("kuragebunch: seedUrl is required to derive work_id")
-
-        series_id = str(item.get("seriesId") or "") or extract_kuragebunch_series_id_from_seed_url(seed_url)
-        if series_id:
-            return f"kuragebunch:{series_id}"
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        series_id = extract_kuragebunch_series_id(html)
-        if not series_id:
-            raise RuntimeError("kuragebunch: series id not found")
-        return f"kuragebunch:{series_id}"
-
-    if source == "shonenjumpplus":
-        stable_series = str(item.get("series") or "")
-        if stable_series.startswith("shonenjumpplus:"):
-            return stable_series
-
-        seed_url = str(item.get("seedUrl") or "")
-        if not seed_url:
-            raise RuntimeError("shonenjumpplus: seedUrl is required to derive work_id")
-
-        series_id = str(item.get("seriesId") or "") or extract_shonenjumpplus_series_id_from_seed_url(seed_url)
-        if series_id:
-            return f"shonenjumpplus:{series_id}"
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        series_id = extract_shonenjumpplus_series_id(html)
-        if not series_id:
-            raise RuntimeError("shonenjumpplus: series id not found")
-        return f"shonenjumpplus:{series_id}"
-
-    if source == "sunday-webry":
-        stable_series = str(item.get("series") or "")
-        if stable_series.startswith("sunday-webry:"):
-            return stable_series
-
-        seed_url = str(item.get("seedUrl") or "")
-        if not seed_url:
-            raise RuntimeError("sunday-webry: seedUrl is required to derive work_id")
-
-        series_id = str(item.get("seriesId") or "") or extract_sunday_webry_series_id_from_seed_url(seed_url)
-        if series_id:
-            return f"sunday-webry:{series_id}"
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        series_id = extract_sunday_webry_series_id(html)
-        if not series_id:
-            raise RuntimeError("sunday-webry: series id not found")
-        return f"sunday-webry:{series_id}"
-
     if source != "comic-action":
         return item_id_for_state(item)
 
@@ -754,110 +598,32 @@ def stable_work_id_for_item(
     return f"comic-action:{series_id}"
 
 
-def canonical_seed_url_for_item(
+def _adapter_for_source(
+    source: str,
+    adapters: Optional[Sequence[SourceAdapter]] = None,
+) -> Optional[SourceAdapter]:
+    for adapter in _selected_adapters(adapters):
+        if adapter.source == source:
+            return adapter
+    return None
+
+
+def canonical_descriptor_for_item(
     item: Mapping[str, object],
     *,
+    adapters: Optional[Sequence[SourceAdapter]] = None,
     http_client: Optional[HttpClient] = None,
-) -> str:
+) -> WorkDescriptor:
     source = str(item.get("source") or "")
-    seed_url = str(item.get("seedUrl") or "")
-    if source == "comic-earthstar":
-        series_id = str(item.get("seriesId") or "") or extract_comic_earthstar_series_id_from_seed_url(seed_url)
-        if series_id:
-            return canonical_comic_earthstar_series_feed_url(series_id)
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        feed_url = extract_comic_earthstar_series_feed_url(html)
-        if feed_url:
-            return feed_url
-
-        series_id = extract_comic_earthstar_series_id(html)
-        if not series_id:
-            raise RuntimeError("comic-earthstar: series id not found")
-        return canonical_comic_earthstar_series_feed_url(series_id)
-
-    if source == "comicborder":
-        series_id = str(item.get("seriesId") or "") or extract_comicborder_series_id_from_seed_url(seed_url)
-        if series_id:
-            return canonical_comicborder_series_feed_url(series_id)
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        feed_url = extract_comicborder_series_feed_url(html)
-        if feed_url:
-            return feed_url
-
-        series_id = extract_comicborder_series_id(html)
-        if not series_id:
-            raise RuntimeError("comicborder: series id not found")
-        return canonical_comicborder_series_feed_url(series_id)
-
-    if source == "comic-trail":
-        series_id = str(item.get("seriesId") or "") or extract_comic_trail_series_id_from_seed_url(seed_url)
-        if series_id:
-            return canonical_comic_trail_series_feed_url(series_id)
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        feed_url = extract_comic_trail_series_feed_url(html)
-        if feed_url:
-            return feed_url
-
-        series_id = extract_comic_trail_series_id(html)
-        if not series_id:
-            raise RuntimeError("comic-trail: series id not found")
-        return canonical_comic_trail_series_feed_url(series_id)
-
-    if source == "sunday-webry":
-        series_id = str(item.get("seriesId") or "") or extract_sunday_webry_series_id_from_seed_url(seed_url)
-        if series_id:
-            return canonical_sunday_webry_series_feed_url(series_id)
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        feed_url = extract_sunday_webry_series_feed_url(html)
-        if feed_url:
-            return feed_url
-
-        series_id = extract_sunday_webry_series_id(html)
-        if not series_id:
-            raise RuntimeError("sunday-webry: series id not found")
-        return canonical_sunday_webry_series_feed_url(series_id)
-
-    if source == "kuragebunch":
-        series_id = str(item.get("seriesId") or "") or extract_kuragebunch_series_id_from_seed_url(seed_url)
-        if series_id:
-            return canonical_kuragebunch_series_feed_url(series_id)
-
-        client = http_client or RequestsHttpClient()
-        html = client.get_text(seed_url)
-        feed_url = extract_kuragebunch_series_feed_url(html)
-        if feed_url:
-            return feed_url
-
-        series_id = extract_kuragebunch_series_id(html)
-        if not series_id:
-            raise RuntimeError("kuragebunch: series id not found")
-        return canonical_kuragebunch_series_feed_url(series_id)
-
-    if source != "shonenjumpplus":
-        return seed_url
-
-    series_id = str(item.get("seriesId") or "") or extract_shonenjumpplus_series_id_from_seed_url(seed_url)
-    if series_id:
-        return canonical_shonenjumpplus_series_feed_url(series_id)
-
+    adapter = _adapter_for_source(source, adapters=adapters)
     client = http_client or RequestsHttpClient()
-    html = client.get_text(seed_url)
-    feed_url = extract_shonenjumpplus_series_feed_url(html)
-    if feed_url:
-        return feed_url
 
-    series_id = extract_shonenjumpplus_series_id(html)
-    if not series_id:
-        raise RuntimeError("shonenjumpplus: series id not found")
-    return canonical_shonenjumpplus_series_feed_url(series_id)
+    if adapter is not None and type(adapter).canonicalize_item is not SourceAdapter.canonicalize_item:
+        return adapter.canonicalize_item(item, client)
+
+    canonical_item = dict(item)
+    canonical_item["workId"] = stable_work_id_for_item(canonical_item, http_client=client)
+    return WorkDescriptor.from_dict(canonical_item)
 
 
 def build_watchlist_entry(
@@ -866,12 +632,11 @@ def build_watchlist_entry(
     http_client: Optional[HttpClient] = None,
 ) -> Dict[str, object]:
     item = dict(normalize_item(url, adapters=adapters))
-    canonical_seed_url = canonical_seed_url_for_item(item, http_client=http_client)
-    item["seedUrl"] = canonical_seed_url
+    work = canonical_descriptor_for_item(item, adapters=adapters, http_client=http_client)
     return {
-        "id": stable_work_id_for_item(item, http_client=http_client),
-        "source": str(item["source"]),
-        "seed_url": canonical_seed_url,
+        "id": work.work_id,
+        "source": work.source,
+        "seed_url": work.seed_url,
         "enabled": True,
         "notification_policy": {
             "mode": "all",

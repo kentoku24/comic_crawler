@@ -260,3 +260,10 @@ class SourceAdapter(ABC):
     @abstractmethod
     def fetch_latest(self, work: WorkDescriptor, http_client: HttpClient) -> LatestEpisode:
         raise NotImplementedError
+
+    def canonicalize_item(
+        self,
+        item: Mapping[str, object],
+        http_client: HttpClient,
+    ) -> WorkDescriptor:
+        return WorkDescriptor.from_dict(item)
