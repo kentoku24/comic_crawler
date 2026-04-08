@@ -221,6 +221,7 @@ runner が backend に送る update event は次の schema です。
 | ComicWalker | canonical series URL, episode URL | `https://comic-walker.com/detail/<series>` | `KC_XXXXXX_S` | `episodeCode` |
 | webアクション | episode URL, RSS/Atom series feed URL | canonical episode URL または canonical series feed URL | `comic-action:<series_id>` | 最終到達 episode URL |
 | コミックボーダー | episode URL, RSS/Atom series feed URL | `https://comicborder.com/rss/series/<series_id>` | `comicborder:<series_id>` | 最新 episode URL |
+| くらげバンチ | episode URL, RSS/Atom series feed URL | `https://kuragebunch.com/rss/series/<series_id>` | `kuragebunch:<series_id>` | 最新 episode URL |
 | 少年ジャンプ＋ | episode URL, RSS/Atom series feed URL | `https://shonenjumpplus.com/rss/series/<series_id>` | `shonenjumpplus:<series_id>` | 最新 episode URL |
 | Champion Cross | episode URL, series URL, series RSS URL | canonical episode URL / canonical series URL / canonical series RSS URL | `champion-cross:<series_hash>` | 最新 episode URL |
 | マガポケ | title URL, episode URL | `https://pocket.shonenmagazine.com/title/<title_id>` | `magapoke:<title_id>` | 最新 episode URL |
@@ -461,6 +462,7 @@ fixture regression だけでは拾えない upstream HTML / embedded JSON drift 
 | ComicWalker | `https://comic-walker.com/detail/KC_003913_S` | canonical series page の `__NEXT_DATA__`、同一 series の最新 `episodeCode`、最新 episode page title parse | `tests/fixtures/comic-walker/normal` |
 | webアクション | `https://comic-action.com/episode/2550689798784879524` | seed episode page の `series_id`、`nextReadableProductUri`、最終到達 episode page title parse | `tests/fixtures/comic-action/normal` |
 | コミックボーダー | `https://comicborder.com/episode/12207421983437812169` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comicborder/normal` |
+| くらげバンチ | `https://kuragebunch.com/episode/2550912964856491139` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/kuragebunch/normal` |
 | 少年ジャンプ＋ | `https://shonenjumpplus.com/episode/17107419589191805801` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/shonenjumpplus/normal` |
 | マガポケ | `https://pocket.shonenmagazine.com/title/03021` | title page の RSS feed URL、title page の次回更新ラベル、series RSS の最新 episode URL/title | `tests/fixtures/magapoke/normal` |
 | Kakuyomu | `https://kakuyomu.jp/works/16818093092974667738/episodes/822139844009936710` | work page の `__NEXT_DATA__`、最新 episode id/title、最新 episode page title | `tests/fixtures/kakuyomu/normal` |
