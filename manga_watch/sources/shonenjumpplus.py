@@ -121,10 +121,13 @@ def parse_shonenjumpplus_title(page_title: str) -> Tuple[Optional[str], Optional
     episode_title = parts[0] if parts else None
     series_title = None
     if episode_title:
-        match = re.search(r"(.+?)(?:\s*-\s*.+)?$", episode_title)
-        if match:
-            episode_title = match.group(1).strip() or None
-    return episode_title or None, None
+        bracketed = re.match(r"(\[\s*\d+\s*話\s*\])\s*(.+)$", episode_title)
+        if bracketed:
+            marker = bracketed.group(1).strip()
+            remainder = bracketed.group(2).strip()
+            episode_title = f"{marker}{remainder}" if remainder else marker
+            series_title = remainder or None
+    return episode_title or None, series_title or None
 
 
 def _series_title_from_channel_title(channel_title: str) -> Optional[str]:

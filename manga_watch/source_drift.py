@@ -38,6 +38,7 @@ from .sources.nicovideo_manga import (
 from .sources.shonenjumpplus import (
     ShonenJumpPlusAdapter,
     extract_shonenjumpplus_series_id,
+    parse_shonenjumpplus_title,
     parse_shonenjumpplus_feed_latest,
 )
 from .sources.takecomic import (
@@ -312,13 +313,19 @@ def _shonenjumpplus_canary(
         raise SourceParseError("shonenjumpplus: latest episode title not found")
     if not page_title:
         raise SourceParseError("shonenjumpplus: latest episode page title not found")
+    parsed_episode_title, parsed_series_title = parse_shonenjumpplus_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("shonenjumpplus: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("shonenjumpplus: series title could not be parsed from page title")
 
     return (
         tuple(checked_urls),
         (
             CanaryObservation("series_id", series_id),
             CanaryObservation("latest_episode_url", latest_url),
-            CanaryObservation("latest_episode_title", latest_title),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
         ),
     )
 
