@@ -51,6 +51,10 @@ SOURCE_CASES = {
         "normal",
         "broken_missing_series_id",
     ),
+    "kuragebunch": (
+        "normal",
+        "broken_missing_series_id",
+    ),
     "shonenjumpplus": (
         "broken_missing_series_id",
         "normal",
@@ -102,6 +106,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "broken_loop": "main_story",
     },
     "comicborder": {
+        "normal": "main_story",
+    },
+    "kuragebunch": {
         "normal": "main_story",
     },
     "shonenjumpplus": {
@@ -220,6 +227,7 @@ class SourceAdapterTests(unittest.TestCase):
                 "comic-walker",
                 "comic-action",
                 "comicborder",
+                "kuragebunch",
                 "shonenjumpplus",
                 "sunday-webry",
                 "champion-cross",
@@ -258,6 +266,8 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_sunday_webry_fixtures(self):
         self._assert_fixture_matrix("sunday-webry")
+    def test_kuragebunch_fixtures(self):
+        self._assert_fixture_matrix("kuragebunch")
 
     def test_kakuyomu_fixtures(self):
         self._assert_fixture_matrix("kakuyomu")
@@ -1034,6 +1044,33 @@ class SourceAdapterTests(unittest.TestCase):
         self.assertEqual(expected_feed, rss_work)
         self.assertEqual(expected_feed, atom_work)
 
+    def test_kuragebunch_normalize_accepts_episode_and_feed_urls(self):
+        episode_work = normalize_seed_url("https://kuragebunch.com/episode/2550912964856491139?from=share").to_dict()
+        rss_work = normalize_seed_url("https://kuragebunch.com/rss/series/2550912964856487532?from=share").to_dict()
+        atom_work = normalize_seed_url("https://kuragebunch.com/atom/series/2550912964856487532").to_dict()
+
+        self.assertEqual(
+            {
+                "source": "kuragebunch",
+                "kind": "kuragebunch",
+                "workId": "https://kuragebunch.com/episode/2550912964856491139",
+                "seedUrl": "https://kuragebunch.com/episode/2550912964856491139",
+            },
+            episode_work,
+        )
+
+        expected_feed = {
+            "source": "kuragebunch",
+            "kind": "kuragebunch",
+            "workId": "kuragebunch:2550912964856487532",
+            "seedUrl": "https://kuragebunch.com/rss/series/2550912964856487532",
+            "series": "kuragebunch:2550912964856487532",
+            "seriesId": "2550912964856487532",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected_feed, rss_work)
+        self.assertEqual(expected_feed, atom_work)
+
     def test_sunday_webry_fetch_latest_accepts_episode_seed(self):
         adapter = SundayWebryAdapter()
         work = adapter.normalize("https://www.sunday-webry.com/episode/12207421983581042977?from=episode")
@@ -1081,6 +1118,56 @@ class SourceAdapterTests(unittest.TestCase):
             [
                 "https://www.sunday-webry.com/episode/12207421983581042977",
                 "https://www.sunday-webry.com/rss/series/12207421983580960894",
+            ],
+            client.calls,
+        )
+
+    def test_kuragebunch_fetch_latest_accepts_canonical_feed_seed(self):
+        work = WorkDescriptor(
+            source="kuragebunch",
+            work_id="kuragebunch:2550912964856487532",
+            seed_url="https://kuragebunch.com/rss/series/2550912964856487532",
+            metadata={
+                "series": "kuragebunch:2550912964856487532",
+                "seriesId": "2550912964856487532",
+                "feedKind": "rss",
+            },
+        )
+        client = StaticHttpClient(
+            {
+                "https://kuragebunch.com/rss/series/2550912964856487532": """
+                <rss version="2.0">
+                  <channel>
+                    <title>くらげバンチ（赤と青のガウン）</title>
+                    <item>
+                      <title>第15話</title>
+                      <link>https://kuragebunch.com/episode/12207421983430264919</link>
+                      <description>赤と青のガウン</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://kuragebunch.com/episode/12207421983430264919": """
+                <html>
+                  <head>
+                    <title>赤と青のガウン - 彬子女王/池辺葵 / 第15話 | くらげバンチ</title>
+                  </head>
+                </html>
+                """,
+            }
+        )
+
+        latest = fetch_latest_for_work(work, http_client=client).to_dict()
+
+        self.assertEqual("kuragebunch:2550912964856487532", latest["workId"])
+        self.assertEqual("kuragebunch:2550912964856487532", latest["series"])
+        self.assertEqual("https://kuragebunch.com/episode/12207421983430264919", latest["latestKey"])
+        self.assertEqual("赤と青のガウン", latest["seriesTitle"])
+        self.assertEqual("第15話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://kuragebunch.com/rss/series/2550912964856487532",
+                "https://kuragebunch.com/episode/12207421983430264919",
             ],
             client.calls,
         )
