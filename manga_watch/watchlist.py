@@ -37,6 +37,16 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="comic-earthstar",
+        domains=("comic-earthstar.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comic-earthstar.com/episode/12207421983526541742",
+            "https://comic-earthstar.com/rss/series/12207421983526538413",
+            "https://comic-earthstar.com/atom/series/12207421983526538413",
+        ),
+    ),
+    SourceCapability(
         source="comicborder",
         domains=("comicborder.com",),
         input_labels=("episode URL", "series RSS URL", "series Atom URL"),

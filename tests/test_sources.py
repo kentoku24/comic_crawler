@@ -17,6 +17,7 @@ from manga_watch.sources import (
 from manga_watch.sources.base import SourceParseError, WorkDescriptor
 from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
+from manga_watch.sources.comic_earthstar import ComicEarthstarAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
 from manga_watch.sources.magapoke import MagapokeAdapter
@@ -45,6 +46,10 @@ SOURCE_CASES = {
         "escaped_next_uri",
         "broken_missing_next",
         "broken_loop",
+    ),
+    "comic-earthstar": (
+        "normal",
+        "broken_missing_series_id",
     ),
     "comicborder": (
         "normal",
@@ -95,6 +100,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "escaped_next_uri": "main_story",
         "broken_missing_next": "main_story",
         "broken_loop": "main_story",
+    },
+    "comic-earthstar": {
+        "normal": "main_story",
     },
     "comicborder": {
         "normal": "main_story",
@@ -211,6 +219,7 @@ class SourceAdapterTests(unittest.TestCase):
             (
                 "comic-walker",
                 "comic-action",
+                "comic-earthstar",
                 "comicborder",
                 "shonenjumpplus",
                 "champion-cross",
@@ -243,6 +252,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_shonenjumpplus_fixtures(self):
         self._assert_fixture_matrix("shonenjumpplus")
+
+    def test_comic_earthstar_fixtures(self):
+        self._assert_fixture_matrix("comic-earthstar")
 
     def test_comicborder_fixtures(self):
         self._assert_fixture_matrix("comicborder")
@@ -938,6 +950,92 @@ class SourceAdapterTests(unittest.TestCase):
         }
         self.assertEqual(expected_feed, rss_work)
         self.assertEqual(expected_feed, atom_work)
+
+    def test_comic_earthstar_normalize_accepts_episode_and_feed_urls(self):
+        episode_work = normalize_seed_url(
+            "https://comic-earthstar.com/episode/12207421983526541742?from=share"
+        ).to_dict()
+        rss_work = normalize_seed_url(
+            "https://comic-earthstar.com/rss/series/12207421983526538413?from=share"
+        ).to_dict()
+        atom_work = normalize_seed_url(
+            "https://comic-earthstar.com/atom/series/12207421983526538413"
+        ).to_dict()
+
+        self.assertEqual(
+            {
+                "source": "comic-earthstar",
+                "kind": "comic-earthstar",
+                "workId": "https://comic-earthstar.com/episode/12207421983526541742",
+                "seedUrl": "https://comic-earthstar.com/episode/12207421983526541742",
+            },
+            episode_work,
+        )
+
+        expected_feed = {
+            "source": "comic-earthstar",
+            "kind": "comic-earthstar",
+            "workId": "comic-earthstar:12207421983526538413",
+            "seedUrl": "https://comic-earthstar.com/rss/series/12207421983526538413",
+            "series": "comic-earthstar:12207421983526538413",
+            "seriesId": "12207421983526538413",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected_feed, rss_work)
+        self.assertEqual(expected_feed, atom_work)
+
+    def test_comic_earthstar_fetch_latest_accepts_canonical_feed_seed(self):
+        work = WorkDescriptor(
+            source="comic-earthstar",
+            work_id="comic-earthstar:12207421983526538413",
+            seed_url="https://comic-earthstar.com/rss/series/12207421983526538413",
+            metadata={
+                "series": "comic-earthstar:12207421983526538413",
+                "seriesId": "12207421983526538413",
+                "feedKind": "rss",
+            },
+        )
+        client = StaticHttpClient(
+            {
+                "https://comic-earthstar.com/rss/series/12207421983526538413": """
+                <rss version="2.0">
+                  <channel>
+                    <title>コミック アース・スター｜毎週木曜・最新話更新！無料で漫画が読めるWEBコミック誌（魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～）</title>
+                    <item>
+                      <title>第2話②</title>
+                      <link>https://comic-earthstar.com/episode/12207421983562435589</link>
+                      <description>魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-earthstar.com/episode/12207421983562435589": """
+                <html>
+                  <head>
+                    <title>第2話② / 魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～ - 漫画：大林ポチ子/原作：Mikura/キャラクター原案：中西達哉 | コミック アース・スター</title>
+                  </head>
+                </html>
+                """,
+            }
+        )
+
+        latest = fetch_latest_for_work(work, http_client=client).to_dict()
+
+        self.assertEqual("comic-earthstar:12207421983526538413", latest["workId"])
+        self.assertEqual("comic-earthstar:12207421983526538413", latest["series"])
+        self.assertEqual("https://comic-earthstar.com/episode/12207421983562435589", latest["latestKey"])
+        self.assertEqual(
+            "魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～",
+            latest["seriesTitle"],
+        )
+        self.assertEqual("第2話②", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comic-earthstar.com/rss/series/12207421983526538413",
+                "https://comic-earthstar.com/episode/12207421983562435589",
+            ],
+            client.calls,
+        )
 
     def test_comicborder_fetch_latest_accepts_canonical_feed_seed(self):
         work = WorkDescriptor(
