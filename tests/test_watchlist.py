@@ -150,6 +150,23 @@ class WatchlistAddLogicTests(unittest.TestCase):
             payload = add_watchlist_url(
                 "https://comic-trail.com/episode/2550689798402927313?from=share",
                 watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://comic-trail.com/episode/2550689798402927313": """
+                        <html>
+                          <head>
+                            <title>第1話 始まり / 作品E | コミックトレイル</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://comic-trail.com/rss/series/14079602755560047206">
+                          </head>
+                          <body>
+                            <script>
+                              window.__DATA__ = {"series_id":"14079602755560047206"};
+                            </script>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
             )
             saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
 
