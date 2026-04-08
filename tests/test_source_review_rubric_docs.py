@@ -2,15 +2,48 @@ import unittest
 from pathlib import Path
 
 
-class SourceReviewRubricDocsTests(unittest.TestCase):
-    def test_source_expansion_review_rubric_doc_exists_and_is_linked_from_readme(self):
-        repo_root = Path(__file__).resolve().parents[1]
-        rubric_doc = repo_root / "docs" / "source-expansion-review-rubric.md"
-        readme = (repo_root / "README.md").read_text(encoding="utf-8")
-        rubric_text = rubric_doc.read_text(encoding="utf-8")
+ROOT = Path(__file__).resolve().parent.parent
+README_PATH = ROOT / "README.md"
+RUBRIC_PATH = ROOT / "docs" / "source-expansion-review-rubric.md"
 
-        self.assertTrue(rubric_doc.exists())
-        self.assertIn("docs/source-expansion-review-rubric.md", readme)
-        self.assertIn("# Source Expansion Review Rubric", rubric_text)
-        self.assertIn("## Issue review", rubric_text)
-        self.assertIn("## PR review", rubric_text)
+
+class SourceReviewRubricDocsTests(unittest.TestCase):
+    def test_rubric_doc_exists(self):
+        self.assertTrue(
+            RUBRIC_PATH.exists(),
+            msg="docs/source-expansion-review-rubric.md must exist for source expansion review guidance",
+        )
+
+    def test_readme_links_to_rubric_doc(self):
+        readme = README_PATH.read_text(encoding="utf-8")
+
+        self.assertIn(
+            "docs/source-expansion-review-rubric.md",
+            readme,
+            msg="README.md must link to the source expansion review rubric from the source adapter guide",
+        )
+
+    def test_rubric_doc_covers_issue_and_pr_review_bars(self):
+        rubric = RUBRIC_PATH.read_text(encoding="utf-8")
+
+        required_sections = (
+            "## Issue review rubric",
+            "### Scope clarity",
+            "### Public-surface legitimacy",
+            "### Testability before implementation",
+            "### Issue approval bar",
+            "## PR review rubric",
+            "### Architecture fit",
+            "### Test evidence quality",
+            "### Regression safety",
+            "### PR approval bar",
+            "## Recommended issue sections",
+            "## Recommended PR sections",
+        )
+
+        for section in required_sections:
+            self.assertIn(section, rubric)
+
+
+if __name__ == "__main__":
+    unittest.main()
