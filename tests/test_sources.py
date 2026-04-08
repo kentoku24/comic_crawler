@@ -1354,6 +1354,63 @@ class SourceAdapterTests(unittest.TestCase):
             client.calls,
         )
 
+    def test_sunday_webry_fetch_latest_uses_latest_page_title_when_episode_seed_is_stale(self):
+        adapter = SundayWebryAdapter()
+        work = adapter.normalize("https://www.sunday-webry.com/episode/12207421983581042977?from=episode")
+        client = StaticHttpClient(
+            {
+                "https://www.sunday-webry.com/episode/12207421983581042977": """
+                <html>
+                  <head>
+                    <title>diary1 つきこと先生 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり</title>
+                    <link rel="alternate" type="application/rss+xml" title="RSS2.0" href="https://www.sunday-webry.com/rss/series/12207421983580960894">
+                  </head>
+                  <body>
+                    <script id="episode-json" type="text/json" data-value='{&quot;readableProduct&quot;:{&quot;series&quot;:{&quot;id&quot;:&quot;12207421983580960894&quot;}}}'></script>
+                  </body>
+                </html>
+                """,
+                "https://www.sunday-webry.com/rss/series/12207421983580960894": """
+                <rss version="2.0">
+                  <channel>
+                    <title>サンデーうぇぶり（しっぽと逆鱗）</title>
+                    <item>
+                      <title></title>
+                      <link>https://www.sunday-webry.com/episode/12207421983581043001</link>
+                      <description></description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://www.sunday-webry.com/episode/12207421983581043001": """
+                <html>
+                  <head>
+                    <title>diary2 新しい話 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり</title>
+                  </head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://www.sunday-webry.com/episode/12207421983581043001", latest["latestKey"])
+        self.assertEqual("diary2 新しい話", latest["episodeTitle"])
+        self.assertEqual("しっぽと逆鱗", latest["seriesTitle"])
+        self.assertEqual(
+            "diary2 新しい話 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり",
+            latest["pageTitle"],
+        )
+        self.assertEqual(
+            [
+                "https://www.sunday-webry.com/episode/12207421983581042977",
+                "https://www.sunday-webry.com/rss/series/12207421983580960894",
+                "https://www.sunday-webry.com/episode/12207421983581043001",
+            ],
+            client.calls,
+        )
+
     def test_kuragebunch_fetch_latest_accepts_canonical_feed_seed(self):
         work = WorkDescriptor(
             source="kuragebunch",

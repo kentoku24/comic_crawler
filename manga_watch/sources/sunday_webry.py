@@ -178,6 +178,7 @@ class SundayWebryAdapter(SourceAdapter):
         series_id = str(work.metadata.get("seriesId") or "")
         feed_url = None
         latest_page_title = None
+        episode_seed_url = None
 
         feed_match = parse_sunday_webry_series_feed_url(work.seed_url)
         if feed_match:
@@ -187,6 +188,7 @@ class SundayWebryAdapter(SourceAdapter):
             episode_url = parse_sunday_webry_episode_url(work.seed_url)
             if not episode_url:
                 raise RuntimeError("sunday-webry: unsupported seed URL")
+            episode_seed_url = episode_url
             episode_html = http_client.get_text(episode_url)
             latest_page_title = html_title(episode_html)
             feed_url = extract_sunday_webry_series_feed_url(episode_html)
@@ -200,7 +202,9 @@ class SundayWebryAdapter(SourceAdapter):
         feed_text = http_client.get_text(feed_url)
         latest_url, episode_title, series_title = parse_sunday_webry_feed_latest(feed_text)
         page_title = latest_page_title
-        if not page_title:
+        if episode_seed_url is not None and latest_url != episode_seed_url:
+            page_title = html_title(http_client.get_text(latest_url))
+        elif not page_title:
             page_title = html_title(http_client.get_text(latest_url))
         parsed_episode_title, parsed_series_title = parse_sunday_webry_title(page_title or "")
         if not episode_title:
