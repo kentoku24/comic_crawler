@@ -19,6 +19,32 @@
       "response": "02-feed.xml"
     }
   ],
+  "expectedCheckedUrls": [
+    "https://pocket.shonenmagazine.com/title/03021",
+    "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml"
+  ],
+  "expectedObservations": [
+    {
+      "name": "rss_url",
+      "value": "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml"
+    },
+    {
+      "name": "next_update_label",
+      "value": "次回更新は4/20(月曜)予定です。"
+    },
+    {
+      "name": "series_title",
+      "value": "普通の本はありません！"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://pocket.shonenmagazine.com/title/03021/episode/434393"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "【＃17】ハルとギンギン丸"
+    }
+  ],
   "expectedLatest": {
     "source": "magapoke",
     "workId": "magapoke:3021",

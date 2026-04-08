@@ -18,6 +18,24 @@
       "response": "02-latest.html"
     }
   ],
+  "expectedCheckedUrls": [
+    "https://comic-walker.com/detail/KC_123456_S",
+    "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456003_E?episodeType=latest"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_page_signal",
+      "value": "__NEXT_DATA__"
+    },
+    {
+      "name": "latest_episode_code",
+      "value": "KC_123456003_E"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第3話"
+    }
+  ],
   "expectedLatest": {
     "source": "comic-walker",
     "workId": "KC_123456_S",

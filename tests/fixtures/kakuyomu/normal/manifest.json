@@ -19,6 +19,24 @@
       "response": "02-latest.html"
     }
   ],
+  "expectedCheckedUrls": [
+    "https://kakuyomu.jp/works/123",
+    "https://kakuyomu.jp/works/123/episodes/789"
+  ],
+  "expectedObservations": [
+    {
+      "name": "work_page_signal",
+      "value": "__NEXT_DATA__"
+    },
+    {
+      "name": "latest_episode_id",
+      "value": "789"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第2話"
+    }
+  ],
   "expectedLatest": {
     "source": "kakuyomu",
     "workId": "kakuyomu:123",

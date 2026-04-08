@@ -1,0 +1,56 @@
+{
+  "seedUrl": "https://comic-earthstar.com/rss/series/12207421983526538413",
+  "expectedWork": {
+    "source": "comic-earthstar",
+    "kind": "comic-earthstar",
+    "workId": "comic-earthstar:12207421983526538413",
+    "seedUrl": "https://comic-earthstar.com/rss/series/12207421983526538413",
+    "series": "comic-earthstar:12207421983526538413",
+    "seriesId": "12207421983526538413",
+    "feedKind": "rss"
+  },
+  "expectedLatest": {
+    "workId": "comic-earthstar:12207421983526538413",
+    "latestKey": "https://comic-earthstar.com/episode/12207421983562435589",
+    "url": "https://comic-earthstar.com/episode/12207421983562435589",
+    "series": "comic-earthstar:12207421983526538413",
+    "seriesTitle": "魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～",
+    "episodeTitle": "第2話②",
+    "pageTitle": "第2話② / 魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～ - 漫画：大林ポチ子/原作：Mikura/キャラクター原案：中西達哉 | コミック アース・スター"
+  },
+  "missingLatestKeys": [
+    "nextUpdateLabel"
+  ],
+  "steps": [
+    {
+      "url": "https://comic-earthstar.com/rss/series/12207421983526538413",
+      "response": "01-rss.xml"
+    },
+    {
+      "url": "https://comic-earthstar.com/episode/12207421983562435589",
+      "response": "02-latest.html"
+    }
+  ],
+  "expectedCheckedUrls": [
+    "https://comic-earthstar.com/rss/series/12207421983526538413",
+    "https://comic-earthstar.com/episode/12207421983562435589"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "12207421983526538413"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://comic-earthstar.com/episode/12207421983562435589"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第2話②"
+    },
+    {
+      "name": "series_title",
+      "value": "魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～"
+    }
+  ]
+}

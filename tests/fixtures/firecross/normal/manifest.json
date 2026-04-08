@@ -20,6 +20,25 @@
       "response": "03-latest-reader.html"
     }
   ],
+  "expectedCheckedUrls": [
+    "https://firecross.jp/reader/19386",
+    "https://firecross.jp/series/series-abc",
+    "https://firecross.jp/reader/19420"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "series-abc"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://firecross.jp/reader/19420"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第13話"
+    }
+  ],
   "expectedLatest": {
     "source": "firecross",
     "workId": "https://firecross.jp/reader/19386",

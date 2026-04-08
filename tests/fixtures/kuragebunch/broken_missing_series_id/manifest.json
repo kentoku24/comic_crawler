@@ -1,0 +1,19 @@
+{
+  "seedUrl": "https://kuragebunch.com/episode/2550912964856491139",
+  "expectedWork": {
+    "source": "kuragebunch",
+    "kind": "kuragebunch",
+    "workId": "https://kuragebunch.com/episode/2550912964856491139",
+    "seedUrl": "https://kuragebunch.com/episode/2550912964856491139"
+  },
+  "expectedError": {
+    "type": "SourceParseError",
+    "message": "kuragebunch: series id not found"
+  },
+  "steps": [
+    {
+      "url": "https://kuragebunch.com/episode/2550912964856491139",
+      "response": "01-episode.html"
+    }
+  ]
+}

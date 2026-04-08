@@ -20,6 +20,7 @@ SUPPRESSED_UPDATE_TYPES = {BONUS, ANNOUNCEMENT}
 
 MAIN_STORY_PATTERNS: Sequence[re.Pattern[str]] = (
     re.compile(r"第\s*\d+\s*(?:話|回|限目|章|幕)"),
+    re.compile(r"\[\s*\d+\s*話\s*\]"),
     re.compile(r"\b(?:episode|ep\.?)\s*\d+\b", re.IGNORECASE),
     re.compile(r"#\s*\d+\b"),
 )

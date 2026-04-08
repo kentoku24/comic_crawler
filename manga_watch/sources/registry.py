@@ -3,17 +3,29 @@ from typing import Optional, Sequence, Tuple
 from .base import HttpClient, LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
 from .champion_cross import ChampionCrossAdapter
 from .comic_action import ComicActionAdapter
+from .comic_earthstar import ComicEarthstarAdapter
+from .comicborder import ComicBorderAdapter
+from .comic_trail import ComicTrailAdapter
 from .comic_walker import ComicWalkerAdapter
 from .firecross import FirecrossAdapter
 from .kakuyomu import KakuyomuAdapter
+from .kuragebunch import KuragebunchAdapter
 from .magapoke import MagapokeAdapter
 from .nicovideo_manga import NicovideoMangaAdapter
+from .shonenjumpplus import ShonenJumpPlusAdapter
+from .sunday_webry import SundayWebryAdapter
 from .takecomic import TakecomicAdapter
 
 # Explicit runtime registration contract for every supported source adapter.
 REGISTERED_ADAPTERS = (
     ComicWalkerAdapter(),
     ComicActionAdapter(),
+    ComicEarthstarAdapter(),
+    ComicBorderAdapter(),
+    ComicTrailAdapter(),
+    KuragebunchAdapter(),
+    ShonenJumpPlusAdapter(),
+    SundayWebryAdapter(),
     ChampionCrossAdapter(),
     MagapokeAdapter(),
     FirecrossAdapter(),

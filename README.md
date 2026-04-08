@@ -220,11 +220,19 @@ runner が backend に送る update event は次の schema です。
 | --- | --- | --- | --- | --- |
 | ComicWalker | canonical series URL, episode URL | `https://comic-walker.com/detail/<series>` | `KC_XXXXXX_S` | `episodeCode` |
 | webアクション | episode URL, RSS/Atom series feed URL | canonical episode URL または canonical series feed URL | `comic-action:<series_id>` | 最終到達 episode URL |
+| コミック アース・スター | episode URL, RSS/Atom series feed URL | `https://comic-earthstar.com/rss/series/<series_id>` | `comic-earthstar:<series_id>` | 最新 episode URL |
+| コミックボーダー | episode URL, RSS/Atom series feed URL | `https://comicborder.com/rss/series/<series_id>` | `comicborder:<series_id>` | 最新 episode URL |
+| コミックトレイル | episode URL, RSS/Atom series feed URL | `https://comic-trail.com/rss/series/<series_id>` | `comic-trail:<series_id>` | 最新 episode URL |
+| くらげバンチ | episode URL, RSS/Atom series feed URL | `https://kuragebunch.com/rss/series/<series_id>` | `kuragebunch:<series_id>` | 最新 episode URL |
+| 少年ジャンプ＋ | episode URL, RSS/Atom series feed URL | `https://shonenjumpplus.com/rss/series/<series_id>` | `shonenjumpplus:<series_id>` | 最新 episode URL |
+| サンデーうぇぶり | episode URL, RSS/Atom series feed URL | `https://www.sunday-webry.com/rss/series/<series_id>` | `sunday-webry:<series_id>` | 最新 episode URL |
 | Champion Cross | episode URL, series URL, series RSS URL | canonical episode URL / canonical series URL / canonical series RSS URL | `champion-cross:<series_hash>` | 最新 episode URL |
 | マガポケ | title URL, episode URL | `https://pocket.shonenmagazine.com/title/<title_id>` | `magapoke:<title_id>` | 最新 episode URL |
 | Kakuyomu | work URL, episode URL | 入力 URL のまま | `kakuyomu:<numeric_work_id>` | 最新 episode id |
 
 Phase 1 では source ごとの capability 差を隠しません。作品追加で受け付ける URL 種別は上の表だけです。内部の source capability / normalize 契約もこの表を source of truth とします。
+
+`Supported sources` にまだ入っていない host/domain の legacy/current 判定や successor mapping は、runtime contract を直接広げる前に `doc/` 配下の triage note へ残します。`comic-valkyrie.com -> comic-brise.com` の判定根拠は [`doc/source-triage-comic-valkyrie-comic-brise.md`](doc/source-triage-comic-valkyrie-comic-brise.md) を参照してください。
 
 ## Discord `/add`
 
@@ -456,6 +464,12 @@ fixture regression だけでは拾えない upstream HTML / embedded JSON drift 
 | --- | --- | --- | --- |
 | ComicWalker | `https://comic-walker.com/detail/KC_003913_S` | canonical series page の `__NEXT_DATA__`、同一 series の最新 `episodeCode`、最新 episode page title parse | `tests/fixtures/comic-walker/normal` |
 | webアクション | `https://comic-action.com/episode/2550689798784879524` | seed episode page の `series_id`、`nextReadableProductUri`、最終到達 episode page title parse | `tests/fixtures/comic-action/normal` |
+| コミック アース・スター | `https://comic-earthstar.com/episode/12207421983526541742` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comic-earthstar/normal` |
+| コミックボーダー | `https://comicborder.com/episode/12207421983437812169` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comicborder/normal` |
+| コミックトレイル | `https://comic-trail.com/episode/2550689798402927313` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comic-trail/normal` |
+| くらげバンチ | `https://kuragebunch.com/episode/2550912964856491139` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/kuragebunch/normal` |
+| 少年ジャンプ＋ | `https://shonenjumpplus.com/episode/17107419589191805801` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/shonenjumpplus/normal` |
+| サンデーうぇぶり | `https://www.sunday-webry.com/episode/12207421983581042977` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/sunday-webry/normal` |
 | マガポケ | `https://pocket.shonenmagazine.com/title/03021` | title page の RSS feed URL、title page の次回更新ラベル、series RSS の最新 episode URL/title | `tests/fixtures/magapoke/normal` |
 | Kakuyomu | `https://kakuyomu.jp/works/16818093092974667738/episodes/822139844009936710` | work page の `__NEXT_DATA__`、最新 episode id/title、最新 episode page title | `tests/fixtures/kakuyomu/normal` |
 
@@ -477,6 +491,7 @@ drift を検知したら、次の順で進めます。
 5. `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check tests.test_runner` を実行する
 
 2 を忘れると `tests.test_sources.SourceAdapterTests.test_registry_covers_every_concrete_adapter_module` が失敗します。
+source expansion の Issue / PR review には [`docs/source-expansion-review-rubric.md`](docs/source-expansion-review-rubric.md) を使って、implementation readiness と merge readiness を分けて評価してください。
 
 ## Repository layout
 

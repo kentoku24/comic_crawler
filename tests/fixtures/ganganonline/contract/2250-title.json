@@ -1,0 +1,46 @@
+{
+  "observedAt": "2026-04-08",
+  "inputUrl": "https://www.ganganonline.com/title/2250",
+  "canonicalUrl": "https://www.ganganonline.com/title/2250",
+  "titleId": 2250,
+  "titleName": "十戒",
+  "chapters": [
+    {
+      "id": 121209,
+      "status": 3,
+      "mainText": "次回更新：4月15日",
+      "subText": "9.-3 限界",
+      "appLaunchUrl": "https://ganganonline.onelink.me/ISn3?af_web_dp=https%3A%2F%2Fwww.ganganonline.com%2Fapp_info"
+    },
+    {
+      "id": 121212,
+      "mainText": "9.-2",
+      "subText": "限界",
+      "publishingPeriod": "2026.04.08〜2026.04.14",
+      "isUpdated": true
+    },
+    {
+      "id": 121215,
+      "status": 2,
+      "mainText": "9.-1",
+      "subText": "限界",
+      "publishingPeriod": "2026.04.01〜2026.04.07",
+      "appLaunchUrl": "https://ganganonline.onelink.me/ISn3?af_web_dp=https%3A%2F%2Fwww.ganganonline.com%2Fapp_info"
+    },
+    {
+      "id": 106224,
+      "mainText": "1.-3",
+      "subText": "枝内島"
+    },
+    {
+      "id": 106227,
+      "mainText": "1.-2",
+      "subText": "枝内島"
+    },
+    {
+      "id": 106197,
+      "mainText": "1.-1",
+      "subText": "枝内島"
+    }
+  ]
+}

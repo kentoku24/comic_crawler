@@ -14,6 +14,24 @@
       "response": "01-latest.html"
     }
   ],
+  "expectedCheckedUrls": [
+    "https://manga.nicovideo.jp/comic/53764/new",
+    "https://manga.nicovideo.jp/watch/mg1007626"
+  ],
+  "expectedObservations": [
+    {
+      "name": "canonical_seed_url",
+      "value": "https://manga.nicovideo.jp/comic/53764"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://manga.nicovideo.jp/watch/mg1007626"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第51話"
+    }
+  ],
   "expectedLatest": {
     "source": "nicovideo-manga",
     "workId": "nicovideo-manga:53764",

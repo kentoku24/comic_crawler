@@ -37,6 +37,66 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="comic-earthstar",
+        domains=("comic-earthstar.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comic-earthstar.com/episode/12207421983526541742",
+            "https://comic-earthstar.com/rss/series/12207421983526538413",
+            "https://comic-earthstar.com/atom/series/12207421983526538413",
+        ),
+    ),
+    SourceCapability(
+        source="comicborder",
+        domains=("comicborder.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comicborder.com/episode/12207421983437812169",
+            "https://comicborder.com/rss/series/12207421983437805229",
+            "https://comicborder.com/atom/series/12207421983437805229",
+        ),
+    ),
+    SourceCapability(
+        source="comic-trail",
+        domains=("comic-trail.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comic-trail.com/episode/2550689798402927313",
+            "https://comic-trail.com/rss/series/14079602755560047206",
+            "https://comic-trail.com/atom/series/14079602755560047206",
+        ),
+    ),
+    SourceCapability(
+        source="kuragebunch",
+        domains=("kuragebunch.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://kuragebunch.com/episode/2550912964856491139",
+            "https://kuragebunch.com/rss/series/2550912964856487532",
+            "https://kuragebunch.com/atom/series/2550912964856487532",
+        ),
+    ),
+    SourceCapability(
+        source="shonenjumpplus",
+        domains=("shonenjumpplus.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://shonenjumpplus.com/episode/17107419589191805801",
+            "https://shonenjumpplus.com/rss/series/3269754496881854342",
+            "https://shonenjumpplus.com/atom/series/3269754496881854342",
+        ),
+    ),
+    SourceCapability(
+        source="sunday-webry",
+        domains=("sunday-webry.com", "www.sunday-webry.com"),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://www.sunday-webry.com/episode/12207421983581042977",
+            "https://www.sunday-webry.com/rss/series/12207421983580960894",
+            "https://www.sunday-webry.com/atom/series/12207421983580960894",
+        ),
+    ),
+    SourceCapability(
         source="champion-cross",
         domains=("championcross.jp",),
         input_labels=("episode URL", "series URL", "series RSS URL"),

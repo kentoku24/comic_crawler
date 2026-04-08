@@ -1,0 +1,56 @@
+{
+  "seedUrl": "https://comic-trail.com/episode/2550689798402927313",
+  "expectedWork": {
+    "source": "comic-trail",
+    "kind": "comic-trail",
+    "workId": "https://comic-trail.com/episode/2550689798402927313",
+    "seedUrl": "https://comic-trail.com/episode/2550689798402927313"
+  },
+  "expectedLatest": {
+    "workId": "comic-trail:14079602755560047206",
+    "latestKey": "https://comic-trail.com/episode/2550912965721039352",
+    "url": "https://comic-trail.com/episode/2550912965721039352",
+    "series": "comic-trail:14079602755560047206",
+    "seriesTitle": "作品E",
+    "episodeTitle": "第3話 新章",
+    "pageTitle": "第3話 新章 / 作品E - 作家A | コミックトレイル｜漫画とつながるフェス空間！",
+    "nextUpdateLabel": "次回更新：毎月第2金曜"
+  },
+  "steps": [
+    {
+      "url": "https://comic-trail.com/episode/2550689798402927313",
+      "response": "01-episode.html"
+    },
+    {
+      "url": "https://comic-trail.com/rss/series/14079602755560047206",
+      "response": "02-rss.xml"
+    },
+    {
+      "url": "https://comic-trail.com/episode/2550912965721039352",
+      "response": "03-latest.html"
+    }
+  ],
+  "expectedCheckedUrls": [
+    "https://comic-trail.com/episode/2550689798402927313",
+    "https://comic-trail.com/rss/series/14079602755560047206",
+    "https://comic-trail.com/episode/2550912965721039352"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "14079602755560047206"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://comic-trail.com/episode/2550912965721039352"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第3話 新章"
+    },
+    {
+      "name": "series_title",
+      "value": "作品E"
+    }
+  ]
+}
