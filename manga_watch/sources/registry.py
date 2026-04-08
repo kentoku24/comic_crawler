@@ -3,6 +3,7 @@ from typing import Optional, Sequence, Tuple
 from .base import HttpClient, LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
 from .champion_cross import ChampionCrossAdapter
 from .comic_action import ComicActionAdapter
+from .comic_earthstar import ComicEarthstarAdapter
 from .comicborder import ComicBorderAdapter
 from .comic_trail import ComicTrailAdapter
 from .comic_walker import ComicWalkerAdapter
@@ -18,6 +19,7 @@ from .takecomic import TakecomicAdapter
 REGISTERED_ADAPTERS = (
     ComicWalkerAdapter(),
     ComicActionAdapter(),
+    ComicEarthstarAdapter(),
     ComicBorderAdapter(),
     ComicTrailAdapter(),
     KuragebunchAdapter(),

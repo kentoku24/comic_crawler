@@ -16,6 +16,12 @@ from .sources.champion_cross import (
     parse_champion_cross_rss_latest,
 )
 from .sources.comic_action import ComicActionAdapter, extract_comic_action_series_id, parse_comic_action_title
+from .sources.comic_earthstar import (
+    ComicEarthstarAdapter,
+    extract_comic_earthstar_series_id,
+    parse_comic_earthstar_feed_latest,
+    parse_comic_earthstar_title,
+)
 from .sources.comicborder import (
     ComicBorderAdapter,
     extract_comicborder_series_id,
@@ -134,6 +140,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
         monitored_signals=(
             "seed episode page exposes series_id",
             "seed episode page exposes nextReadableProductUri",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "comic-earthstar": SourceCanaryContract(
+        source="comic-earthstar",
+        seed_url="https://comic-earthstar.com/episode/12207421983526541742",
+        fixture_bundle="tests/fixtures/comic-earthstar/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
             "latest episode page title still parses into series / episode labels",
         ),
     ),
@@ -429,6 +445,57 @@ def _comicborder_canary(
     )
 
 
+def _comic_earthstar_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = ComicEarthstarAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    checked_urls = []
+    if work.seed_url.endswith("/rss") or "/rss/series/" in work.seed_url:
+        rss_url = work.seed_url
+        series_id = str(work.metadata.get("seriesId") or "") or rss_url.rstrip("/").rsplit("/", 1)[-1]
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_comic_earthstar_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+    else:
+        episode_html = http_client.get_text(work.seed_url)
+        checked_urls.append(work.seed_url)
+        series_id = extract_comic_earthstar_series_id(episode_html)
+        if not series_id:
+            raise SourceParseError("comic-earthstar: series id not found")
+        rss_url = f"https://comic-earthstar.com/rss/series/{series_id}"
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_comic_earthstar_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+
+    page_title = html_title(latest_html) or ""
+    if not latest_title:
+        raise SourceParseError("comic-earthstar: latest episode title not found")
+    if not page_title:
+        raise SourceParseError("comic-earthstar: latest episode page title not found")
+    parsed_episode_title, parsed_series_title = parse_comic_earthstar_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("comic-earthstar: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("comic-earthstar: series title could not be parsed from page title")
+
+    return (
+        tuple(checked_urls),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
+        ),
+    )
+
+
 def _comic_trail_canary(
     contract: SourceCanaryContract,
     http_client: HttpClient,
@@ -699,6 +766,7 @@ def _nicovideo_manga_canary(
 CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
+    "comic-earthstar": _comic_earthstar_canary,
     "comicborder": _comicborder_canary,
     "comic-trail": _comic_trail_canary,
     "kuragebunch": _kuragebunch_canary,
