@@ -36,6 +36,12 @@ from .sources.firecross import (
     parse_firecross_reader_title,
 )
 from .sources.kakuyomu import KakuyomuAdapter
+from .sources.kuragebunch import (
+    KuragebunchAdapter,
+    extract_kuragebunch_series_id,
+    parse_kuragebunch_feed_latest,
+    parse_kuragebunch_title,
+)
 from .sources.magapoke import (
     MagapokeAdapter,
     canonical_magapoke_rss_url,
@@ -145,6 +151,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
         source="comicborder",
         seed_url="https://comicborder.com/episode/12207421983437812169",
         fixture_bundle="tests/fixtures/comicborder/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "kuragebunch": SourceCanaryContract(
+        source="kuragebunch",
+        seed_url="https://kuragebunch.com/episode/2550912964856491139",
+        fixture_bundle="tests/fixtures/kuragebunch/normal",
         monitored_signals=(
             "seed episode page exposes a stable series id",
             "series RSS feed keeps the latest episode URL",
@@ -464,6 +480,57 @@ def _comic_earthstar_canary(
     )
 
 
+def _kuragebunch_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = KuragebunchAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    checked_urls = []
+    if work.seed_url.endswith("/rss") or "/rss/series/" in work.seed_url:
+        rss_url = work.seed_url
+        series_id = str(work.metadata.get("seriesId") or "") or rss_url.rstrip("/").rsplit("/", 1)[-1]
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_kuragebunch_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+    else:
+        episode_html = http_client.get_text(work.seed_url)
+        checked_urls.append(work.seed_url)
+        series_id = extract_kuragebunch_series_id(episode_html)
+        if not series_id:
+            raise SourceParseError("kuragebunch: series id not found")
+        rss_url = f"https://kuragebunch.com/rss/series/{series_id}"
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_kuragebunch_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+
+    page_title = html_title(latest_html) or ""
+    if not latest_title:
+        raise SourceParseError("kuragebunch: latest episode title not found")
+    if not page_title:
+        raise SourceParseError("kuragebunch: latest episode page title not found")
+    parsed_episode_title, parsed_series_title = parse_kuragebunch_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("kuragebunch: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("kuragebunch: series title could not be parsed from page title")
+
+    return (
+        tuple(checked_urls),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
+        ),
+    )
+
+
 def _kakuyomu_canary(contract: SourceCanaryContract, http_client: HttpClient) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
     adapter = KakuyomuAdapter()
     work = adapter.normalize(contract.seed_url)
@@ -649,6 +716,7 @@ CANARY_RUNNERS = {
     "comic-action": _comic_action_canary,
     "comic-earthstar": _comic_earthstar_canary,
     "comicborder": _comicborder_canary,
+    "kuragebunch": _kuragebunch_canary,
     "shonenjumpplus": _shonenjumpplus_canary,
     "champion-cross": _champion_cross_canary,
     "magapoke": _magapoke_canary,

@@ -299,6 +299,42 @@ class WatchlistAddLogicTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
+    def test_add_watchlist_url_accepts_kuragebunch_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://kuragebunch.com/episode/2550912964856491139?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://kuragebunch.com/episode/2550912964856491139": """
+                        <html>
+                          <head>
+                            <title>赤と青のガウン - 彬子女王/池辺葵 / 第1話 | くらげバンチ</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://kuragebunch.com/rss/series/2550912964856487532">
+                          </head>
+                          <body>
+                            <div data-gtm-data-layer="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;2550912964856487532&quot;}}"></div>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("kuragebunch:2550912964856487532", payload["entry"]["id"])
+        self.assertEqual(
+            "https://kuragebunch.com/rss/series/2550912964856487532",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("kuragebunch", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
     def test_add_watchlist_url_accepts_firecross_reader_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
