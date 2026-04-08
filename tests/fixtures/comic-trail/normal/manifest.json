@@ -29,5 +29,28 @@
       "url": "https://comic-trail.com/episode/2550912965721039352",
       "response": "03-latest.html"
     }
+  ],
+  "expectedCheckedUrls": [
+    "https://comic-trail.com/episode/2550689798402927313",
+    "https://comic-trail.com/rss/series/14079602755560047206",
+    "https://comic-trail.com/episode/2550912965721039352"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "14079602755560047206"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://comic-trail.com/episode/2550912965721039352"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第3話 新章"
+    },
+    {
+      "name": "series_title",
+      "value": "作品E"
+    }
   ]
 }

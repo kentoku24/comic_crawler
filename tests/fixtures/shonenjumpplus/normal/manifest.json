@@ -30,5 +30,27 @@
       "url": "https://shonenjumpplus.com/episode/17107419589191805801",
       "response": "02-latest.html"
     }
+  ],
+  "expectedCheckedUrls": [
+    "https://shonenjumpplus.com/rss/series/3269754496881854342",
+    "https://shonenjumpplus.com/episode/17107419589191805801"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "3269754496881854342"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://shonenjumpplus.com/episode/17107419589191805801"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "[159話]マリッジトキシン"
+    },
+    {
+      "name": "series_title",
+      "value": "マリッジトキシン"
+    }
   ]
 }

@@ -18,6 +18,28 @@
       "response": "02-episode.html"
     }
   ],
+  "expectedCheckedUrls": [
+    "https://takecomic.jp/series/3f846451aff2d",
+    "https://takecomic.jp/series/3f846451aff2d/rss"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_hash",
+      "value": "3f846451aff2d"
+    },
+    {
+      "name": "series_title",
+      "value": "作品D"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://takecomic.jp/episodes/abc12345"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第10話"
+    }
+  ],
   "expectedLatest": {
     "source": "takecomic",
     "workId": "takecomic:3f846451aff2d",

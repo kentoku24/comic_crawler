@@ -30,5 +30,27 @@
       "url": "https://kuragebunch.com/episode/12207421983430264919",
       "response": "02-latest.html"
     }
+  ],
+  "expectedCheckedUrls": [
+    "https://kuragebunch.com/rss/series/2550912964856487532",
+    "https://kuragebunch.com/episode/12207421983430264919"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "2550912964856487532"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://kuragebunch.com/episode/12207421983430264919"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第15話"
+    },
+    {
+      "name": "series_title",
+      "value": "赤と青のガウン"
+    }
   ]
 }

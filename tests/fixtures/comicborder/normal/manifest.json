@@ -30,5 +30,27 @@
       "url": "https://comicborder.com/episode/12207421983437812169",
       "response": "02-latest.html"
     }
+  ],
+  "expectedCheckedUrls": [
+    "https://comicborder.com/rss/series/12207421983437805229",
+    "https://comicborder.com/episode/12207421983437812169"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "12207421983437805229"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://comicborder.com/episode/12207421983437812169"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第01話 死んでサイタマ ～異世界全方位成り上がりRTA開始（※望んでない）～"
+    },
+    {
+      "name": "series_title",
+      "value": "マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道"
+    }
   ]
 }

@@ -28,5 +28,27 @@
       "url": "https://www.sunday-webry.com/episode/12207421983581042977",
       "response": "02-latest.html"
     }
+  ],
+  "expectedCheckedUrls": [
+    "https://www.sunday-webry.com/rss/series/12207421983580960894",
+    "https://www.sunday-webry.com/episode/12207421983581042977"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "12207421983580960894"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://www.sunday-webry.com/episode/12207421983581042977"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "diary1 つきこと先生"
+    },
+    {
+      "name": "series_title",
+      "value": "しっぽと逆鱗"
+    }
   ]
 }

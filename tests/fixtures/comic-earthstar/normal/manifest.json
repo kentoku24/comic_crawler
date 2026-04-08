@@ -30,5 +30,27 @@
       "url": "https://comic-earthstar.com/episode/12207421983562435589",
       "response": "02-latest.html"
     }
+  ],
+  "expectedCheckedUrls": [
+    "https://comic-earthstar.com/rss/series/12207421983526538413",
+    "https://comic-earthstar.com/episode/12207421983562435589"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "12207421983526538413"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://comic-earthstar.com/episode/12207421983562435589"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第2話②"
+    },
+    {
+      "name": "series_title",
+      "value": "魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～"
+    }
   ]
 }
