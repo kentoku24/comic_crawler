@@ -313,8 +313,14 @@ def episode_number_for_latest(latest: Mapping[str, object]) -> Optional[int]:
     return episode_number_for_snapshot(latest)
 
 
-def with_availability_metadata(latest: Mapping[str, object]) -> Dict[str, object]:
+def with_availability_metadata(
+    latest: Mapping[str, object],
+    *,
+    prefer_existing: bool = True,
+) -> Dict[str, object]:
     enriched = dict(latest)
+    if not prefer_existing:
+        enriched.pop("availability", None)
     enriched["availability"] = derive_latest_availability(enriched)
     return enriched
 
@@ -449,7 +455,8 @@ def apply_item_transition(
         backfill_series_metadata(
             merge_latest_metadata(previous_latest, latest_copy),
             previous_entry,
-        )
+        ),
+        prefer_existing=False,
     )
     history, _ = sync_history_event(
         history,

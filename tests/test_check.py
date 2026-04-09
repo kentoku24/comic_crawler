@@ -1297,6 +1297,53 @@ class CheckTests(unittest.TestCase):
             runtime_latest["availability"],
         )
 
+    def test_apply_item_transition_recomputes_availability_after_stable_key_merge(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-1",
+                "episode_title": "第1話",
+                "url": "https://example.com/work/1",
+                "availability": {
+                    "status": "supported",
+                    "latest_free_episode_number": 1,
+                },
+            },
+            "history": [],
+            "unread": {"event_ids": []},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-1",
+            "url": "https://example.com/work/1",
+            "availability": {"status": "unknown"},
+        }
+
+        next_entry, update = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertIsNone(update)
+        runtime_latest = latest_storage_to_runtime(next_entry["latest"])
+        self.assertEqual(
+            {
+                "status": "supported",
+                "latest_free_episode_number": 1,
+            },
+            runtime_latest["availability"],
+        )
+
     def test_run_check_silently_merges_metadata_without_emitting_update(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
