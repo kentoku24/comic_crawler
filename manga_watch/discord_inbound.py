@@ -6,6 +6,7 @@ import time
 from dataclasses import dataclass, field
 from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence
 
+from manga_watch.discord_availability import handle_availability_query
 from manga_watch.discord_fetch import handle_fetch_trigger
 from manga_watch.discord_latest import handle_latest_query
 
@@ -109,6 +110,7 @@ class DiscordCommandListener:
     poll_interval_seconds: float = DEFAULT_COMMAND_POLL_INTERVAL
     latest_handler: Callable[..., Optional[str]] = handle_latest_query
     fetch_handler: Callable[..., Optional[Dict[str, object]]] = handle_fetch_trigger
+    availability_handler: Callable[..., Optional[str]] = handle_availability_query
     report_logger: Callable[[str], None] = print
     error_logger: Callable[[str], None] = print
     sleep_fn: Callable[[float], None] = time.sleep
@@ -164,6 +166,15 @@ class DiscordCommandListener:
         if latest_response is not None:
             self._send_response(latest_response)
             return latest_response
+
+        availability_response = self.availability_handler(
+            content,
+            watchlist_path=self.watchlist_path,
+            state_path=self.state_path,
+        )
+        if availability_response is not None:
+            self._send_response(availability_response)
+            return availability_response
 
         fetch_response = self.fetch_handler(content, coordinator=self.coordinator)
         if fetch_response is None:

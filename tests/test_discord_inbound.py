@@ -120,6 +120,35 @@ class DiscordInboundTests(unittest.TestCase):
         self.assertEqual([FETCH_ACCEPTED_MESSAGE], responses)
         self.assertEqual(FETCH_ACCEPTED_MESSAGE, client.sent_messages[0]["content"])
 
+    def test_listener_handles_availability_query(self):
+        client = FakeDiscordClient(
+            polls=[
+                [{"id": "20", "content": "old", "author": {"id": "user-1"}}],
+                [{"id": "21", "content": "where 作品A / 第5話", "author": {"id": "user-2"}}],
+            ]
+        )
+        listener = DiscordCommandListener(
+            client=client,
+            channel_id="main-channel",
+            coordinator=object(),
+            timezone_name="Asia/Tokyo",
+            latest_handler=lambda content, **_: None,
+            fetch_handler=lambda content, **_: None,
+            availability_handler=lambda content, **_: (
+                "作品: 作品A\n結論: 今すぐ無料で読める候補があります"
+                if str(content).strip() == "where 作品A / 第5話"
+                else None
+            ),
+            report_logger=lambda _: None,
+            error_logger=lambda _: None,
+        )
+
+        listener.poll_once()
+        responses = listener.poll_once()
+
+        self.assertEqual(["作品: 作品A\n結論: 今すぐ無料で読める候補があります"], responses)
+        self.assertEqual("作品: 作品A\n結論: 今すぐ無料で読める候補があります", client.sent_messages[0]["content"])
+
     def test_listener_ignores_bot_messages(self):
         client = FakeDiscordClient(
             polls=[

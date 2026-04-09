@@ -131,6 +131,33 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 
 履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と state contract は [root 受け入れ仕様書 (`spec.md`, 文書名: `SPEC.md`)](spec.md) を source of truth とします。
 
+### canonical works
+
+- path: `manga_watch/canonical_works.json`
+- env: `MANGA_WATCH_CANONICAL_WORKS`
+
+作品横断の `where` query は、このファイルの confirmed `provider_work_ids` だけを source of truth として使います。`provider_candidates` は候補表示や手動確定用の保存領域であり、query の本判定には使いません。
+
+```json
+{
+  "version": 1,
+  "works": [
+    {
+      "id": "dungeon-in-the-heart",
+      "title": "ダンジョンの中のひと",
+      "aliases": ["ダンジョンの中のひと"],
+      "provider_work_ids": ["comic-action:13933686331663374228"],
+      "provider_candidates": [
+        {
+          "work_id": "KC_123456_S",
+          "reason": "series_title exact match"
+        }
+      ]
+    }
+  ]
+}
+```
+
 ### backlog CLI
 
 履歴と未読の確認には `python3 -m manga_watch.backlog` を使います。
@@ -406,7 +433,7 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 .venv/bin/python -m manga_watch.replay_outbox
 ```
 
-Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、shared add logic で対応できる URL のみクロール対象へ追加します。`MANGA_WATCH_GITHUB_TOKEN` と `MANGA_WATCH_GITHUB_REPOSITORY` が設定されている場合、`unsupported_source` は追加失敗のまま GitHub Issue を自動作成し、「対応候補として記録した」と返信します。
+Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。`where <作品名 or canonical_work_id> / <第N話 or N>` では、confirmed canonical work を横断して「今すぐ無料で読める候補」「最短待機候補」「不足話数」を返します。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、shared add logic で対応できる URL のみクロール対象へ追加します。`MANGA_WATCH_GITHUB_TOKEN` と `MANGA_WATCH_GITHUB_REPOSITORY` が設定されている場合、`unsupported_source` は追加失敗のまま GitHub Issue を自動作成し、「対応候補として記録した」と返信します。
 Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/remove` を扱います。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 

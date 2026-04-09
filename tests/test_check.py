@@ -733,11 +733,16 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(["ep-2"], next_entry["unread"]["event_ids"])
         self.assertEqual(["ep-2"], [event["event_id"] for event in next_entry["history"]])
         self.assertEqual(20, next_entry["health"]["last_checked_at"])
+        expected_latest = dict(latest)
+        expected_latest["availability"] = {
+            "status": "supported",
+            "latest_free_episode_number": 2,
+        }
         self.assertEqual(
             {
                 "id": "work-1",
                 "from": latest_storage_to_runtime(previous["latest"]),
-                "to": latest,
+                "to": expected_latest,
                 "notification": {
                     "mode": "all",
                     "allowed_update_types": None,
@@ -803,7 +808,16 @@ class CheckTests(unittest.TestCase):
             },
         )
         self.assertEqual(latest_storage_to_runtime(previous["latest"]), update["from"])
-        self.assertEqual(latest, update["to"])
+        self.assertEqual(
+            {
+                **latest,
+                "availability": {
+                    "status": "supported",
+                    "latest_free_episode_number": 4,
+                },
+            },
+            update["to"],
+        )
 
     def test_apply_item_transition_preserves_series_title_when_latest_key_changes_without_title(self):
         previous = {
@@ -1274,6 +1288,14 @@ class CheckTests(unittest.TestCase):
         self.assertTrue(runtime_latest["default_notify"])
         self.assertEqual(20, next_entry["health"]["last_checked_at"])
         self.assertEqual([], next_entry["history"])
+        self.assertEqual(
+            {
+                "status": "supported",
+                "latest_free_episode_number": 1,
+                "next_free_label": "次回更新後",
+            },
+            runtime_latest["availability"],
+        )
 
     def test_run_check_silently_merges_metadata_without_emitting_update(self):
         with tempfile.TemporaryDirectory() as tmpdir:
