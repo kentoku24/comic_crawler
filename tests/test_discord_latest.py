@@ -147,6 +147,47 @@ class DiscordLatestTests(unittest.TestCase):
         self.assertNotIn("作品C", response)
         self.assertNotIn("孤児", response)
 
+    def test_build_latest_query_response_excludes_hidden_entries(self):
+        watchlist = self.make_watchlist(
+            [
+                {
+                    "id": "work-visible",
+                    "source": "comic-walker",
+                    "seed_url": "https://example.com/work-visible",
+                    "enabled": True,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                },
+                {
+                    "id": "work-hidden",
+                    "source": "comic-walker",
+                    "seed_url": "https://example.com/work-hidden",
+                    "enabled": True,
+                    "hidden": True,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                },
+            ]
+        )
+        state = self.make_state(
+            {
+                "work-visible": {
+                    "latest": {"series_title": "表示作品", "episode_title": "第3話", "url": "https://example.com/visible"},
+                    "history": [],
+                    "health": {"consecutive_failures": 0},
+                },
+                "work-hidden": {
+                    "latest": {"series_title": "非表示作品", "episode_title": "第9話", "url": "https://example.com/hidden"},
+                    "history": [],
+                    "health": {"consecutive_failures": 0},
+                },
+            },
+            last_run_at=1_700_000_000,
+        )
+
+        response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
+
+        self.assertIn("表示作品", response)
+        self.assertNotIn("非表示作品", response)
+
     def test_build_latest_query_response_returns_empty_message_when_all_works_are_unfetched(self):
         watchlist = self.make_watchlist(
             [

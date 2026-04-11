@@ -11,6 +11,7 @@ from manga_watch.storage import (
     save_state,
     save_watchlist,
     validate_state,
+    validate_watchlist,
 )
 
 
@@ -179,7 +180,7 @@ class FirestoreStorageTests(unittest.TestCase):
             save_watchlist(watchlist, backend="firestore")
             save_state(state, backend="firestore")
 
-            self.assertEqual(watchlist, load_watchlist(backend="firestore"))
+            self.assertEqual(validate_watchlist(watchlist), load_watchlist(backend="firestore"))
             self.assertEqual(expected_state, load_state(backend="firestore"))
 
         client = repository.client

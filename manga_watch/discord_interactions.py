@@ -13,7 +13,18 @@ from nacl.signing import VerifyKey
 from manga_watch.discord_add import ADD_COMMAND, AddCommandHandler
 from manga_watch.discord_fetch import FETCH_COMMAND, handle_fetch_trigger
 from manga_watch.discord_latest import LATEST_COMMAND, handle_latest_query, validated_timezone_name
+from manga_watch.discord_search import SEARCH_COMMAND, SEARCH_SELECT_CUSTOM_ID_PREFIX, SearchCommandHandler
 from manga_watch.discord_remove import REMOVE_COMMAND, RemoveCommandHandler
+from manga_watch.discord_supertwins_manage import (
+    SUPERTWINS_MANAGE_COMMAND,
+    ManageSupertwinsCommandHandler,
+    is_supertwins_manage_component,
+)
+from manga_watch.discord_supertwins_search import (
+    SUPERTWINS_SEARCH_COMMAND,
+    SearchSupertwinsCommandHandler,
+    is_supertwins_search_component,
+)
 from manga_watch.discord_outbound import DiscordChannelClient
 from manga_watch.notifier import build_named_notifiers
 from manga_watch.runner import FETCH_ACCEPTED_MESSAGE, RunCoordinator, RunnerConfig, parse_bool
@@ -290,7 +301,10 @@ class DiscordInteractionService:
     verification_disabled: bool = False
     latest_handler: Callable[..., Optional[str]] = handle_latest_query
     add_handler: Optional[AddCommandHandler] = None
+    search_handler: Optional[SearchCommandHandler] = None
     remove_handler: Optional[RemoveCommandHandler] = None
+    supertwins_search_handler: Optional[SearchSupertwinsCommandHandler] = None
+    supertwins_manage_handler: Optional[ManageSupertwinsCommandHandler] = None
 
     def handle_request(
         self,
@@ -350,25 +364,68 @@ class DiscordInteractionService:
                 watchlist_path=self.watchlist_path,
             )
             return interaction_message_response(str(response_payload.get("content") or "").strip())
+        if command_name == SEARCH_COMMAND and self.search_handler is not None:
+            response_payload = self.search_handler.start(
+                source=self._command_option(payload, "source"),
+                query=self._command_option(payload, "query"),
+                visibility=self._command_option(payload, "visibility"),
+                watchlist_path=self.watchlist_path,
+            )
+            return interaction_ephemeral_response(response_payload)
         if command_name == REMOVE_COMMAND and self.remove_handler is not None:
             payload = self.remove_handler.start(
                 watchlist_path=self.watchlist_path,
                 state_path=self.state_path,
             )
             return interaction_ephemeral_response(payload)
+        if command_name == SUPERTWINS_SEARCH_COMMAND and self.supertwins_search_handler is not None:
+            response_payload = self.supertwins_search_handler.start(
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+            return interaction_ephemeral_response(response_payload)
+        if command_name == SUPERTWINS_MANAGE_COMMAND and self.supertwins_manage_handler is not None:
+            response_payload = self.supertwins_manage_handler.start(
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+            return interaction_ephemeral_response(response_payload)
         return text_response(400, f"unsupported command: {command_name or '(missing)'}")
 
     def _handle_message_component(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
-        if self.remove_handler is None:
-            return text_response(400, "unsupported interaction type")
         data = payload.get("data")
         if not isinstance(data, Mapping):
             return text_response(400, "invalid interaction payload")
-        response_payload = self.remove_handler.handle_component(
-            data,
-            watchlist_path=self.watchlist_path,
-            state_path=self.state_path,
-        )
+        custom_id = str(data.get("custom_id") or "").strip()
+        if custom_id.startswith(f"{SEARCH_SELECT_CUSTOM_ID_PREFIX}:"):
+            if self.search_handler is None:
+                return text_response(400, "unsupported interaction type")
+            response_payload = self.search_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+            )
+        elif self.remove_handler is not None and (
+            custom_id == "remove_select" or custom_id.startswith("remove_")
+        ):
+            response_payload = self.remove_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+        elif self.supertwins_search_handler is not None and is_supertwins_search_component(custom_id):
+            response_payload = self.supertwins_search_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+        elif self.supertwins_manage_handler is not None and is_supertwins_manage_component(custom_id):
+            response_payload = self.supertwins_manage_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+        else:
+            return text_response(400, "unsupported interaction type")
         return interaction_payload_response(
             INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
             response_payload,
@@ -474,5 +531,8 @@ def build_interaction_service_from_env(
         verifier=verifier,
         verification_disabled=verification.verification_disabled,
         add_handler=AddCommandHandler.from_env(),
+        search_handler=SearchCommandHandler(),
         remove_handler=RemoveCommandHandler(backend=storage_backend),
+        supertwins_search_handler=SearchSupertwinsCommandHandler(),
+        supertwins_manage_handler=ManageSupertwinsCommandHandler(),
     )

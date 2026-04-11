@@ -174,6 +174,7 @@ def add_watchlist_url(
     url: str,
     *,
     watchlist_path: Optional[str] = None,
+    hidden: bool = False,
     adapters: Optional[Sequence[SourceAdapter]] = None,
     http_client: Optional[HttpClient] = None,
 ) -> Dict[str, object]:
@@ -205,6 +206,7 @@ def add_watchlist_url(
         }
 
     works = list(watchlist["works"])
+    entry["hidden"] = hidden
     works.append(entry)
     updated_watchlist = {"version": watchlist["version"], "works": works}
     try:

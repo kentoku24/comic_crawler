@@ -5,6 +5,9 @@ from unittest import mock
 from manga_watch.discord_fetch import FETCH_COMMAND
 from manga_watch.discord_latest import LATEST_COMMAND
 from manga_watch.discord_remove import REMOVE_COMMAND
+from manga_watch.discord_search import SEARCH_COMMAND
+from manga_watch.discord_supertwins_manage import SUPERTWINS_MANAGE_COMMAND
+from manga_watch.discord_supertwins_search import SUPERTWINS_SEARCH_COMMAND
 
 
 class FakeResponse:
@@ -38,13 +41,21 @@ class FakeRequestsSession:
 
 
 class DiscordCommandRegistrationTests(unittest.TestCase):
-    def test_default_command_definitions_include_add_and_remove(self):
+    def test_default_command_definitions_include_supertwins_commands(self):
         from manga_watch.discord_command_registration import default_interaction_commands
 
         commands = default_interaction_commands()
 
         self.assertEqual(
-            [LATEST_COMMAND, FETCH_COMMAND, "add", REMOVE_COMMAND],
+            [
+                LATEST_COMMAND,
+                FETCH_COMMAND,
+                "add",
+                SEARCH_COMMAND,
+                REMOVE_COMMAND,
+                SUPERTWINS_SEARCH_COMMAND,
+                SUPERTWINS_MANAGE_COMMAND,
+            ],
             [command["name"] for command in commands],
         )
         add_command = commands[2]
@@ -60,6 +71,16 @@ class DiscordCommandRegistrationTests(unittest.TestCase):
             ],
             add_command["options"],
         )
+        self.assertEqual(
+            "既存作品を起点に他媒体候補を探して supertwins を作成します。",
+            commands[5]["description"],
+        )
+        self.assertNotIn("options", commands[5])
+        self.assertEqual(
+            "既存の supertwins を確認して誤登録を解除します。",
+            commands[6]["description"],
+        )
+        self.assertNotIn("options", commands[6])
 
     def test_ensure_registered_from_env_uses_guild_registration_when_guild_id_is_present(self):
         from manga_watch.discord_command_registration import ensure_commands_registered_from_env

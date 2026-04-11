@@ -103,6 +103,7 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
       "source": "comic-walker",
       "seed_url": "https://comic-walker.com/detail/KC_003913_S",
       "enabled": true,
+      "hidden": false,
       "notification_policy": {
         "mode": "all",
         "allowed_update_types": null
@@ -130,6 +131,8 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 - root `discord_delivery.daily_notification`: Discord main channel 向け daily notification の durable dedupe / pending state
 
 履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と state contract は [root 受け入れ仕様書 (`spec.md`, 文書名: `SPEC.md`)](spec.md) を source of truth とします。
+
+`hidden=true` の作品は watchlist に残ったまま巡回・state 更新・履歴保持を続けますが、`latest` 表示と Discord の daily notification からは除外されます。重複購読の副媒体を静かに追跡したいときのためのフラグで、`notification_policy.mode=mute` とは別概念です。
 
 ### backlog CLI
 
@@ -250,6 +253,7 @@ Phase 1 では source ごとの capability 差を隠しません。作品追加�
     "source": "kakuyomu",
     "seed_url": "https://kakuyomu.jp/works/123",
     "enabled": true,
+    "hidden": false,
     "notification_policy": {"mode": "all", "allowed_update_types": null}
   },
   "work_count": 1
@@ -407,10 +411,11 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 ```
 
 Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、shared add logic で対応できる URL のみクロール対象へ追加します。`MANGA_WATCH_GITHUB_TOKEN` と `MANGA_WATCH_GITHUB_REPOSITORY` が設定されている場合、`unsupported_source` は追加失敗のまま GitHub Issue を自動作成し、「対応候補として記録した」と返信します。
-Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/remove` を扱います。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
+Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/search` `/remove` `/supertwins-search` `/supertwins-manage` を扱います。`/search` は媒体ごとに作品検索を行い、選択した結果を visible または hidden で watchlist に追加します。初期対応 source は `champion-cross` と `kakuyomu` です。検索未対応 source は明示的に unavailable を返します。
+`/supertwins-search` は既存 watchlist 作品を起点に他媒体候補を探し、選択した候補を hidden で watchlist に追加しつつ state 上の `supertwins.groups` に登録します。既存 duplicate が選ばれた場合も、その entry を hidden 化したうえで group に追加します。`/supertwins-manage` は group と member を選択して、hidden のまま残す / hidden を解除する / subscription を削除する、の 3 アクションを扱います。削除だけは confirm を返します。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 
-Cloud Run Service の Discord interaction endpoint をローカルで起動する場合は、署名検証用の public key に加えて command registration 用の bot token を入れて `python -m manga_watch.run_service` を使います。service startup では `/latest` `/fetch` `/add` `/remove` の command 定義を Discord へ idempotent に登録し、登録に失敗した場合は fail-fast で起動を中断します。`DISCORD_GUILD_ID` を入れると guild command、未指定なら global command を更新します。
+Cloud Run Service の Discord interaction endpoint をローカルで起動する場合は、署名検証用の public key に加えて command registration 用の bot token を入れて `python -m manga_watch.run_service` を使います。service startup では `/latest` `/fetch` `/add` `/search` `/remove` `/supertwins-search` `/supertwins-manage` の command 定義を Discord へ idempotent に登録し、登録に失敗した場合は fail-fast で起動を中断します。`DISCORD_GUILD_ID` を入れると guild command、未指定なら global command を更新します。
 
 ```bash
 export DISCORD_BOT_TOKEN=...

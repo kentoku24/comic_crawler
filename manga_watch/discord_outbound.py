@@ -278,6 +278,31 @@ def build_daily_notification_message(
     return "\n".join(lines)
 
 
+def filter_updates_for_daily_notifications(
+    updates: Sequence[Mapping[str, object]],
+    watchlist: Mapping[str, object],
+) -> List[Mapping[str, object]]:
+    works = watchlist.get("works", [])
+    if not isinstance(works, list):
+        raise ValueError("watchlist.works must be a list")
+
+    hidden_work_ids = {
+        str(entry.get("id") or "").strip()
+        for entry in works
+        if isinstance(entry, Mapping) and bool(entry.get("hidden"))
+    }
+    if not hidden_work_ids:
+        return list(updates)
+
+    filtered_updates: List[Mapping[str, object]] = []
+    for update in updates:
+        work_id = _coerce_text(update.get("id") or update.get("work_id"))
+        if work_id in hidden_work_ids:
+            continue
+        filtered_updates.append(update)
+    return filtered_updates
+
+
 def enqueue_daily_notification(
     state: Dict[str, object],
     *,

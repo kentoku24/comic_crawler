@@ -259,6 +259,9 @@ def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
     enabled = entry.get("enabled")
     if not isinstance(enabled, bool):
         raise ValueError(f"watchlist entry {work_id} enabled must be boolean")
+    hidden = entry.get("hidden", False)
+    if not isinstance(hidden, bool):
+        raise ValueError(f"watchlist entry {work_id} hidden must be boolean")
     policy = normalize_notification_policy(entry.get("notification_policy"), work_id)
     history_retention = normalize_optional_history_retention(
         entry.get("history_retention"),
@@ -270,6 +273,7 @@ def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
         "source": source,
         "seed_url": seed_url,
         "enabled": enabled,
+        "hidden": hidden,
         "notification_policy": policy,
     }
     if history_retention is not None:
