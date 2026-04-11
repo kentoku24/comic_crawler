@@ -168,6 +168,21 @@ class DiscordSearchTests(unittest.TestCase):
         )
         self.assertIn("非表示", response["content"])
 
+    def test_handle_component_rejects_stale_tokenized_url(self):
+        add_subscription = FakeAddSubscription()
+        handler = SearchCommandHandler(
+            search_source=lambda *_args, **_kwargs: [],
+            add_subscription=add_subscription,
+        )
+
+        response = handler.handle_component(
+            {"custom_id": "search_select:visible", "values": ["u:stale-token"]},
+            watchlist_path="/tmp/watchlist.json",
+        )
+
+        self.assertEqual([], add_subscription.calls)
+        self.assertIn("選択された作品URLが見つかりませんでした", response["content"])
+
 
 if __name__ == "__main__":
     unittest.main()

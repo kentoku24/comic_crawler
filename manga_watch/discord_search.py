@@ -19,6 +19,7 @@ SEARCH_NO_RESULTS_MESSAGE = "検索結果が見つかりませんでした。"
 MAX_COMPONENT_TEXT = 100
 MAX_COMPONENT_VALUE = 100
 MAX_SELECT_URL_CACHE_SIZE = 256
+SELECT_URL_TOKEN_PREFIX = "u:"
 
 _SEARCH_SELECT_URL_CACHE: "OrderedDict[str, str]" = OrderedDict()
 
@@ -48,7 +49,7 @@ def _truncate_component_text(text: object, *, max_length: int = MAX_COMPONENT_TE
 
 def _remember_search_result_url(url: str) -> str:
     digest = hashlib.sha256(url.encode("utf-8")).digest()
-    token = "u:" + base64.urlsafe_b64encode(digest[:9]).decode("ascii").rstrip("=")
+    token = SELECT_URL_TOKEN_PREFIX + base64.urlsafe_b64encode(digest[:9]).decode("ascii").rstrip("=")
     _SEARCH_SELECT_URL_CACHE[token] = url
     _SEARCH_SELECT_URL_CACHE.move_to_end(token)
     while len(_SEARCH_SELECT_URL_CACHE) > MAX_SELECT_URL_CACHE_SIZE:
@@ -71,6 +72,8 @@ def _resolve_select_option_value(value: object) -> Optional[str]:
     if cached is not None:
         _SEARCH_SELECT_URL_CACHE.move_to_end(normalized)
         return cached
+    if normalized.startswith(SELECT_URL_TOKEN_PREFIX):
+        return None
     return normalized
 
 
