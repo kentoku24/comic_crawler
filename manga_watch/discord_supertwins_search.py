@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import secrets
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional
 
@@ -79,17 +80,8 @@ def _select_option_value(url: object) -> str:
     return _tokenize_select_option_value(normalized)
 
 
-def _search_session_token(root_work_id: str, selected_urls_by_value: Mapping[str, str]) -> str:
-    material = "\n".join(
-        [
-            root_work_id,
-            *[
-                f"{value}={selected_urls_by_value[value]}"
-                for value in sorted(selected_urls_by_value)
-            ],
-        ]
-    )
-    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
+def _search_session_token() -> str:
+    return secrets.token_hex(8)
 
 
 def _state_works(state: Mapping[str, object]) -> Mapping[str, object]:
@@ -382,7 +374,7 @@ class SearchSupertwinsCommandHandler:
             }
 
         result_options, selected_urls_by_value = _search_result_options(results)
-        session_token = _search_session_token(root_work_id, selected_urls_by_value)
+        session_token = _search_session_token()
         try:
             self.search_session_saver(
                 session_token,
@@ -451,7 +443,10 @@ class SearchSupertwinsCommandHandler:
                 if normalized.startswith(SELECT_URL_TOKEN_PREFIX):
                     return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
                 resolved = normalized
-            resolved_urls.append(str(resolved))
+            normalized_resolved = _coerce_text(resolved)
+            if not normalized_resolved:
+                return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
+            resolved_urls.append(normalized_resolved)
         selected_urls = [value for value in resolved_urls if value]
         if not root_work_id or not selected_urls:
             return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
