@@ -3,6 +3,7 @@ __pycache__/
 *.pyc
 .venv/
 .env
+.web_admin.sqlite3
 
 # Local state (optional)
 # If you want to commit state.json, remove the next line.
