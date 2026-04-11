@@ -6,9 +6,16 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+import django
+from django.apps import apps
 from django.test import Client, SimpleTestCase, override_settings
 
 from manga_watch.storage import save_state, save_watchlist
+
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "web_admin.project.settings")
+if not apps.ready:
+    django.setup()
 
 
 @override_settings(ROOT_URLCONF="web_admin.project.urls")
@@ -103,6 +110,32 @@ class ApiTests(SimpleTestCase):
         self.assertEqual(200, response.status_code)
         payload = json.loads(response.content)
         self.assertEqual("added", payload["result"]["action"])
+
+    def test_api_rejects_malformed_json_body(self):
+        with mock.patch("web_admin.api.auth.verify_google_oidc_token", return_value={"email": "svc@example.com"}):
+            response = self.client.post(
+                "/api/watchlist/",
+                data="{bad json",
+                content_type="application/json",
+                HTTP_AUTHORIZATION="Bearer token",
+            )
+
+        self.assertEqual(400, response.status_code)
+        payload = json.loads(response.content)
+        self.assertEqual("request body must be valid JSON", payload["error"])
+
+    def test_api_rejects_non_boolean_enabled_payload(self):
+        with mock.patch("web_admin.api.auth.verify_google_oidc_token", return_value={"email": "svc@example.com"}):
+            response = self.client.post(
+                "/api/watchlist/work-1/enabled/",
+                data=json.dumps({"enabled": "false"}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION="Bearer token",
+            )
+
+        self.assertEqual(400, response.status_code)
+        payload = json.loads(response.content)
+        self.assertEqual("enabled must be a boolean", payload["error"])
 
     def test_openapi_endpoint_exposes_machine_auth_policy(self):
         with mock.patch("web_admin.api.auth.verify_google_oidc_token", return_value={"email": "svc@example.com"}):

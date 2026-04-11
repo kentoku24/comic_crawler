@@ -5,10 +5,17 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
+import django
+from django.apps import apps
 from django.contrib.auth import get_user_model
 from django.test import TestCase, override_settings
 
 from manga_watch.storage import save_state, save_watchlist
+
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "web_admin.project.settings")
+if not apps.ready:
+    django.setup()
 
 
 @override_settings(ROOT_URLCONF="web_admin.project.urls")

@@ -12,10 +12,31 @@ from .auth import machine_auth_required
 from .openapi import build_openapi_schema
 
 
+class ApiRequestError(ValueError):
+    pass
+
+
 def _json_body(request: HttpRequest) -> Dict[str, Any]:
     if not request.body:
         return {}
-    return json.loads(request.body.decode("utf-8"))
+    try:
+        payload = json.loads(request.body.decode("utf-8"))
+    except json.JSONDecodeError as exc:
+        raise ApiRequestError("request body must be valid JSON") from exc
+    if not isinstance(payload, dict):
+        raise ApiRequestError("request body must be a JSON object")
+    return payload
+
+
+def _json_request_error_response(exc: ApiRequestError) -> JsonResponse:
+    return JsonResponse({"ok": False, "error": str(exc)}, status=400)
+
+
+def _boolean_field(payload: Dict[str, Any], key: str) -> bool:
+    value = payload.get(key)
+    if not isinstance(value, bool):
+        raise ApiRequestError(f"{key} must be a boolean")
+    return value
 
 
 @machine_auth_required
@@ -24,7 +45,10 @@ def watchlist_collection(request: HttpRequest):
     if request.method == "GET":
         return JsonResponse({"ok": True, "watchlist": queries.get_watchlist_data()})
     if request.method == "POST":
-        payload = _json_body(request)
+        try:
+            payload = _json_body(request)
+        except ApiRequestError as exc:
+            return _json_request_error_response(exc)
         result = commands.add_watchlist_url_command(str(payload.get("url") or ""))
         return JsonResponse({"ok": True, "result": result})
     return HttpResponseNotAllowed(["GET", "POST"])
@@ -63,8 +87,12 @@ def run_history_detail(request: HttpRequest):
 def watchlist_enabled_detail(request: HttpRequest, work_id: str):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
-    payload = _json_body(request)
-    result = commands.update_watchlist_work_command(work_id, enabled=bool(payload.get("enabled")))
+    try:
+        payload = _json_body(request)
+        enabled = _boolean_field(payload, "enabled")
+    except ApiRequestError as exc:
+        return _json_request_error_response(exc)
+    result = commands.update_watchlist_work_command(work_id, enabled=enabled)
     return JsonResponse({"ok": True, "result": result})
 
 
