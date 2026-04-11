@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional
 
@@ -13,6 +16,11 @@ SEARCH_MISSING_SOURCE_MESSAGE = "検索したい媒体を `source` で指定し�
 SEARCH_MISSING_QUERY_MESSAGE = "検索したい文字列を `query` で指定してください。"
 SEARCH_FAILURE_MESSAGE = "作品検索に失敗しました。サーバーログを確認してください。"
 SEARCH_NO_RESULTS_MESSAGE = "検索結果が見つかりませんでした。"
+MAX_COMPONENT_TEXT = 100
+MAX_COMPONENT_VALUE = 100
+MAX_SELECT_URL_CACHE_SIZE = 256
+
+_SEARCH_SELECT_URL_CACHE: "OrderedDict[str, str]" = OrderedDict()
 
 
 def _coerce_text(value: object) -> Optional[str]:
@@ -27,6 +35,43 @@ def _normalize_visibility(value: object) -> str:
     if visibility == "hidden":
         return "hidden"
     return "visible"
+
+
+def _truncate_component_text(text: object, *, max_length: int = MAX_COMPONENT_TEXT) -> str:
+    normalized = str(text or "").strip()
+    if len(normalized) <= max_length:
+        return normalized
+    if max_length <= 1:
+        return "…"
+    return normalized[: max_length - 1] + "…"
+
+
+def _remember_search_result_url(url: str) -> str:
+    digest = hashlib.sha256(url.encode("utf-8")).digest()
+    token = "u:" + base64.urlsafe_b64encode(digest[:9]).decode("ascii").rstrip("=")
+    _SEARCH_SELECT_URL_CACHE[token] = url
+    _SEARCH_SELECT_URL_CACHE.move_to_end(token)
+    while len(_SEARCH_SELECT_URL_CACHE) > MAX_SELECT_URL_CACHE_SIZE:
+        _SEARCH_SELECT_URL_CACHE.popitem(last=False)
+    return token
+
+
+def _select_option_value(url: object) -> str:
+    normalized = _coerce_text(url) or ""
+    if len(normalized) <= MAX_COMPONENT_VALUE:
+        return normalized
+    return _remember_search_result_url(normalized)
+
+
+def _resolve_select_option_value(value: object) -> Optional[str]:
+    normalized = _coerce_text(value)
+    if not normalized:
+        return None
+    cached = _SEARCH_SELECT_URL_CACHE.get(normalized)
+    if cached is not None:
+        _SEARCH_SELECT_URL_CACHE.move_to_end(normalized)
+        return cached
+    return normalized
 
 
 def _format_search_add_response(result: Mapping[str, object]) -> str:
@@ -98,9 +143,9 @@ class SearchCommandHandler:
 
         options = [
             {
-                "label": result.title,
-                "value": result.seed_url,
-                "description": result.subtitle or result.source,
+                "label": _truncate_component_text(result.title),
+                "value": _select_option_value(result.seed_url),
+                "description": _truncate_component_text(result.subtitle or result.source),
             }
             for result in results[:25]
         ]
@@ -136,7 +181,7 @@ class SearchCommandHandler:
 
         visibility = _normalize_visibility(custom_id.partition(":")[2])
         values = data.get("values") or []
-        selected_url = _coerce_text(values[0]) if values else None
+        selected_url = _resolve_select_option_value(values[0]) if values else None
         if not selected_url:
             return {"content": "選択された作品URLが見つかりませんでした。", "components": []}
 

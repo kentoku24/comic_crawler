@@ -8,6 +8,7 @@ from manga_watch.discord_supertwins_manage import (
     SUPERTWINS_MANAGE_ACTION_SELECT_PREFIX,
     SUPERTWINS_MANAGE_CONFIRM_DELETE_PREFIX,
     SUPERTWINS_MANAGE_GROUP_SELECT,
+    SUPERTWINS_MANAGE_MEMBER_PAGE_PREFIX,
     SUPERTWINS_MANAGE_MEMBER_SELECT_PREFIX,
     ManageSupertwinsCommandHandler,
 )
@@ -78,6 +79,31 @@ def make_state():
 
 def write_json(path: Path, payload):
     path.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+
+
+def make_state_with_many_supertwins_members(member_count: int = 26):
+    state = make_state()
+    member_work_ids = [f"work-{index:02d}" for index in range(1, member_count + 1)]
+    state["works"] = {
+        work_id: {
+            "latest": {
+                "series_title": f"作品{index:02d}",
+                "episode_title": "第1話",
+            },
+            "history": [],
+            "unread": {"event_ids": []},
+            "health": {},
+        }
+        for index, work_id in enumerate(member_work_ids, start=1)
+    }
+    state["supertwins"] = {
+        "groups": {
+            "group-1": {
+                "member_work_ids": member_work_ids,
+            }
+        }
+    }
+    return state, member_work_ids
 
 
 class FakeSearchSource:
@@ -273,6 +299,65 @@ class DiscordSupertwinsManageTests(unittest.TestCase):
         select = payload["components"][0]["components"][0]
         self.assertEqual(f"{SUPERTWINS_MANAGE_MEMBER_SELECT_PREFIX}group-1", select["custom_id"])
         self.assertEqual(["作品A", "作品B"], [option["label"] for option in select["options"]])
+
+    def test_member_selection_paginates_beyond_25_options(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            state_path = tmpdir / "state.json"
+            state, _member_work_ids = make_state_with_many_supertwins_members()
+            write_json(state_path, state)
+
+            handler = ManageSupertwinsCommandHandler()
+            payload = handler.handle_component(
+                {"custom_id": SUPERTWINS_MANAGE_GROUP_SELECT, "values": ["group-1"]},
+                state_path=str(state_path),
+            )
+            select = payload["components"][0]["components"][0]
+            next_button = payload["components"][1]["components"][1]
+
+            second_page = handler.handle_component(
+                {"custom_id": next_button["custom_id"]},
+                state_path=str(state_path),
+            )
+            second_select = second_page["components"][0]["components"][0]
+
+        self.assertEqual(25, len(select["options"]))
+        self.assertEqual(["work-01", "work-25"], [select["options"][0]["value"], select["options"][-1]["value"]])
+        self.assertEqual(f"{SUPERTWINS_MANAGE_MEMBER_PAGE_PREFIX}group-1:1", next_button["custom_id"])
+        self.assertEqual(1, len(second_select["options"]))
+        self.assertEqual("work-26", second_select["options"][0]["value"])
+        self.assertEqual(f"{SUPERTWINS_MANAGE_MEMBER_PAGE_PREFIX}group-1:0", second_page["components"][1]["components"][0]["custom_id"])
+
+    def test_later_page_member_can_be_selected(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            state_path = tmpdir / "state.json"
+            state, _member_work_ids = make_state_with_many_supertwins_members()
+            write_json(state_path, state)
+
+            handler = ManageSupertwinsCommandHandler()
+            handler.handle_component(
+                {"custom_id": SUPERTWINS_MANAGE_GROUP_SELECT, "values": ["group-1"]},
+                state_path=str(state_path),
+            )
+            handler.handle_component(
+                {"custom_id": f"{SUPERTWINS_MANAGE_MEMBER_PAGE_PREFIX}group-1:1"},
+                state_path=str(state_path),
+            )
+            payload = handler.handle_component(
+                {
+                    "custom_id": f"{SUPERTWINS_MANAGE_MEMBER_SELECT_PREFIX}group-1",
+                    "values": ["work-26"],
+                },
+                state_path=str(state_path),
+            )
+            saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("member を group から外したあと、どう扱うか選んでください。", payload["content"])
+        self.assertEqual(
+            ["work-26"],
+            next(iter(saved_state["supertwins"]["pending_actions"].values()))["member_work_ids"],
+        )
 
     def test_keep_hidden_removes_member_from_group_without_unhiding(self):
         with tempfile.TemporaryDirectory() as tmpdir:

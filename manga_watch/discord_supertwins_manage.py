@@ -22,6 +22,7 @@ SUPERTWINS_MANAGE_COMMAND = "supertwins-manage"
 SUPERTWINS_MANAGE_COMPONENT_PREFIX = "supertwins_manage:"
 SUPERTWINS_MANAGE_GROUP_SELECT = "supertwins_manage_group_select"
 SUPERTWINS_MANAGE_MEMBER_SELECT_PREFIX = f"{SUPERTWINS_MANAGE_COMPONENT_PREFIX}members:"
+SUPERTWINS_MANAGE_MEMBER_PAGE_PREFIX = f"{SUPERTWINS_MANAGE_COMPONENT_PREFIX}members_page:"
 SUPERTWINS_MANAGE_ACTION_SELECT_PREFIX = f"{SUPERTWINS_MANAGE_COMPONENT_PREFIX}action:"
 SUPERTWINS_MANAGE_CONFIRM_DELETE_PREFIX = f"{SUPERTWINS_MANAGE_COMPONENT_PREFIX}confirm_delete:"
 SUPERTWINS_MANAGE_CANCEL_PREFIX = f"{SUPERTWINS_MANAGE_COMPONENT_PREFIX}cancel:"
@@ -108,10 +109,21 @@ def _group_options(groups: List[Dict[str, object]]) -> List[Dict[str, str]]:
     return options
 
 
-def _member_options(state: Mapping[str, object], group_id: str) -> List[Dict[str, str]]:
+def _member_page_options(
+    state: Mapping[str, object],
+    group_id: str,
+    *,
+    page: int,
+) -> tuple[List[Dict[str, str]], int, int]:
+    members = list_group_members(state, group_id)
+    page_count = max((len(members) + MAX_OPTIONS_PER_PAGE - 1) // MAX_OPTIONS_PER_PAGE, 1)
+    page_index = min(max(int(page), 0), page_count - 1)
+    start = page_index * MAX_OPTIONS_PER_PAGE
+    page_members = members[start : start + MAX_OPTIONS_PER_PAGE]
+
     options: List[Dict[str, str]] = []
     works = _state_works(state)
-    for member_work_id in list_group_members(state, group_id)[:MAX_OPTIONS_PER_PAGE]:
+    for member_work_id in page_members:
         state_entry = works.get(member_work_id, {}) if isinstance(works, Mapping) else {}
         latest = state_entry.get("latest", {}) if isinstance(state_entry, Mapping) else {}
         if latest is None or not isinstance(latest, Mapping):
@@ -123,7 +135,54 @@ def _member_options(state: Mapping[str, object], group_id: str) -> List[Dict[str
                 "description": _truncate_component_text(member_work_id),
             }
         )
-    return options
+    return options, page_index, page_count
+
+
+def _member_page_components(
+    group_id: str,
+    member_options: List[Dict[str, str]],
+    *,
+    page_index: int,
+    page_count: int,
+) -> List[Dict[str, object]]:
+    components: List[Dict[str, object]] = [
+        {
+            "type": ACTION_ROW,
+            "components": [
+                {
+                    "type": STRING_SELECT_COMPONENT,
+                    "custom_id": f"{SUPERTWINS_MANAGE_MEMBER_SELECT_PREFIX}{group_id}",
+                    "placeholder": "解除する member を選択",
+                    "min_values": 1,
+                    "max_values": min(len(member_options), MAX_OPTIONS_PER_PAGE),
+                    "options": member_options,
+                }
+            ],
+        }
+    ]
+    if page_count > 1:
+        components.append(
+            {
+                "type": ACTION_ROW,
+                "components": [
+                    {
+                        "type": BUTTON_COMPONENT,
+                        "style": BUTTON_STYLE_SECONDARY,
+                        "custom_id": f"{SUPERTWINS_MANAGE_MEMBER_PAGE_PREFIX}{group_id}:{max(page_index - 1, 0)}",
+                        "label": "Prev",
+                        "disabled": page_index == 0,
+                    },
+                    {
+                        "type": BUTTON_COMPONENT,
+                        "style": BUTTON_STYLE_PRIMARY,
+                        "custom_id": f"{SUPERTWINS_MANAGE_MEMBER_PAGE_PREFIX}{group_id}:{min(page_index + 1, page_count - 1)}",
+                        "label": "Next",
+                        "disabled": page_index >= page_count - 1,
+                    },
+                ],
+            }
+        )
+    return components
 
 
 def _action_options() -> List[Dict[str, str]]:
@@ -300,6 +359,8 @@ class ManageSupertwinsCommandHandler:
         custom_id = str(data.get("custom_id") or "").strip()
         if custom_id == SUPERTWINS_MANAGE_GROUP_SELECT:
             return self._handle_group_selection(data, state_path=state_path)
+        if custom_id.startswith(SUPERTWINS_MANAGE_MEMBER_PAGE_PREFIX):
+            return self._handle_member_page(custom_id, state_path=state_path)
         if custom_id.startswith(SUPERTWINS_MANAGE_MEMBER_SELECT_PREFIX):
             return self._handle_member_selection(custom_id, data, state_path=state_path)
         if custom_id.startswith(SUPERTWINS_MANAGE_ACTION_SELECT_PREFIX):
@@ -332,29 +393,53 @@ class ManageSupertwinsCommandHandler:
 
         state = _call_loader(self.state_loader, state_path, backend=self.backend)
         try:
-            member_options = _member_options(state, group_id)
+            member_options, page_index, page_count = _member_page_options(state, group_id, page=0)
         except ValueError:
             return {"content": SUPERTWINS_MANAGE_COMPONENT_STALE_MESSAGE, "components": []}
         if not member_options:
             return {"content": "この group には member がありません。", "components": []}
 
         return {
-            "content": SUPERTWINS_MANAGE_MEMBER_PROMPT,
-            "components": [
-                {
-                    "type": ACTION_ROW,
-                    "components": [
-                        {
-                            "type": STRING_SELECT_COMPONENT,
-                            "custom_id": f"{SUPERTWINS_MANAGE_MEMBER_SELECT_PREFIX}{group_id}",
-                            "placeholder": "解除する member を選択",
-                            "min_values": 1,
-                            "max_values": min(len(member_options), MAX_OPTIONS_PER_PAGE),
-                            "options": member_options,
-                        }
-                    ],
-                }
-            ],
+            "content": self._member_page_content(page_index=page_index, page_count=page_count),
+            "components": _member_page_components(
+                group_id,
+                member_options,
+                page_index=page_index,
+                page_count=page_count,
+            ),
+        }
+
+    def _handle_member_page(
+        self,
+        custom_id: str,
+        *,
+        state_path: Optional[str],
+    ) -> Dict[str, object]:
+        token = _pending_token(custom_id, SUPERTWINS_MANAGE_MEMBER_PAGE_PREFIX)
+        group_id, _, raw_page = token.partition(":")
+        if not group_id or not raw_page:
+            return {"content": SUPERTWINS_MANAGE_COMPONENT_STALE_MESSAGE, "components": []}
+        try:
+            page = int(raw_page)
+        except ValueError:
+            return {"content": SUPERTWINS_MANAGE_COMPONENT_STALE_MESSAGE, "components": []}
+
+        state = _call_loader(self.state_loader, state_path, backend=self.backend)
+        try:
+            member_options, page_index, page_count = _member_page_options(state, group_id, page=page)
+        except ValueError:
+            return {"content": SUPERTWINS_MANAGE_COMPONENT_STALE_MESSAGE, "components": []}
+        if not member_options:
+            return {"content": "この group には member がありません。", "components": []}
+
+        return {
+            "content": self._member_page_content(page_index=page_index, page_count=page_count),
+            "components": _member_page_components(
+                group_id,
+                member_options,
+                page_index=page_index,
+                page_count=page_count,
+            ),
         }
 
     def _handle_member_selection(
@@ -402,6 +487,13 @@ class ManageSupertwinsCommandHandler:
                 }
             ],
         }
+
+    @staticmethod
+    def _member_page_content(*, page_index: int, page_count: int) -> str:
+        content = SUPERTWINS_MANAGE_MEMBER_PROMPT
+        if page_count > 1:
+            content += f"\nページ {page_index + 1}/{page_count}"
+        return content
 
     def _handle_action_selection(
         self,

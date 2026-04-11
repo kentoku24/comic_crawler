@@ -101,6 +101,49 @@ class DiscordSearchTests(unittest.TestCase):
             response["components"][0]["components"][0]["options"],
         )
 
+    def test_start_truncates_option_text_and_tokenizes_long_urls(self):
+        long_title = "作品" + "あ" * 120
+        long_subtitle = "説明" + "い" * 120
+        long_url = "https://example.com/" + "x" * 180
+        search_source = FakeSearchSource(
+            [
+                SearchResult(
+                    source="champion-cross",
+                    title=long_title,
+                    seed_url=long_url,
+                    subtitle=long_subtitle,
+                )
+            ]
+        )
+        add_subscription = FakeAddSubscription()
+        handler = SearchCommandHandler(search_source=search_source, add_subscription=add_subscription)
+
+        response = handler.start(source="champion-cross", query="長い", watchlist_path="/tmp/watchlist.json")
+        option = response["components"][0]["components"][0]["options"][0]
+
+        self.assertLessEqual(len(option["label"]), 100)
+        self.assertLessEqual(len(option["value"]), 100)
+        self.assertLessEqual(len(option["description"]), 100)
+        self.assertNotEqual(long_url, option["value"])
+        self.assertTrue(option["value"].startswith("u:"))
+
+        add_response = handler.handle_component(
+            {"custom_id": "search_select:visible", "values": [option["value"]]},
+            watchlist_path="/tmp/watchlist.json",
+        )
+
+        self.assertEqual(
+            [
+                {
+                    "url": long_url,
+                    "watchlist_path": "/tmp/watchlist.json",
+                    "hidden": False,
+                }
+            ],
+            add_subscription.calls,
+        )
+        self.assertIn(long_url, add_response["content"])
+
     def test_handle_component_adds_selected_result_with_hidden_flag(self):
         add_subscription = FakeAddSubscription()
         handler = SearchCommandHandler(
