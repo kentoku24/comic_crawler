@@ -6,11 +6,9 @@ from manga_watch.storage import load_state, save_state, validate_state
 from manga_watch.supertwins import (
     add_group_members,
     clear_pending_action,
-    clear_pending_search,
     create_group,
     ensure_supertwins_state,
     get_pending_action,
-    get_pending_search,
     link_group_members,
     list_groups,
     list_group_members,
@@ -18,7 +16,6 @@ from manga_watch.supertwins import (
     prune_small_groups,
     remove_group_members,
     set_pending_action,
-    set_pending_search,
 )
 
 
@@ -164,34 +161,6 @@ class SupertwinsTests(unittest.TestCase):
         )
         cleared = clear_pending_action(updated, "token-1")
         self.assertNotIn("token-1", cleared["supertwins"].get("pending_actions", {}))
-
-    def test_pending_search_round_trip_preserves_search_payload(self):
-        state = {
-            **make_state(),
-            "supertwins": {
-                "groups": {},
-                "pending_searches": {"stale": {"root_work_id": "work-1", "selected_urls_by_value": {"u:x": "https://example.com"}}},
-            },
-        }
-
-        updated = set_pending_search(
-            state,
-            "search-1",
-            {
-                "root_work_id": "work-2",
-                "selected_urls_by_value": {"u:y": "https://example.com/2"},
-            },
-        )
-
-        self.assertEqual(
-            {
-                "root_work_id": "work-2",
-                "selected_urls_by_value": {"u:y": "https://example.com/2"},
-            },
-            get_pending_search(updated, "search-1"),
-        )
-        cleared = clear_pending_search(updated, "search-1")
-        self.assertNotIn("search-1", cleared["supertwins"].get("pending_searches", {}))
 
     def test_list_groups_returns_stable_sorted_shape(self):
         state = {

@@ -7,8 +7,11 @@ from pathlib import Path
 from unittest import mock
 
 from manga_watch.storage import (
+    delete_supertwins_search_session,
     load_state,
+    load_supertwins_search_session,
     save_state,
+    save_supertwins_search_session,
     state_daily_notification_delivery,
     state_notification_outbox,
     validate_watchlist,
@@ -219,6 +222,35 @@ class StorageTests(unittest.TestCase):
 
             self.assertIn(final_latest_key, written_keys)
             self.assertEqual(final_latest_key, json.loads(state_path.read_text(encoding="utf-8"))["works"]["work-1"]["latest"]["latest_key"])
+
+    def test_supertwins_search_sessions_round_trip_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            save_supertwins_search_session(
+                "session-a",
+                {"root_work_id": "root-1", "selected_urls_by_value": {"u:a": "https://example.com/a"}},
+                path=str(state_path),
+            )
+            save_supertwins_search_session(
+                "session-b",
+                {"root_work_id": "root-2", "selected_urls_by_value": {"u:b": "https://example.com/b"}},
+                path=str(state_path),
+            )
+
+            session_a = load_supertwins_search_session("session-a", str(state_path))
+            session_b = load_supertwins_search_session("session-b", str(state_path))
+            delete_supertwins_search_session("session-a", str(state_path))
+
+        self.assertEqual(
+            {"root_work_id": "root-1", "selected_urls_by_value": {"u:a": "https://example.com/a"}},
+            session_a,
+        )
+        self.assertEqual(
+            {"root_work_id": "root-2", "selected_urls_by_value": {"u:b": "https://example.com/b"}},
+            session_b,
+        )
+        with self.assertRaises(FileNotFoundError):
+            load_supertwins_search_session("session-a", str(state_path))
 
     def test_validate_watchlist_normalizes_hidden_to_boolean(self):
         normalized = validate_watchlist(

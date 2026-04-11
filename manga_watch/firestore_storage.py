@@ -13,6 +13,7 @@ DEFAULT_WATCHLIST_COLLECTION = "watchlists"
 DEFAULT_WATCHLIST_DOCUMENT = "current"
 DEFAULT_STATE_COLLECTION = "states"
 DEFAULT_STATE_DOCUMENT = "runtime"
+DEFAULT_SUPERTWINS_SEARCH_SESSIONS_COLLECTION = "supertwins_search_sessions"
 DEFAULT_RUNS_COLLECTION = "runs"
 DEFAULT_NOTIFICATION_DEDUPE_COLLECTION = "notification_dedupe"
 DEFAULT_DELIVERY_BACKLOG_COLLECTION = "delivery_backlog"
@@ -65,6 +66,7 @@ class FirestoreStorageConfig:
     watchlist_document: str = DEFAULT_WATCHLIST_DOCUMENT
     state_collection: str = DEFAULT_STATE_COLLECTION
     state_document: str = DEFAULT_STATE_DOCUMENT
+    supertwins_search_sessions_collection: str = DEFAULT_SUPERTWINS_SEARCH_SESSIONS_COLLECTION
     runs_collection: str = DEFAULT_RUNS_COLLECTION
     notification_dedupe_collection: str = DEFAULT_NOTIFICATION_DEDUPE_COLLECTION
     delivery_backlog_collection: str = DEFAULT_DELIVERY_BACKLOG_COLLECTION
@@ -97,6 +99,10 @@ class FirestoreStorageConfig:
             or DEFAULT_STATE_COLLECTION,
             state_document=_normalize_optional_text(env.get("MANGA_WATCH_FIRESTORE_STATE_DOCUMENT"))
             or DEFAULT_STATE_DOCUMENT,
+            supertwins_search_sessions_collection=_normalize_optional_text(
+                env.get("MANGA_WATCH_FIRESTORE_SUPERTWINS_SEARCH_SESSIONS_COLLECTION")
+            )
+            or DEFAULT_SUPERTWINS_SEARCH_SESSIONS_COLLECTION,
             runs_collection=_normalize_optional_text(env.get("MANGA_WATCH_FIRESTORE_RUNS_COLLECTION"))
             or DEFAULT_RUNS_COLLECTION,
             notification_dedupe_collection=_normalize_optional_text(
@@ -168,6 +174,31 @@ class FirestoreStorageRepository:
             ),
             state_document_id=self.config.state_document,
         )
+
+    def load_supertwins_search_session(self, token: str) -> Dict[str, object]:
+        snapshot = self.client.collection(self.config.supertwins_search_sessions_collection).document(
+            build_shadow_document_id(self.config.state_document, token)
+        ).get()
+        if not snapshot.exists:
+            raise FileNotFoundError(
+                f"missing Firestore document: {self.config.supertwins_search_sessions_collection}/{token}"
+            )
+        payload = snapshot.to_dict() or {}
+        return dict(payload)
+
+    def save_supertwins_search_session(self, token: str, payload: Mapping[str, object]) -> None:
+        normalized_payload = dict(payload)
+        normalized_payload["state_document_id"] = self.config.state_document
+        self._save_document(
+            self.config.supertwins_search_sessions_collection,
+            build_shadow_document_id(self.config.state_document, token),
+            normalized_payload,
+        )
+
+    def delete_supertwins_search_session(self, token: str) -> None:
+        self.client.collection(self.config.supertwins_search_sessions_collection).document(
+            build_shadow_document_id(self.config.state_document, token)
+        ).delete()
 
     def record_run_summary(self, summary: Mapping[str, object]) -> str:
         run_record = dict(summary)

@@ -7,13 +7,18 @@ from typing import Callable, Dict, List, Mapping, Optional
 
 from manga_watch.discord_text import series_label_for_snapshot
 from manga_watch.source_search import SearchResult, search_source, supported_search_sources
-from manga_watch.storage import load_state, load_watchlist, save_state, save_watchlist
+from manga_watch.storage import (
+    delete_supertwins_search_session,
+    load_state,
+    load_supertwins_search_session,
+    load_watchlist,
+    save_state,
+    save_supertwins_search_session,
+    save_watchlist,
+)
 from manga_watch.supertwins import (
-    clear_pending_search,
     ensure_supertwins_state,
-    get_pending_search,
     link_group_members,
-    set_pending_search,
     upsert_watchlist_entry,
 )
 from manga_watch.watchlist import build_watchlist_preview
@@ -271,6 +276,9 @@ class SearchSupertwinsCommandHandler:
     state_loader: Callable[..., Dict[str, object]] = load_state
     watchlist_saver: Callable[..., None] = save_watchlist
     state_saver: Callable[..., None] = save_state
+    search_session_loader: Callable[..., Dict[str, object]] = load_supertwins_search_session
+    search_session_saver: Callable[..., None] = save_supertwins_search_session
+    search_session_deleter: Callable[..., None] = delete_supertwins_search_session
     backend: Optional[str] = None
 
     def start(
@@ -375,16 +383,16 @@ class SearchSupertwinsCommandHandler:
 
         result_options, selected_urls_by_value = _search_result_options(results)
         session_token = _search_session_token(root_work_id, selected_urls_by_value)
-        updated_state = set_pending_search(
-            state,
-            session_token,
-            {
-                "root_work_id": root_work_id,
-                "selected_urls_by_value": selected_urls_by_value,
-            },
-        )
         try:
-            self.state_saver(updated_state, state_path, backend=self.backend)
+            self.search_session_saver(
+                session_token,
+                {
+                    "root_work_id": root_work_id,
+                    "selected_urls_by_value": selected_urls_by_value,
+                },
+                state_path,
+                backend=self.backend,
+            )
         except Exception:
             return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
 
@@ -421,8 +429,12 @@ class SearchSupertwinsCommandHandler:
         watchlist = self.watchlist_loader(watchlist_path, backend=self.backend)
         state = self.state_loader(state_path, backend=self.backend)
         try:
-            pending_search = get_pending_search(state, session_token)
-        except ValueError:
+            pending_search = self.search_session_loader(
+                session_token,
+                state_path,
+                backend=self.backend,
+            )
+        except (FileNotFoundError, ValueError):
             return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
 
         root_work_id = _coerce_text(pending_search.get("root_work_id")) or ""
@@ -451,7 +463,7 @@ class SearchSupertwinsCommandHandler:
         original_watchlist = watchlist
         original_state = state
         updated_watchlist = dict(watchlist)
-        updated_state = clear_pending_search(state, session_token)
+        updated_state = dict(state)
         selected_work_ids: List[str] = []
         duplicate_count = 0
         for selected_url in selected_urls:
@@ -487,6 +499,10 @@ class SearchSupertwinsCommandHandler:
             except Exception:
                 pass
             raise RuntimeError(f"supertwins-search save failed: {exc}") from exc
+        try:
+            self.search_session_deleter(session_token, state_path, backend=self.backend)
+        except Exception:
+            pass
 
         root_title = series_label_for_snapshot(root_work_id, latest.get("latest", latest))
         message = f"{root_title} に {len(selected_work_ids)} 件の他媒体候補を hidden で追加し、supertwins に登録しました。"

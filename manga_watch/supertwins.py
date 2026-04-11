@@ -6,7 +6,6 @@ SUPERTWINS_STATE_KEY = "supertwins"
 SUPERTWINS_GROUPS_KEY = "groups"
 SUPERTWINS_MEMBER_IDS_KEY = "member_work_ids"
 SUPERTWINS_PENDING_ACTIONS_KEY = "pending_actions"
-SUPERTWINS_PENDING_SEARCHES_KEY = "pending_searches"
 
 
 def ensure_supertwins_state(state: Mapping[str, object]) -> Dict[str, object]:
@@ -241,49 +240,6 @@ def clear_pending_action(state: Mapping[str, object], token: str) -> Dict[str, o
     return updated
 
 
-def set_pending_search(
-    state: Mapping[str, object],
-    token: str,
-    payload: Mapping[str, object],
-) -> Dict[str, object]:
-    normalized_token = str(token or "").strip()
-    if not normalized_token:
-        raise ValueError("supertwins pending search token must be a non-empty string")
-    updated = ensure_supertwins_state(state)
-    container = dict(updated[SUPERTWINS_STATE_KEY])
-    pending_searches = dict(container.get(SUPERTWINS_PENDING_SEARCHES_KEY) or {})
-    pending_searches[normalized_token] = deepcopy(dict(payload))
-    container[SUPERTWINS_PENDING_SEARCHES_KEY] = pending_searches
-    updated[SUPERTWINS_STATE_KEY] = container
-    return updated
-
-
-def get_pending_search(state: Mapping[str, object], token: str) -> Dict[str, object]:
-    normalized_token = str(token or "").strip()
-    container = ensure_supertwins_state(state)[SUPERTWINS_STATE_KEY]
-    pending_searches = container.get(SUPERTWINS_PENDING_SEARCHES_KEY) or {}
-    if not isinstance(pending_searches, Mapping):
-        raise ValueError("state.supertwins.pending_searches must be an object")
-    payload = pending_searches.get(normalized_token)
-    if not isinstance(payload, Mapping):
-        raise ValueError(f"supertwins pending search not found: {normalized_token}")
-    return deepcopy(dict(payload))
-
-
-def clear_pending_search(state: Mapping[str, object], token: str) -> Dict[str, object]:
-    normalized_token = str(token or "").strip()
-    updated = ensure_supertwins_state(state)
-    container = dict(updated[SUPERTWINS_STATE_KEY])
-    pending_searches = dict(container.get(SUPERTWINS_PENDING_SEARCHES_KEY) or {})
-    pending_searches.pop(normalized_token, None)
-    if pending_searches:
-        container[SUPERTWINS_PENDING_SEARCHES_KEY] = pending_searches
-    else:
-        container.pop(SUPERTWINS_PENDING_SEARCHES_KEY, None)
-    updated[SUPERTWINS_STATE_KEY] = container
-    return updated
-
-
 def _with_groups(
     state: Mapping[str, object],
     groups: Mapping[str, Mapping[str, object]],
@@ -338,15 +294,6 @@ def _normalize_supertwins_container(container: object) -> Dict[str, object]:
             if not isinstance(value, Mapping):
                 raise ValueError("state.supertwins.pending_actions must be an object")
             normalized[key] = {str(token): deepcopy(dict(payload)) for token, payload in value.items() if isinstance(payload, Mapping)}
-            continue
-        if key == SUPERTWINS_PENDING_SEARCHES_KEY:
-            if not isinstance(value, Mapping):
-                raise ValueError("state.supertwins.pending_searches must be an object")
-            normalized[key] = {
-                str(token): deepcopy(dict(payload))
-                for token, payload in value.items()
-                if isinstance(payload, Mapping)
-            }
             continue
         if value is None:
             continue
