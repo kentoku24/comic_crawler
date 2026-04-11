@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8">
+  <title>comic_crawler web admin</title>
+</head>
+<body>
+  {% load web_admin_ui %}
+  <h1>comic_crawler web admin</h1>
+
+  {% if messages %}
+    <ul>
+      {% for message in messages %}
+        <li>{{ message }}</li>
+      {% endfor %}
+    </ul>
+  {% endif %}
+
+  <section>
+    <h2>Capabilities</h2>
+    <p>storage backend: {{ capabilities.storage_backend }}</p>
+    <p>run history supported: {{ capabilities.run_history_supported }}</p>
+    <p>machine auth mode: {{ capabilities.machine_auth_policy.mode }}</p>
+    {% if capabilities.run_history_reason %}
+      <p>{{ capabilities.run_history_reason }}</p>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Watchlist</h2>
+    <form method="post" action="{% url 'ui:add_watchlist_entry' %}">
+      {% csrf_token %}
+      {{ add_watchlist_form.as_p }}
+      <button type="submit">Add</button>
+    </form>
+    <ul>
+      {% for entry in watchlist.works %}
+        <li>
+          {{ entry.id }} / {{ entry.source }} / enabled={{ entry.enabled }}
+          <form method="post" action="{% url 'ui:update_work_enabled' %}">
+            {% csrf_token %}
+            {{ update_forms|get_item:entry.id }}
+            <button type="submit">Update enabled</button>
+          </form>
+        </li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section>
+    <h2>Health</h2>
+    <p>monitored={{ health.summary.monitored_work_count }}</p>
+    <ul>
+      {% for work in health.works %}
+        <li>{{ work.id }} / {{ work.health.state }} / {{ work.latest_label }}</li>
+      {% endfor %}
+    </ul>
+  </section>
+
+  <section>
+    <h2>Run history</h2>
+    {% if run_history.supported %}
+      <ul>
+        {% for item in run_history.items %}
+          <li>{{ item.runId|default:item.run_id }} / {{ item.timestamp }} / ok={{ item.ok }}</li>
+        {% empty %}
+          <li>No run history yet.</li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p>{{ run_history.reason }}</p>
+    {% endif %}
+  </section>
+
+  <section>
+    <h2>Manual run</h2>
+    <form method="post" action="{% url 'ui:trigger_manual_run' %}">
+      {% csrf_token %}
+      {{ manual_run_form.as_p }}
+      <button type="submit">Run</button>
+    </form>
+  </section>
+</body>
+</html>

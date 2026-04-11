@@ -184,6 +184,17 @@ def record_run_summary(
     return get_firestore_repository().record_run_summary(dict(summary))
 
 
+def load_run_summaries(
+    *,
+    limit: int = 20,
+    backend: Optional[str] = None,
+) -> Optional[List[Dict[str, object]]]:
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend != STORAGE_BACKEND_FIRESTORE:
+        return None
+    return get_firestore_repository().list_run_summaries(limit=limit)
+
+
 @contextmanager
 def advisory_file_lock(path: str) -> Iterator[None]:
     directory = os.path.dirname(path) or "."

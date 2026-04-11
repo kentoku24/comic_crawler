@@ -183,6 +183,22 @@ class FirestoreStorageRepository:
     def save_run_summary(self, summary: Mapping[str, object]) -> str:
         return self.record_run_summary(summary)
 
+    def list_run_summaries(self, *, limit: int = 20) -> list[Dict[str, object]]:
+        summaries = []
+        for snapshot in self.client.collection(self.config.runs_collection).stream():
+            payload = snapshot.to_dict() or {}
+            if not isinstance(payload, Mapping):
+                continue
+            summaries.append(dict(payload))
+        summaries.sort(
+            key=lambda item: (
+                str(item.get("timestamp") or ""),
+                str(item.get("runId") or item.get("run_id") or ""),
+            ),
+            reverse=True,
+        )
+        return summaries[: max(0, int(limit))]
+
     def _load_document(self, collection_name: str, doc_id: str) -> Dict[str, object]:
         snapshot = self.client.collection(collection_name).document(doc_id).get()
         if not snapshot.exists:
