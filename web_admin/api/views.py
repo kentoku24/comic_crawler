@@ -19,6 +19,7 @@ def _json_body(request: HttpRequest) -> Dict[str, Any]:
 
 
 @machine_auth_required
+@csrf_exempt
 def watchlist_collection(request: HttpRequest):
     if request.method == "GET":
         return JsonResponse({"ok": True, "watchlist": queries.get_watchlist_data()})

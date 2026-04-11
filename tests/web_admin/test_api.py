@@ -6,7 +6,7 @@ import tempfile
 from pathlib import Path
 from unittest import mock
 
-from django.test import SimpleTestCase, override_settings
+from django.test import Client, SimpleTestCase, override_settings
 
 from manga_watch.storage import save_state, save_watchlist
 
@@ -15,6 +15,7 @@ from manga_watch.storage import save_state, save_watchlist
 class ApiTests(SimpleTestCase):
     def setUp(self):
         super().setUp()
+        self.csrf_client = Client(enforce_csrf_checks=True)
         self.tmpdir = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmpdir.cleanup)
         watchlist_path = Path(self.tmpdir.name) / "watchlist.json"
@@ -83,6 +84,25 @@ class ApiTests(SimpleTestCase):
         self.assertEqual(200, response.status_code)
         payload = json.loads(response.content)
         self.assertEqual("updated", payload["result"]["action"])
+
+    def test_api_watchlist_post_is_usable_with_csrf_checks_enabled(self):
+        with (
+            mock.patch("web_admin.api.auth.verify_google_oidc_token", return_value={"email": "svc@example.com"}),
+            mock.patch(
+                "web_admin.api.views.commands.add_watchlist_url_command",
+                return_value={"action": "added", "entry": {"id": "work-2"}},
+            ),
+        ):
+            response = self.csrf_client.post(
+                "/api/watchlist/",
+                data=json.dumps({"url": "https://comic-walker.com/detail/KC_654321_S"}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION="Bearer token",
+            )
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.content)
+        self.assertEqual("added", payload["result"]["action"])
 
     def test_openapi_endpoint_exposes_machine_auth_policy(self):
         with mock.patch("web_admin.api.auth.verify_google_oidc_token", return_value={"email": "svc@example.com"}):
