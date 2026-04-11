@@ -1,10 +1,10 @@
 import importlib.util
 import json
+from pathlib import Path
 import unittest
 from unittest import mock
-from pathlib import Path
 
-from nacl.signing import SigningKey
+from nacl_test_support import SigningKey
 
 
 def load_script_module():

@@ -1,50 +1,7 @@
 import json
-import sys
-import types
 import unittest
 
-
-google = types.ModuleType("google")
-google_auth = types.ModuleType("google.auth")
-google_auth_transport = types.ModuleType("google.auth.transport")
-google_auth_transport_requests = types.ModuleType("google.auth.transport.requests")
-
-
-class _AuthorizedSession:
-    def __init__(self, *args, **kwargs):
-        pass
-
-
-google_auth.default = lambda scopes=None: (object(), None)
-google_auth_transport_requests.AuthorizedSession = _AuthorizedSession
-google.auth = google_auth
-sys.modules["google"] = google
-sys.modules["google.auth"] = google_auth
-sys.modules["google.auth.transport"] = google_auth_transport
-sys.modules["google.auth.transport.requests"] = google_auth_transport_requests
-
-nacl = types.ModuleType("nacl")
-nacl_exceptions = types.ModuleType("nacl.exceptions")
-nacl_signing = types.ModuleType("nacl.signing")
-
-
-class _BadSignatureError(Exception):
-    pass
-
-
-class _VerifyKey:
-    def __init__(self, *args, **kwargs):
-        pass
-
-    def verify(self, *args, **kwargs):
-        return True
-
-
-nacl_exceptions.BadSignatureError = _BadSignatureError
-nacl_signing.VerifyKey = _VerifyKey
-sys.modules["nacl"] = nacl
-sys.modules["nacl.exceptions"] = nacl_exceptions
-sys.modules["nacl.signing"] = nacl_signing
+from nacl_test_support import SigningKey  # noqa: F401  # ensures nacl/google fallback is installed when needed
 
 from manga_watch.discord_interactions import DiscordInteractionService
 from manga_watch.discord_search import SEARCH_COMMAND

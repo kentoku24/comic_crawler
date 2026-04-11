@@ -1,68 +1,7 @@
 import json
-import sys
-import types
 import unittest
 
-google = types.ModuleType("google")
-google_auth = types.ModuleType("google.auth")
-google_auth_transport = types.ModuleType("google.auth.transport")
-google_auth_transport_requests = types.ModuleType("google.auth.transport.requests")
-
-
-class _AuthorizedSession:
-    def __init__(self, *args, **kwargs):
-        pass
-
-
-google_auth.default = lambda scopes=None: (object(), None)
-google_auth_transport_requests.AuthorizedSession = _AuthorizedSession
-google.auth = google_auth
-sys.modules["google"] = google
-sys.modules["google.auth"] = google_auth
-sys.modules["google.auth.transport"] = google_auth_transport
-sys.modules["google.auth.transport.requests"] = google_auth_transport_requests
-
-try:
-    from nacl.signing import SigningKey
-except Exception:
-    nacl = types.ModuleType("nacl")
-    nacl_exceptions = types.ModuleType("nacl.exceptions")
-    nacl_signing = types.ModuleType("nacl.signing")
-
-    class _BadSignatureError(Exception):
-        pass
-
-    class _VerifyKey:
-        def __init__(self, *args, **kwargs):
-            pass
-
-        def verify(self, *args, **kwargs):
-            return True
-
-    class SigningKey:  # type: ignore[no-redef]
-        @staticmethod
-        def generate():
-            class _Key:
-                class verify_key:
-                    @staticmethod
-                    def encode():
-                        return bytes.fromhex("11" * 32)
-
-                @staticmethod
-                def sign(data):
-                    class _Sig:
-                        signature = bytes.fromhex("22" * 64)
-
-                    return _Sig()
-
-            return _Key()
-
-    nacl_exceptions.BadSignatureError = _BadSignatureError
-    nacl_signing.VerifyKey = _VerifyKey
-    nacl_signing.SigningKey = SigningKey
-    sys.modules["nacl"] = nacl
-    sys.modules["nacl.exceptions"] = nacl_exceptions
-    sys.modules["nacl.signing"] = nacl_signing
+from nacl_test_support import SigningKey
 
 from manga_watch.discord_add import AddCommandHandler
 from manga_watch.discord_interactions import (

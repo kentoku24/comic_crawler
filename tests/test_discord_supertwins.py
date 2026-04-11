@@ -195,9 +195,10 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             next(entry for entry in saved_watchlist["works"] if entry["id"] == "kakuyomu:123")["hidden"]
         )
         self.assertEqual(
-            ["kakuyomu:123", "root-1"],
-            saved_state["supertwins"]["groups"]["root-1"]["member_work_ids"],
+            ["kakuyomu:123", "root-1", "work-2"],
+            saved_state["supertwins"]["groups"]["group-1"]["member_work_ids"],
         )
+        self.assertNotIn("root-1", saved_state["supertwins"]["groups"])
 
     def test_result_selection_hides_existing_duplicate_and_registers_group(self):
         watchlist = make_watchlist()
@@ -241,9 +242,14 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
                 )
 
             saved_watchlist = json.loads(watchlist_path.read_text(encoding="utf-8"))
+            saved_state = json.loads(state_path.read_text(encoding="utf-8"))
 
         self.assertTrue(
             next(entry for entry in saved_watchlist["works"] if entry["id"] == "kakuyomu:123")["hidden"]
+        )
+        self.assertEqual(
+            ["kakuyomu:123", "root-1", "work-2"],
+            saved_state["supertwins"]["groups"]["group-1"]["member_work_ids"],
         )
 
 

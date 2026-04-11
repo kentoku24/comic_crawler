@@ -7,9 +7,8 @@ from manga_watch.discord_text import series_label_for_snapshot
 from manga_watch.source_search import SearchResult, search_source, supported_search_sources
 from manga_watch.storage import load_state, load_watchlist, save_state, save_watchlist
 from manga_watch.supertwins import (
-    add_group_members,
-    create_group,
     ensure_supertwins_state,
+    link_group_members,
     upsert_watchlist_entry,
 )
 from manga_watch.watchlist import build_watchlist_preview
@@ -153,14 +152,11 @@ def _get_root_work(
 
 def _ensure_group_members(
     state: Mapping[str, object],
-    group_id: str,
     member_work_ids: List[str],
 ) -> Dict[str, object]:
     updated_state = ensure_supertwins_state(state)
-    groups = updated_state["supertwins"]["groups"]
-    if group_id in groups:
-        return add_group_members(updated_state, group_id, member_work_ids)
-    return create_group(updated_state, group_id, member_work_ids)
+    linked_state, _group_id = link_group_members(updated_state, member_work_ids)
+    return linked_state
 
 
 def _build_hidden_upsert_result(
@@ -325,7 +321,7 @@ class SearchSupertwinsCommandHandler:
             return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
 
         group_member_ids = [root_work_id, *selected_work_ids]
-        updated_state = _ensure_group_members(updated_state, root_work_id, group_member_ids)
+        updated_state = _ensure_group_members(updated_state, group_member_ids)
 
         try:
             self.watchlist_saver(updated_watchlist, watchlist_path, backend=self.backend)

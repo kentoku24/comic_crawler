@@ -2,7 +2,7 @@ import os
 import unittest
 from unittest import mock
 
-from nacl.signing import SigningKey
+from nacl_test_support import SigningKey
 
 from manga_watch import run_service
 
