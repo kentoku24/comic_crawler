@@ -9,7 +9,8 @@
 ## Goal
 
 このリポジトリに、自分用の管理画面を無理なく追加できる Web 基盤を決める。  
-初期フェーズでは watchlist / state / health / manual run を扱う internal admin を最短で立ち上げ、将来的には認証強化、複数ユーザー対応、課金 UI の追加まで見据えても破綻しない構成にする。
+初期フェーズでは watchlist / state / health / manual run を扱う internal admin を立ち上げるが、同時に LLM や内部ツールからも同じ操作を安全に呼べる machine-facing interface を最初から定義する。  
+browser UI は重要な surface だが primary interface ではなく、監視運用の source of truth になる operations contract の上に載る薄い human surface とする。
 
 ## Current State
 
@@ -30,93 +31,133 @@
 
 - watchlist や unread 状態をブラウザから確認・更新できない
 - manual run や health 確認が CLI / GCP / Discord に分散している
-- 将来ユーザー向け UI を足すとしても、Web 層の責務分離がまだ存在しない
+- LLM や内部ツールが安定して呼べる typed machine-facing contract がない
+- 将来 UI を足すとしても、Web 層の責務分離がまだ存在しない
 
 ## Decision
 
-Web インターフェースの第一候補として **Django** を採用する。  
-初期構成は **Django + server-side rendering + 必要最小限の JavaScript** とし、internal admin を最優先で構築する。
+Web 基盤は **operations-first** で設計する。  
+具体的には、まず Python 内に typed command/query の application operations layer を定義し、それを machine-facing JSON/OpenAPI surface と human-facing Django UI の両方から利用する。  
+human UI のフレームワークとしては **Django** を採用するが、Django は primary interface ではなく operations contract を消費する thin surface として扱う。
 
-## Why Django
+## Why This Shape
 
-### 1. Repo fit
+### 1. Outcome fit
 
-- 現行 repo は Python 中心であり、追加ランタイムなしで自然に統合できる
+- このプロジェクトは browser UI だけでなく LLM / tool client からも安全に操作できる必要がある
+- 先に operations contract を定義すれば、browser, CLI, future automation の間で business operation を共有しやすい
+- view / form に直接ドメイン操作を埋め込まずに済む
+
+### 2. Repo fit
+
+- 現行 repo は Python 中心であり、operations layer もそのまま Python に置くのが自然
 - crawler 本体を別言語 stack に移し替える必要がない
-- Cloud Run 上での運用パスもすでに取りやすい
+- Cloud Run 上で machine-facing API と human-facing UI を同じ技術基盤で運用しやすい
 
-### 2. Long-term maintainability
+### 3. Operator workflow fit
 
-- 標準の auth, session, permission, admin が揃っている
-- internal admin を短距離で作りつつ、将来の role 分離や user management に伸ばしやすい
-- forms, ORM, template, middleware, management command など、運用画面に必要な基礎機能が一通り揃っている
-
-### 3. Future billing path
-
-- 課金 UI は Django 単体で全部自作するのではなく、Stripe Checkout / Customer Portal を組み合わせればよい
-- これにより billing のコアは外部に任せつつ、アプリ側は plan gating と entitlement 表示に集中できる
+- Django は auth, session, permission, admin, form handling が揃っており、internal operator UI を短距離で作りやすい
+- ただし UI 都合で framework choice を決め打ちせず、typed operations layer を中心に据えることで将来の surface 追加にも耐えやすい
 
 ## Rejected Alternatives
 
-### Option A: Next.js App Router
+### Option A: Human-only Django admin first
+
+短期的には最速だが、browser 向けの view / form がそのまま業務操作の本体になりやすい。  
+その形だと LLM/tool client 向け interface をあとから追加する際に、二つ目の操作面を別途設計し直す可能性が高い。
+
+### Option B: Next.js App Router as primary interface
 
 長期的に public-facing SaaS frontend を強く作るなら有力だが、初期の internal admin には過剰。  
 現時点で Node.js / TypeScript ランタイム、認証基盤、API 境界を新設すると、repo fit より構成複雑化のコストが先に来る。
 
-### Option B: FastAPI + separate React frontend
+### Option C: FastAPI + separate React frontend
 
 API と UI の分離は明快だが、internal admin の立ち上がりとしては境界が多すぎる。  
-今の段階では「きれいな分離」より「少ない構成要素で早く価値を出す」ことを優先する。
-
-### Option C: Flask / lightweight server
-
-最初の画面だけなら軽いが、認証・権限・管理 UI・長期保守の観点では Django より追加実装が増える。  
-今回の要件では「軽さ」より「将来機能込みでの基盤完成度」を優先する。
+今回必要なのは「分離された transport」より「共通 operations contract」であり、その contract があれば UI は Django でも十分成立する。
 
 ## Non-Goals
 
 - 最初から public SaaS 向け polished frontend を作ること
 - いきなり SPA / BFF / microservices に分割すること
 - crawler のドメインロジックを Django app へ全面移植すること
-- billing provider をこの段階で実装確定すること
+- local/json backend にない persistence contract を Phase 1 で暗黙追加すること
+- billing / subscription をこの段階で設計根拠に持ち込むこと
 - Discord や GCP 運用導線をすぐに置き換えること
 
 ## Functional Requirements For Phase 1
 
-Phase 1 の internal admin は最低限次を扱えるべき。
+Phase 1 は browser UI より先に、共通 operations contract を成立させる。
 
-1. watchlist の一覧表示
-2. work ごとの enabled 状態、source、seed URL、notification policy の確認
-3. watchlist への追加、編集、無効化
-4. state の latest / unread / health の閲覧
-5. 手動 run の起動
-6. 最近の run 結果と source error の確認
-7. 自分以外に公開しない前提のログイン保護
+1. watchlist / state / health / manual run を扱う typed command/query operations layer を定義する
+2. 同じ operations layer を machine-facing JSON API から呼べるようにする
+3. 同じ operations layer を internal browser UI から呼べるようにする
+4. watchlist の一覧表示、追加、編集、無効化は view 直書きではなく shared operation を経由する
+5. state の latest / unread / health は machine surface と human surface の両方で一貫した query 結果を返す
+6. manual run は shared operation を経由して起動し、二重実行防止や validation を transport ごとに複製しない
+7. run summary の履歴表示は backend capability に従う
+8. Phase 1 で promises する run history は Firestore backend に persisted summary がある場合に限る
+9. file backend では「最近の run 一覧」は約束せず、未対応 capability として明示する
+10. human auth と machine auth は transport ごとに分け、session/cookie と API credential を混同しない
 
 ## Proposed Architecture
 
 ### High-level shape
 
-`manga_watch` をドメイン層として温存し、その上に Django の Web 層を追加する。  
-Django app は crawler 本体を直接抱え込まず、薄い application service layer を経由して既存ロジックを呼び出す。
+`manga_watch` をドメイン層として温存し、その上に typed operations layer を追加する。  
+browser UI と machine-facing API はどちらも同じ operations layer を使い、transport ごとの validation や整形だけを担当する。
 
 ```text
-Browser
-  -> Django views / templates / forms
-    -> web application services
+Human browser
+  -> Django SSR views / forms
+    -> operations layer
+      -> manga_watch domain modules
+        -> storage / runner / notifier / source adapters
+
+LLM / internal tools
+  -> JSON API / OpenAPI
+    -> operations layer
       -> manga_watch domain modules
         -> storage / runner / notifier / source adapters
 ```
 
-## Key design rule
+### Operations-first rule
 
-**Django は HTTP と UI に集中し、`manga_watch` は監視ドメインの source of truth のまま保つ。**
+**業務操作の本体は views でも API handlers でもなく、typed operations layer に置く。**
 
-これにより、将来 Discord, CLI, scheduler, API, Web の各 surface が増えても、監視ロジックの重複を避けやすい。
+- view は HTML form と session auth を扱う
+- API handler は JSON serialization と machine auth を扱う
+- operation は validation 済み input を受けて domain module を呼び、typed result を返す
+
+この境界を守ることで、browser と machine client の振る舞い差分を transport 層に閉じ込めやすい。
+
+## Interface Model
+
+### Typed command/query split
+
+operations layer は少なくとも次の 2 種類に分ける。
+
+- `queries`: watchlist, state, health, supported capabilities の取得
+- `commands`: watchlist mutation, manual run, maintenance action の起動
+
+### Transport contract
+
+- machine surface は JSON response を返す
+- schema は OpenAPI で記述し、LLM/tool client が安定して使える契約にする
+- human UI は同じ query/command を呼び、HTML と form error に変換する
+
+### Capability reporting
+
+backend 差異を隠しきれない機能は、曖昧に degrade させず capability として明示する。
+
+例:
+
+- `run_history_supported = true` for Firestore
+- `run_history_supported = false` for file backend
 
 ## Project Structure
 
-初期案として、repo 直下に Django project 用ディレクトリを追加する。
+初期案として、repo 直下に Web project 用ディレクトリを追加する。
 
 ```text
 web_admin/
@@ -126,16 +167,21 @@ web_admin/
     urls.py
     wsgi.py
     asgi.py
-  dashboard/
-    views.py
-    urls.py
-    forms.py
-    services.py
-    templates/dashboard/
   operations/
-    views.py
+    commands.py
+    queries.py
+    schemas.py
+    capabilities.py
+  api/
     urls.py
-    services.py
+    views.py
+    auth.py
+    openapi.py
+  ui/
+    urls.py
+    views.py
+    forms.py
+    templates/ui/
   shared/
     auth.py
     navigation.py
@@ -144,9 +190,10 @@ web_admin/
 ### Responsibility split
 
 - `manga_watch/`: crawler / state / storage / domain behavior
-- `web_admin/dashboard/`: watchlist, state, health の閲覧 UI
-- `web_admin/operations/`: manual run, replay, maintenance 操作
-- `services.py`: Django view から domain 呼び出しを隔離する application service 層
+- `web_admin/operations/`: transport-independent application operations
+- `web_admin/api/`: machine-facing JSON / OpenAPI surface
+- `web_admin/ui/`: human-facing Django UI
+- `shared/`: common auth helpers, navigation, presentation helpers
 
 ## UI Strategy
 
@@ -156,139 +203,135 @@ web_admin/
 - filter, inline toggle, confirmation modal など、小さい振る舞いだけ軽い JS を足す
 - 初期段階では frontend build pipeline を前提にしない
 
-### Why
+### Constraint
 
-- internal admin では first-load speed や SEO より、運用の明快さと保守性が重要
-- JS build stack を早期導入しなくてよい
-- HTML form と server-side validation だけで十分に成立する画面が多い
+UI は primary interface ではない。  
+画面でできる操作も API でできる操作も、同じ command/query を通す。
 
 ## Authentication Strategy
 
-### Phase 1
+### Human surface
 
 - Django 標準 auth を利用する
-- 最初は単一管理者アカウントを前提にする
 - app 全体を login required にする
 - destructive action は CSRF 保護と POST 限定を徹底する
+- 最初は単一管理者アカウントを前提にする
 
-### Phase 2+
+### Machine surface
 
-- Django groups / permissions で operator, admin のような role を分ける
-- Google Workspace / OAuth / SSO が必要になれば、その時点で social login を追加する
-
-## Billing Strategy
-
-課金が必要になったときは、Web 基盤自体を作り直さず次の拡張で対応する。
-
-### Recommendation
-
-- subscription signup: Stripe Checkout
-- self-serve management: Stripe Customer Portal
-- app side: subscription status, entitlement, plan gating の保持
-
-### App responsibility
-
-- 現在の plan を表示する
-- entitlement に基づいて機能を開閉する
-- webhook で subscription 状態を同期する
-
-### Non-responsibility
-
-- カード入力 UI や請求書 UI を自前実装しない
+- session cookie は使わない
+- bearer token か service-to-service credential のどちらかで認証する
+- credential source は implementation で確定するが、Cloud Run / Secret Manager 運用と整合する方式を選ぶ
+- machine auth は human session と別に管理する
 
 ## Deployment Strategy
 
 ### Initial deployment model
 
-- Django Web は既存 runtime と同じく Cloud Run Service に載せる前提で設計する
+- machine-facing API と human-facing UI は同じ Django project で提供してよい
 - crawler job とは別 service として分離する
-- 初期実装では browser-facing admin 専用の新しい Cloud Run Service を作る
+- browser-facing admin 専用の新しい Cloud Run Service を作る
 
 ### Recommendation
 
 初期実装では **別 Cloud Run Service** を採用する。  
-理由は、Discord interaction endpoint と browser-facing admin では request profile, auth, rollout cadence が異なるため。  
+理由は、Discord interaction endpoint と operator-facing service では request profile, auth, rollout cadence が異なるため。  
 service 名は implementation で確定するが、`comic-crawler-web` のように役割が明確な名前を推奨する。
 
 ## Data Access Strategy
 
-Web admin は storage backend の source of truth を尊重する。
+Web project は storage backend の source of truth を尊重する。
 
 ### Rules
 
 - watchlist / state は既存 storage abstraction を通じて読む
 - Web 用に別 schema を先に作らない
-- storage backend が file / Firestore のどちらでも動くようにする
+- transport の都合で domain persistence contract を書き換えない
 
-### Consequence
+### Run summary caveat
 
-Web 導入のために crawler state model を二重管理しない。  
-将来 multi-user metadata が必要になった場合だけ、Django 側 DB テーブルを追加する。
+現状の storage contract では、`record_run_summary()` は Firestore backend のときだけ persistence され、file backend では `None` を返す。  
+そのため Phase 1 では backend-neutral な run history 一覧を約束しない。
+
+### Phase 1 behavior
+
+- Firestore backend: persisted run summary 一覧を expose してよい
+- file backend: run history capability を `unsupported` として返す
+- 両 backend 共通で必要な場合は、後続 milestone で backend-neutral run history repository を追加する
 
 ## Testing Strategy
 
 ### Phase 1 tests
 
-- Django view / form / auth の unit tests
-- application service 層の integration tests
+- operations layer の unit / integration tests
+- machine-facing API contract tests
+- Django UI が shared operations を呼ぶことの tests
+- auth boundary tests
 - existing `manga_watch` contract を壊していないことの regression tests
 
 ### Priorities
 
-1. 権限なしアクセスが拒否されること
+1. human と machine が同じ operation result を共有すること
 2. watchlist 編集が既存 contract を壊さないこと
 3. manual run 導線が誤って複数回同時実行されないこと
-4. storage backend 差異で UI が壊れないこと
+4. file backend で unsupported capability が明示的に返ること
+5. Firestore backend で run history が期待どおり expose されること
 
 ## Migration Path
 
 ### Milestone 1
 
-- Django project scaffold
-- login
-- dashboard home
-- read-only watchlist / state / health
+- operations layer scaffold
+- typed query/command schemas
+- machine auth 方針の確定
+- read-only JSON API for watchlist / state / health / capabilities
 
 ### Milestone 2
 
-- watchlist CRUD
-- manual run trigger
-- recent run result view
+- Django login
+- read-only browser dashboard backed by shared queries
+- watchlist mutation commands exposed via API and UI
+- manual run trigger exposed via API and UI
 
 ### Milestone 3
 
-- role split
-- audit trail
+- Firestore-backed run summary view
+- file backend での capability 表示
 - safer operations UX
+- role split / audit trail
 
 ### Milestone 4
 
-- subscription model
-- Stripe integration
-- plan gating
+- backend-neutral run history repository が必要か再判定
+- 必要な場合のみ persistence contract を拡張
 
 ## Risks
 
-### Risk 1: Tight coupling between Django and crawler internals
+### Risk 1: API and UI drift
 
-view から既存 module を直接つまみ始めると、Web が domain internals に密結合になる。  
-これを避けるため、application service 層を最初から設ける。
+UI 用の近道実装を始めると、operation の本体が transport ごとに分岐しやすい。  
+これを避けるため、command/query を transport-independent に保つ。
 
-### Risk 2: Web edits bypass existing validation rules
+### Risk 2: Backend capability mismatch
 
-CLI / Discord と別経路で watchlist を更新すると contract drift が起きうる。  
-Web も既存 validation / normalization を共通利用する必要がある。
+Firestore と file backend の差を UI 都合で隠そうとすると、存在しない persistence を暗黙に期待してしまう。  
+対応方針は degrade ではなく capability 明示にする。
 
-### Risk 3: Overbuilding for a future SaaS that does not exist yet
+### Risk 3: Human auth and machine auth confusion
 
-初期段階で public SaaS 前提の複雑な frontend stack を入れると、運用価値より維持コストが先に増える。  
-そのため Phase 1 は internal admin に必要な範囲へ絞る。
+internal service でも browser session と tool credential を混ぜると運用事故につながる。  
+surface ごとに認証方式を分け、権限境界も別管理にする。
+
+## Future Notes
+
+将来 public-facing product や課金が必要になっても、まず再利用すべきなのは operations contract である。  
+billing や subscription はこの framework decision の根拠には含めず、実際に public product 要件が固まった時点で別 spec として扱う。
 
 ## Recommendation Summary
 
-この repo の Web 基盤は、まず **Django を別 web service として追加**するのが最も現実的である。  
-`manga_watch` をドメイン層として保持しつつ、Django は auth, UI, form, operation surface を担当する。  
-将来のユーザー認証強化や課金導入も、この構成の上に段階的に積み上げる。
+この repo の Web 基盤は、まず **operations-first の Python contract を定義し、その上に machine-facing JSON API と thin Django UI を載せる**のが最も現実的である。  
+Django は internal operator UI として引き続き適しているが、primary interface は typed operations layer であり、backend 差異は capability として明示する。  
+これにより、human operator と LLM/tool client の両方に一貫した操作面を提供できる。
 
 ## Sources
 
@@ -298,5 +341,3 @@ Web も既存 validation / normalization を共通利用する必要がある。
 - Cloud Run Django guide: <https://cloud.google.com/python/django/run>
 - Next.js App Router docs: <https://nextjs.org/docs/app>
 - Next.js authentication docs: <https://nextjs.org/docs/app/building-your-application/authentication>
-- Stripe subscriptions overview: <https://docs.stripe.com/billing/subscriptions/overview>
-- Stripe Checkout subscriptions: <https://docs.stripe.com/payments/checkout/build-subscriptions>
