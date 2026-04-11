@@ -11,6 +11,7 @@ from manga_watch.storage import (
     save_state,
     state_daily_notification_delivery,
     state_notification_outbox,
+    validate_watchlist,
 )
 
 
@@ -218,6 +219,51 @@ class StorageTests(unittest.TestCase):
 
             self.assertIn(final_latest_key, written_keys)
             self.assertEqual(final_latest_key, json.loads(state_path.read_text(encoding="utf-8"))["works"]["work-1"]["latest"]["latest_key"])
+
+    def test_validate_watchlist_normalizes_hidden_to_boolean(self):
+        normalized = validate_watchlist(
+            {
+                "version": 2,
+                "works": [
+                    {
+                        "id": "work-visible",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/visible",
+                        "enabled": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                    {
+                        "id": "work-hidden",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/hidden",
+                        "enabled": True,
+                        "hidden": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                ],
+            }
+        )
+
+        self.assertFalse(normalized["works"][0]["hidden"])
+        self.assertTrue(normalized["works"][1]["hidden"])
+
+    def test_validate_watchlist_rejects_non_boolean_hidden(self):
+        with self.assertRaisesRegex(ValueError, "watchlist entry work-1 hidden must be boolean"):
+            validate_watchlist(
+                {
+                    "version": 2,
+                    "works": [
+                        {
+                            "id": "work-1",
+                            "source": "comic-walker",
+                            "seed_url": "https://example.com/work-1",
+                            "enabled": True,
+                            "hidden": "yes",
+                            "notification_policy": {"mode": "all", "allowed_update_types": None},
+                        }
+                    ],
+                }
+            )
 
 
 if __name__ == "__main__":

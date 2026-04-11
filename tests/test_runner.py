@@ -8,6 +8,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import requests
 
@@ -833,6 +834,46 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual([], store["discord_delivery"]["daily_notification"]["pending_messages"])
         self.assertEqual(1, len(reports))
         self.assertIn("daily notification: 送信した", reports[0])
+
+    def test_run_once_with_discord_outbound_skips_hidden_daily_notifications(self):
+        discord = FakeDiscordClient()
+        reports = []
+        store, load_from_store, save_to_store = self.make_state_store()
+
+        with mock.patch(
+            "manga_watch.runner.load_watchlist",
+            return_value={
+                "version": 2,
+                "works": [
+                    {
+                        "id": "work-1",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-1",
+                        "enabled": True,
+                        "hidden": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    }
+                ],
+            },
+        ):
+            outcome = run_once(
+                self.make_config(with_discord=True),
+                notifier=FakeNotifier(),
+                discord_client=discord,
+                checker=lambda _: {"updates": [self.make_update()]},
+                state_loader=load_from_store,
+                state_saver=save_to_store,
+                now_fn=lambda: 1_700_000_000,
+                report_logger=reports.append,
+                error_logger=lambda _: self.fail("unexpected error log"),
+            )
+
+        self.assertTrue(outcome["ok"])
+        self.assertFalse(outcome["dailyNotificationSent"])
+        self.assertEqual(["run-report-channel"], [call["channel_id"] for call in discord.calls])
+        self.assertEqual({}, store["discord_delivery"]["daily_notification"]["delivered_latest_keys"])
+        self.assertEqual([], store["discord_delivery"]["daily_notification"]["pending_messages"])
+        self.assertIn("daily notification: 送信なし", reports[0])
 
     def test_run_once_replays_pending_daily_notification_on_next_run(self):
         failing_discord = FakeDiscordClient(fail_channels={"main-channel"})

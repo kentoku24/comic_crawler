@@ -9,7 +9,11 @@ import requests
 from manga_watch.discord_add import ADD_COMMAND
 from manga_watch.discord_fetch import FETCH_COMMAND
 from manga_watch.discord_latest import LATEST_COMMAND
+from manga_watch.discord_search import SEARCH_COMMAND
+from manga_watch.source_search import searchable_source_choices
 from manga_watch.discord_remove import REMOVE_COMMAND
+from manga_watch.discord_supertwins_manage import SUPERTWINS_MANAGE_COMMAND
+from manga_watch.discord_supertwins_search import SUPERTWINS_SEARCH_COMMAND
 from manga_watch.secret_redaction import redact_secret_text
 from manga_watch.secret_resolver import resolve_env_value
 
@@ -52,8 +56,45 @@ def default_interaction_commands() -> List[Dict[str, object]]:
             ],
         },
         {
+            "name": SEARCH_COMMAND,
+            "description": "媒体ごとに作品名で検索します。",
+            "options": [
+                {
+                    "type": 3,
+                    "name": "source",
+                    "description": "検索したい媒体",
+                    "required": True,
+                    "choices": searchable_source_choices(),
+                },
+                {
+                    "type": 3,
+                    "name": "query",
+                    "description": "検索したい文字列",
+                    "required": True,
+                },
+                {
+                    "type": 3,
+                    "name": "visibility",
+                    "description": "watchlist に追加するときの表示状態",
+                    "required": False,
+                    "choices": [
+                        {"name": "visible", "value": "visible"},
+                        {"name": "hidden", "value": "hidden"},
+                    ],
+                },
+            ],
+        },
+        {
             "name": REMOVE_COMMAND,
             "description": "購読中の作品を削除します。",
+        },
+        {
+            "name": SUPERTWINS_SEARCH_COMMAND,
+            "description": "既存作品を起点に他媒体候補を探して supertwins を作成します。",
+        },
+        {
+            "name": SUPERTWINS_MANAGE_COMMAND,
+            "description": "既存の supertwins を確認して誤登録を解除します。",
         },
     ]
 

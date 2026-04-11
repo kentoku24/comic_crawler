@@ -17,6 +17,7 @@ from manga_watch.discord_outbound import (
     build_run_report_message,
     deliver_daily_notifications,
     enqueue_daily_notification,
+    filter_updates_for_daily_notifications,
     format_run_report_delivery_failure,
     pending_daily_notification_count,
 )
@@ -34,6 +35,7 @@ from manga_watch.storage import (
     DEFAULT_WATCHLIST_PATH,
     get_state_path,
     load_state,
+    load_watchlist,
     record_run_summary,
     save_state,
     state_notification_outbox,
@@ -595,11 +597,27 @@ def _run_discord_daily_phase(
     discord_config = config.discord_outbound_config
     assert discord_config is not None
 
+    filtered_updates = notify_updates
+    try:
+        watchlist = load_watchlist(config.watchlist_path)
+        filtered_updates = list(
+            filter_updates_for_daily_notifications(
+                notify_updates,
+                watchlist,
+            )
+        )
+    except Exception:
+        # The checker already succeeded against the configured watchlist.
+        # If reloading it for Discord-only hidden filtering fails here,
+        # preserve the existing delivery path instead of turning it into
+        # a new run failure.
+        filtered_updates = notify_updates
+
     # Discord daily delivery owns its own pending state and replays
     # it on the next run rather than through replay_outbox.py.
     enqueue_result = enqueue_daily_notification(
         state,
-        updates=notify_updates,
+        updates=filtered_updates,
         channel_id=discord_config.main_channel_id,
         now_ts=now,
         timezone_name=config.timezone_name,

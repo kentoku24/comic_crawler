@@ -51,6 +51,7 @@ class WatchlistAddLogicTests(unittest.TestCase):
             "source": "kakuyomu",
             "seed_url": "https://kakuyomu.jp/works/123/episodes/456",
             "enabled": True,
+            "hidden": False,
             "notification_policy": {"mode": "all", "allowed_update_types": None},
         }
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -94,6 +95,7 @@ class WatchlistAddLogicTests(unittest.TestCase):
             "source": "comic-action",
             "seed_url": "https://comic-action.com/episode/11341664176570134078",
             "enabled": True,
+            "hidden": False,
             "notification_policy": {"mode": "all", "allowed_update_types": None},
         }
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -110,6 +112,22 @@ class WatchlistAddLogicTests(unittest.TestCase):
         self.assertEqual(existing_entry, payload["existing"])
         self.assertEqual(1, payload["work_count"])
         self.assertEqual([existing_entry], saved["works"])
+
+    def test_add_watchlist_url_can_store_hidden_entries(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://kakuyomu.jp/works/123",
+                watchlist_path=str(watchlist_path),
+                hidden=True,
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertTrue(payload["entry"]["hidden"])
+        self.assertTrue(saved["works"][0]["hidden"])
 
     def test_add_watchlist_url_accepts_champion_cross_episode_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:

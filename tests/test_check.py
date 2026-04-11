@@ -287,6 +287,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("kakuyomu:123", entry["id"])
         self.assertEqual("kakuyomu", entry["source"])
         self.assertTrue(entry["enabled"])
+        self.assertFalse(entry["hidden"])
         self.assertEqual(
             {"mode": "all", "allowed_update_types": None},
             entry["notification_policy"],

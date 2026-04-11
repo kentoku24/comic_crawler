@@ -638,6 +638,7 @@ def build_watchlist_entry(
         "source": work.source,
         "seed_url": work.seed_url,
         "enabled": True,
+        "hidden": False,
         "notification_policy": {
             "mode": "all",
             "allowed_update_types": None,
