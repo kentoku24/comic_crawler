@@ -11,6 +11,7 @@ from django.apps import apps
 from django.test import Client, SimpleTestCase, override_settings
 
 from manga_watch.storage import save_state, save_watchlist
+from manga_watch.watchlist import WatchlistAddError
 
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "web_admin.project.settings")
@@ -124,6 +125,30 @@ class ApiTests(SimpleTestCase):
         payload = json.loads(response.content)
         self.assertEqual("request body must be valid JSON", payload["error"])
 
+    def test_api_returns_client_error_when_add_watchlist_rejects_input(self):
+        with (
+            mock.patch("web_admin.api.auth.verify_google_oidc_token", return_value={"email": "svc@example.com"}),
+            mock.patch(
+                "web_admin.api.views.commands.add_watchlist_url_command",
+                side_effect=WatchlistAddError(
+                    "unsupported_url",
+                    "Unsupported URL",
+                    "Use a supported source URL.",
+                ),
+            ),
+        ):
+            response = self.client.post(
+                "/api/watchlist/",
+                data=json.dumps({"url": "https://example.com/unsupported"}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION="Bearer token",
+            )
+
+        self.assertEqual(400, response.status_code)
+        payload = json.loads(response.content)
+        self.assertEqual("Unsupported URL", payload["error"])
+        self.assertEqual("unsupported_url", payload["detail"]["kind"])
+
     def test_api_rejects_non_boolean_enabled_payload(self):
         with mock.patch("web_admin.api.auth.verify_google_oidc_token", return_value={"email": "svc@example.com"}):
             response = self.client.post(
@@ -137,6 +162,29 @@ class ApiTests(SimpleTestCase):
         payload = json.loads(response.content)
         self.assertEqual("enabled must be a boolean", payload["error"])
 
+    def test_api_returns_not_found_for_unknown_work_id(self):
+        with (
+            mock.patch("web_admin.api.auth.verify_google_oidc_token", return_value={"email": "svc@example.com"}),
+            mock.patch(
+                "web_admin.api.views.commands.update_watchlist_work_command",
+                side_effect=WatchlistAddError(
+                    "missing_work",
+                    "Unknown watchlist work id: missing",
+                    "Refresh and retry.",
+                ),
+            ),
+        ):
+            response = self.client.post(
+                "/api/watchlist/missing/enabled/",
+                data=json.dumps({"enabled": False}),
+                content_type="application/json",
+                HTTP_AUTHORIZATION="Bearer token",
+            )
+
+        self.assertEqual(404, response.status_code)
+        payload = json.loads(response.content)
+        self.assertEqual("missing_work", payload["detail"]["kind"])
+
     def test_openapi_endpoint_exposes_machine_auth_policy(self):
         with mock.patch("web_admin.api.auth.verify_google_oidc_token", return_value={"email": "svc@example.com"}):
             response = self.client.get("/api/openapi.json", HTTP_AUTHORIZATION="Bearer token")
@@ -145,3 +193,5 @@ class ApiTests(SimpleTestCase):
         payload = json.loads(response.content)
         self.assertEqual("3.1.0", payload["openapi"])
         self.assertEqual("google_oidc", payload["x-machine-auth-policy"]["mode"])
+        parameters = payload["paths"]["/api/watchlist/{work_id}/enabled/"]["post"]["parameters"]
+        self.assertEqual("work_id", parameters[0]["name"])
