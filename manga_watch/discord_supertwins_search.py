@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional
 
@@ -10,8 +9,11 @@ from manga_watch.discord_text import series_label_for_snapshot
 from manga_watch.source_search import SearchResult, search_source, supported_search_sources
 from manga_watch.storage import load_state, load_watchlist, save_state, save_watchlist
 from manga_watch.supertwins import (
+    clear_pending_search,
     ensure_supertwins_state,
+    get_pending_search,
     link_group_members,
+    set_pending_search,
     upsert_watchlist_entry,
 )
 from manga_watch.watchlist import build_watchlist_preview
@@ -37,11 +39,8 @@ STRING_SELECT_COMPONENT = 3
 MAX_OPTIONS_PER_PAGE = 25
 MAX_COMPONENT_TEXT = 100
 MAX_COMPONENT_VALUE = 100
-MAX_SELECT_URL_CACHE_SIZE = 256
 DEFAULT_SEARCH_LIMIT = 10
 SELECT_URL_TOKEN_PREFIX = "u:"
-
-_SUPERTWINS_SEARCH_URL_CACHE: "OrderedDict[str, str]" = OrderedDict()
 
 
 def is_supertwins_search_component(custom_id: object) -> bool:
@@ -63,34 +62,29 @@ def _truncate_component_text(text: object, *, max_length: int = MAX_COMPONENT_TE
     return normalized[: max_length - 1] + "…"
 
 
-def _remember_search_result_url(url: str) -> str:
+def _tokenize_select_option_value(url: str) -> str:
     digest = hashlib.sha256(url.encode("utf-8")).digest()
-    token = SELECT_URL_TOKEN_PREFIX + base64.urlsafe_b64encode(digest[:9]).decode("ascii").rstrip("=")
-    _SUPERTWINS_SEARCH_URL_CACHE[token] = url
-    _SUPERTWINS_SEARCH_URL_CACHE.move_to_end(token)
-    while len(_SUPERTWINS_SEARCH_URL_CACHE) > MAX_SELECT_URL_CACHE_SIZE:
-        _SUPERTWINS_SEARCH_URL_CACHE.popitem(last=False)
-    return token
+    return SELECT_URL_TOKEN_PREFIX + base64.urlsafe_b64encode(digest[:9]).decode("ascii").rstrip("=")
 
 
 def _select_option_value(url: object) -> str:
     normalized = _coerce_text(url) or ""
     if len(normalized) <= MAX_COMPONENT_VALUE:
         return normalized
-    return _remember_search_result_url(normalized)
+    return _tokenize_select_option_value(normalized)
 
 
-def _resolve_select_option_value(value: object) -> Optional[str]:
-    normalized = _coerce_text(value)
-    if not normalized:
-        return None
-    cached = _SUPERTWINS_SEARCH_URL_CACHE.get(normalized)
-    if cached is not None:
-        _SUPERTWINS_SEARCH_URL_CACHE.move_to_end(normalized)
-        return cached
-    if normalized.startswith(SELECT_URL_TOKEN_PREFIX):
-        return None
-    return normalized
+def _search_session_token(root_work_id: str, selected_urls_by_value: Mapping[str, str]) -> str:
+    material = "\n".join(
+        [
+            root_work_id,
+            *[
+                f"{value}={selected_urls_by_value[value]}"
+                for value in sorted(selected_urls_by_value)
+            ],
+        ]
+    )
+    return hashlib.sha256(material.encode("utf-8")).hexdigest()[:16]
 
 
 def _state_works(state: Mapping[str, object]) -> Mapping[str, object]:
@@ -221,17 +215,21 @@ def _search_results(
     return results
 
 
-def _search_result_options(results: List[SearchResult]) -> List[Dict[str, str]]:
+def _search_result_options(results: List[SearchResult]) -> tuple[List[Dict[str, str]], Dict[str, str]]:
     options: List[Dict[str, str]] = []
+    selected_urls_by_value: Dict[str, str] = {}
     for result in results[:MAX_OPTIONS_PER_PAGE]:
+        value = _select_option_value(result.seed_url)
         options.append(
             {
                 "label": _truncate_component_text(result.title),
-                "value": _select_option_value(result.seed_url),
+                "value": value,
                 "description": _truncate_component_text(result.source),
             }
         )
-    return options
+        if value != str(result.seed_url):
+            selected_urls_by_value[value] = str(result.seed_url)
+    return options, selected_urls_by_value
 
 
 def _get_root_work(
@@ -375,6 +373,21 @@ class SearchSupertwinsCommandHandler:
                 "components": [],
             }
 
+        result_options, selected_urls_by_value = _search_result_options(results)
+        session_token = _search_session_token(root_work_id, selected_urls_by_value)
+        updated_state = set_pending_search(
+            state,
+            session_token,
+            {
+                "root_work_id": root_work_id,
+                "selected_urls_by_value": selected_urls_by_value,
+            },
+        )
+        try:
+            self.state_saver(updated_state, state_path, backend=self.backend)
+        except Exception:
+            return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
+
         return {
             "content": SUPERTWINS_SEARCH_RESULTS_PROMPT,
             "components": [
@@ -383,11 +396,11 @@ class SearchSupertwinsCommandHandler:
                     "components": [
                         {
                             "type": STRING_SELECT_COMPONENT,
-                            "custom_id": f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}{root_work_id}",
+                            "custom_id": f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}{session_token}",
                             "placeholder": "追加する候補を選択",
                             "min_values": 1,
                             "max_values": min(len(results), MAX_OPTIONS_PER_PAGE),
-                            "options": _search_result_options(results),
+                            "options": result_options,
                         }
                     ],
                 }
@@ -401,14 +414,36 @@ class SearchSupertwinsCommandHandler:
         watchlist_path: Optional[str],
         state_path: Optional[str],
     ) -> Dict[str, object]:
-        root_work_id = str(data.get("custom_id") or "").strip()[len(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX) :]
-        resolved_urls = [_resolve_select_option_value(value) for value in data.get("values") or []]
-        selected_urls = [value for value in resolved_urls if value]
-        if not root_work_id or not selected_urls or len(selected_urls) != len(resolved_urls):
+        session_token = str(data.get("custom_id") or "").strip()[len(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX) :]
+        if not session_token:
             return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
 
         watchlist = self.watchlist_loader(watchlist_path, backend=self.backend)
         state = self.state_loader(state_path, backend=self.backend)
+        try:
+            pending_search = get_pending_search(state, session_token)
+        except ValueError:
+            return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
+
+        root_work_id = _coerce_text(pending_search.get("root_work_id")) or ""
+        selected_urls_by_value = pending_search.get("selected_urls_by_value", {})
+        if not isinstance(selected_urls_by_value, Mapping):
+            return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
+        resolved_urls: List[str] = []
+        for value in data.get("values") or []:
+            normalized = _coerce_text(value)
+            if not normalized:
+                return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
+            resolved = selected_urls_by_value.get(normalized)
+            if resolved is None:
+                if normalized.startswith(SELECT_URL_TOKEN_PREFIX):
+                    return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
+                resolved = normalized
+            resolved_urls.append(str(resolved))
+        selected_urls = [value for value in resolved_urls if value]
+        if not root_work_id or not selected_urls:
+            return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
+
         root_entry, latest = _get_root_work(watchlist, state, root_work_id)
         if root_entry is None:
             return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
@@ -416,7 +451,7 @@ class SearchSupertwinsCommandHandler:
         original_watchlist = watchlist
         original_state = state
         updated_watchlist = dict(watchlist)
-        updated_state = dict(state)
+        updated_state = clear_pending_search(state, session_token)
         selected_work_ids: List[str] = []
         duplicate_count = 0
         for selected_url in selected_urls:

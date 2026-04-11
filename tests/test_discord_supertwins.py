@@ -181,10 +181,10 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             search_source.calls,
         )
         select = payload["components"][0]["components"][0]
-        self.assertEqual(f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}root-1", select["custom_id"])
+        self.assertTrue(select["custom_id"].startswith(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX))
         self.assertEqual("作品A", select["options"][0]["label"])
 
-    def test_work_selection_tokenizes_long_candidate_urls(self):
+    def test_work_selection_persists_pending_search_for_long_candidate_urls(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
             watchlist_path = tmpdir / "watchlist.json"
@@ -211,33 +211,23 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
                 watchlist_path=str(watchlist_path),
                 state_path=str(state_path),
             )
+            saved_state = json.loads(state_path.read_text(encoding="utf-8"))
+            result_select = payload["components"][0]["components"][0]
+            custom_id = result_select["custom_id"]
+            session_token = custom_id[len(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX) :]
             selected_value = payload["components"][0]["components"][0]["options"][0]["value"]
 
-            with mock.patch(
-                "manga_watch.discord_supertwins_search.build_watchlist_preview",
-                return_value={
-                    "id": "kakuyomu:long",
-                    "source": "kakuyomu",
-                    "seed_url": long_url,
-                    "enabled": True,
-                    "hidden": False,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
-                },
-            ):
-                result_payload = handler.handle_component(
-                    {
-                        "custom_id": f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}root-1",
-                        "values": [selected_value],
-                    },
-                    watchlist_path=str(watchlist_path),
-                    state_path=str(state_path),
-                )
-            saved_watchlist = json.loads(watchlist_path.read_text(encoding="utf-8"))
-
         self.assertLessEqual(len(selected_value), 100)
-        self.assertIn("hidden で追加", result_payload["content"])
-        self.assertTrue(
-            next(entry for entry in saved_watchlist["works"] if entry["id"] == "kakuyomu:long")["hidden"]
+        self.assertTrue(custom_id.startswith(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX))
+        self.assertTrue(session_token)
+        self.assertEqual(
+            {
+                "root_work_id": "root-1",
+                "selected_urls_by_value": {
+                    selected_value: long_url,
+                },
+            },
+            saved_state["supertwins"]["pending_searches"][session_token],
         )
 
     def test_start_paginates_root_work_options_beyond_25_entries(self):
@@ -293,13 +283,35 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             write_json(watchlist_path, make_watchlist())
             write_json(state_path, make_state())
 
-            handler = SearchSupertwinsCommandHandler(search_source=FakeSearchSource({}))
+            long_url = "https://kakuyomu.jp/works/" + ("1234567890" * 12)
+            search_source = FakeSearchSource(
+                {
+                    "kakuyomu": [
+                        SearchResult(
+                            source="kakuyomu",
+                            title="作品A",
+                            seed_url=long_url,
+                            subtitle="kakuyomu",
+                        )
+                    ]
+                }
+            )
+            handler = SearchSupertwinsCommandHandler(search_source=search_source)
+            selection_payload = handler.handle_component(
+                {"custom_id": SUPERTWINS_SEARCH_WORK_SELECT, "values": ["root-1"]},
+                watchlist_path=str(watchlist_path),
+                state_path=str(state_path),
+            )
+            result_select = selection_payload["components"][0]["components"][0]
+            custom_id = result_select["custom_id"]
+            selected_value = result_select["options"][0]["value"]
+
             with mock.patch(
                 "manga_watch.discord_supertwins_search.build_watchlist_preview",
                 return_value={
-                    "id": "kakuyomu:123",
+                    "id": "kakuyomu:long",
                     "source": "kakuyomu",
-                    "seed_url": "https://kakuyomu.jp/works/123",
+                    "seed_url": long_url,
                     "enabled": True,
                     "hidden": False,
                     "notification_policy": {"mode": "all", "allowed_update_types": None},
@@ -307,8 +319,8 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             ):
                 payload = handler.handle_component(
                     {
-                        "custom_id": f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}root-1",
-                        "values": ["https://kakuyomu.jp/works/123"],
+                        "custom_id": custom_id,
+                        "values": [selected_value],
                     },
                     watchlist_path=str(watchlist_path),
                     state_path=str(state_path),
@@ -319,13 +331,14 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
 
         self.assertIn("hidden で追加", payload["content"])
         self.assertTrue(
-            next(entry for entry in saved_watchlist["works"] if entry["id"] == "kakuyomu:123")["hidden"]
+            next(entry for entry in saved_watchlist["works"] if entry["id"] == "kakuyomu:long")["hidden"]
         )
         self.assertEqual(
-            ["kakuyomu:123", "root-1", "work-2"],
+            ["kakuyomu:long", "root-1", "work-2"],
             saved_state["supertwins"]["groups"]["group-1"]["member_work_ids"],
         )
         self.assertNotIn("root-1", saved_state["supertwins"]["groups"])
+        self.assertNotIn("pending_searches", saved_state["supertwins"])
 
     def test_result_selection_hides_existing_duplicate_and_registers_group(self):
         watchlist = make_watchlist()
@@ -347,7 +360,26 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             write_json(watchlist_path, watchlist)
             write_json(state_path, make_state())
 
-            handler = SearchSupertwinsCommandHandler(search_source=FakeSearchSource({}))
+            search_source = FakeSearchSource(
+                {
+                    "kakuyomu": [
+                        SearchResult(
+                            source="kakuyomu",
+                            title="作品A",
+                            seed_url="https://kakuyomu.jp/works/123",
+                            subtitle="kakuyomu",
+                        )
+                    ]
+                }
+            )
+            handler = SearchSupertwinsCommandHandler(search_source=search_source)
+            selection_payload = handler.handle_component(
+                {"custom_id": SUPERTWINS_SEARCH_WORK_SELECT, "values": ["root-1"]},
+                watchlist_path=str(watchlist_path),
+                state_path=str(state_path),
+            )
+            result_select = selection_payload["components"][0]["components"][0]
+
             with mock.patch(
                 "manga_watch.discord_supertwins_search.build_watchlist_preview",
                 return_value={
@@ -361,8 +393,8 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             ):
                 handler.handle_component(
                     {
-                        "custom_id": f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}root-1",
-                        "values": ["https://kakuyomu.jp/works/123"],
+                        "custom_id": result_select["custom_id"],
+                        "values": [result_select["options"][0]["value"]],
                     },
                     watchlist_path=str(watchlist_path),
                     state_path=str(state_path),
