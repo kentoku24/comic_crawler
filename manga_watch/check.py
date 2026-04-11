@@ -9,6 +9,7 @@ import sys
 import time
 from typing import Dict, List, Mapping, Optional, Sequence, Tuple
 
+from manga_watch.availability import derive_latest_availability, episode_number_for_snapshot
 from manga_watch.sources import (
     HttpClient,
     REGISTERED_ADAPTERS,
@@ -51,12 +52,6 @@ DEFAULT_NOTIFICATION_POLICY = {
     "mode": NOTIFICATION_POLICY_MODE_ALL,
     "allowed_update_types": None,
 }
-EPISODE_NUMBER_PATTERNS = (
-    re.compile(r"第\s*(\d+)\s*話"),
-    re.compile(r"\bEpisode\s+(\d+)\b", re.IGNORECASE),
-    re.compile(r"\bEp\.?\s*(\d+)\b", re.IGNORECASE),
-    re.compile(r"#\s*(\d+)"),
-)
 
 
 class CheckRunError(RuntimeError):
@@ -143,7 +138,14 @@ def item_id_for_state(item: Mapping[str, object]) -> str:
 
 
 def latest_id_for_state(latest: Mapping[str, object]) -> str:
-    return str(latest.get("latestKey") or latest.get("latest_key") or "")
+    return str(
+        latest.get("latestKey")
+        or latest.get("latest_key")
+        or latest.get("episodeCode")
+        or latest.get("episode_code")
+        or latest.get("url")
+        or ""
+    )
 
 
 def update_type_for_latest(latest: Mapping[str, object]) -> str:
@@ -217,6 +219,10 @@ def merge_latest_metadata(
         if key == "default_notify":
             if value != merged.get(key):
                 merged[key] = bool(value)
+            continue
+        if key == "availability":
+            if isinstance(value, Mapping):
+                merged[key] = dict(value)
             continue
         if not merged.get(key):
             merged[key] = value
@@ -303,27 +309,20 @@ def backfill_series_metadata(
         if not merged.get(key):
             merged[key] = value
     return merged
-
-
-def episode_label_candidates(latest: Mapping[str, object]) -> List[str]:
-    candidates: List[str] = []
-    for key in ("episodeTitle", "pageTitle", "episode_title", "page_title"):
-        value = latest.get(key)
-        if not isinstance(value, str):
-            continue
-        label = value.strip()
-        if label and label not in candidates:
-            candidates.append(label)
-    return candidates
-
-
 def episode_number_for_latest(latest: Mapping[str, object]) -> Optional[int]:
-    for label in episode_label_candidates(latest):
-        for pattern in EPISODE_NUMBER_PATTERNS:
-            match = pattern.search(label)
-            if match:
-                return int(match.group(1))
-    return None
+    return episode_number_for_snapshot(latest)
+
+
+def with_availability_metadata(
+    latest: Mapping[str, object],
+    *,
+    prefer_existing: bool = True,
+) -> Dict[str, object]:
+    enriched = dict(latest)
+    if not prefer_existing:
+        enriched.pop("availability", None)
+    enriched["availability"] = derive_latest_availability(enriched)
+    return enriched
 
 
 def build_history_gap(
@@ -401,7 +400,7 @@ def apply_item_transition(
     history_retention: int,
     notification_policy: Optional[Mapping[str, object]] = None,
 ) -> Tuple[Dict[str, object], Optional[Dict[str, object]]]:
-    latest_copy = dict(latest)
+    latest_copy = with_availability_metadata(latest)
     latest_copy.setdefault("workId", item_id)
     history = list((previous_entry or {}).get("history", []) or [])
     unread = unread_state_for_entry(previous_entry)
@@ -452,9 +451,12 @@ def apply_item_transition(
             update,
         )
 
-    merged_latest = backfill_series_metadata(
-        merge_latest_metadata(previous_latest, latest_copy),
-        previous_entry,
+    merged_latest = with_availability_metadata(
+        backfill_series_metadata(
+            merge_latest_metadata(previous_latest, latest_copy),
+            previous_entry,
+        ),
+        prefer_existing=False,
     )
     history, _ = sync_history_event(
         history,

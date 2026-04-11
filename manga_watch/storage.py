@@ -12,6 +12,7 @@ from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES, SUPPO
 
 DEFAULT_WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "watchlist.json")
 DEFAULT_STATE_PATH = os.path.join(os.path.dirname(__file__), "state.json")
+DEFAULT_CANONICAL_WORKS_PATH = os.path.join(os.path.dirname(__file__), "canonical_works.json")
 STORAGE_BACKEND_JSON = "json"
 STORAGE_BACKEND_FIRESTORE = "firestore"
 SUPPORTED_STORAGE_BACKENDS = {
@@ -21,6 +22,7 @@ SUPPORTED_STORAGE_BACKENDS = {
 
 WATCHLIST_VERSION = 2
 STATE_VERSION = 2
+CANONICAL_WORKS_VERSION = 1
 DEFAULT_HISTORY_RETENTION = 20
 NOTIFICATION_POLICY_MODE_ALL = "all"
 NOTIFICATION_POLICY_MODE_IMPORTANT_ONLY = "important_only"
@@ -70,8 +72,16 @@ def get_firestore_repository() -> FirestoreStorageRepository:
     return _default_firestore_repository(FirestoreStorageConfig.from_env())
 
 
+def get_canonical_works_path() -> str:
+    return os.environ.get("MANGA_WATCH_CANONICAL_WORKS", DEFAULT_CANONICAL_WORKS_PATH)
+
+
 def default_watchlist() -> Dict[str, object]:
     return {"version": WATCHLIST_VERSION, "works": []}
+
+
+def default_canonical_works() -> Dict[str, object]:
+    return {"version": CANONICAL_WORKS_VERSION, "works": []}
 
 
 def default_state() -> Dict[str, object]:
@@ -145,6 +155,15 @@ def load_state(
     return validate_state(payload)
 
 
+def load_canonical_works(path: Optional[str] = None) -> Dict[str, object]:
+    canonical_works_path = path or get_canonical_works_path()
+    if not os.path.exists(canonical_works_path):
+        return default_canonical_works()
+    with open(canonical_works_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    return validate_canonical_works(payload)
+
+
 def save_state(
     state: Mapping[str, object],
     path: Optional[str] = None,
@@ -157,6 +176,10 @@ def save_state(
         get_firestore_repository().save_state(validated_state)
         return
     atomic_write_json(path or get_state_path(), validated_state)
+
+
+def save_canonical_works(canonical_works: Mapping[str, object], path: Optional[str] = None) -> None:
+    atomic_write_json(path or get_canonical_works_path(), validate_canonical_works(canonical_works))
 
 
 def save_watchlist(
@@ -242,6 +265,103 @@ def validate_watchlist(payload: Mapping[str, object]) -> Dict[str, object]:
         seen_ids.add(work_id)
         normalized_works.append(normalized)
     return {"version": WATCHLIST_VERSION, "works": normalized_works}
+
+
+def validate_canonical_works(payload: Mapping[str, object]) -> Dict[str, object]:
+    if not isinstance(payload, Mapping):
+        raise ValueError("canonical_works payload must be an object")
+    if payload.get("version") != CANONICAL_WORKS_VERSION:
+        raise ValueError(f"canonical_works version must be {CANONICAL_WORKS_VERSION}")
+    works = payload.get("works")
+    if not isinstance(works, list):
+        raise ValueError("canonical_works.works must be a list")
+
+    normalized_works = []
+    seen_ids = set()
+    for work in works:
+        normalized = normalize_canonical_work_entry(work)
+        work_id = normalized["id"]
+        if work_id in seen_ids:
+            raise ValueError(f"duplicate canonical work id: {work_id}")
+        seen_ids.add(work_id)
+        normalized_works.append(normalized)
+    return {"version": CANONICAL_WORKS_VERSION, "works": normalized_works}
+
+
+def normalize_canonical_work_entry(entry: Mapping[str, object]) -> Dict[str, object]:
+    if not isinstance(entry, Mapping):
+        raise ValueError("canonical work entry must be an object")
+    work_id = str(entry.get("id") or "").strip()
+    title = str(entry.get("title") or "").strip()
+    if not work_id:
+        raise ValueError("canonical work entry missing id")
+    if not title:
+        raise ValueError(f"canonical work entry {work_id} missing title")
+
+    aliases = normalize_unique_string_list(
+        entry.get("aliases"),
+        field_name=f"canonical work entry {work_id} aliases",
+    )
+    provider_work_ids = normalize_unique_string_list(
+        entry.get("provider_work_ids", entry.get("providerWorkIds")),
+        field_name=f"canonical work entry {work_id} provider_work_ids",
+    )
+    provider_candidates = normalize_provider_candidates(
+        entry.get("provider_candidates", entry.get("providerCandidates")),
+        work_id=work_id,
+    )
+    normalized = {
+        "id": work_id,
+        "title": title,
+        "aliases": aliases,
+        "provider_work_ids": provider_work_ids,
+        "provider_candidates": provider_candidates,
+    }
+    for key, value in entry.items():
+        if key in normalized or key in {"providerWorkIds", "providerCandidates"} or value is None:
+            continue
+        normalized[camel_to_snake(str(key))] = value
+    return normalized
+
+
+def normalize_unique_string_list(value: object, *, field_name: str) -> List[str]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"{field_name} must be a list")
+    normalized: List[str] = []
+    seen = set()
+    for item in value:
+        text = str(item).strip()
+        if not text or text in seen:
+            continue
+        seen.add(text)
+        normalized.append(text)
+    return normalized
+
+
+def normalize_provider_candidates(value: object, *, work_id: str) -> List[Dict[str, str]]:
+    if value is None:
+        return []
+    if not isinstance(value, list):
+        raise ValueError(f"canonical work entry {work_id} provider_candidates must be a list")
+    normalized: List[Dict[str, str]] = []
+    seen = set()
+    for index, item in enumerate(value):
+        if not isinstance(item, Mapping):
+            raise ValueError(
+                f"canonical work entry {work_id} provider_candidates[{index}] must be an object"
+            )
+        candidate_work_id = str(item.get("work_id", item.get("workId")) or "").strip()
+        if not candidate_work_id or candidate_work_id in seen:
+            continue
+        seen.add(candidate_work_id)
+        candidate = {"work_id": candidate_work_id}
+        reason = normalize_optional_text(item.get("reason"))
+        if reason is not None:
+            candidate["reason"] = reason
+        normalized.append(candidate)
+    return normalized
 
 
 def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
