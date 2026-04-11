@@ -5,10 +5,13 @@ from unittest import mock
 
 from manga_watch.firestore_storage import FirestoreStorageConfig, FirestoreStorageRepository
 from manga_watch.storage import (
+    delete_supertwins_search_session,
     load_state,
+    load_supertwins_search_session,
     load_watchlist,
     record_run_summary,
     save_state,
+    save_supertwins_search_session,
     save_watchlist,
     validate_state,
     validate_watchlist,
@@ -243,3 +246,26 @@ class FirestoreStorageTests(unittest.TestCase):
                 loaded = load_watchlist("/tmp/ignored-by-firestore.json")
 
         self.assertEqual("work-1", loaded["works"][0]["id"])
+
+    def test_firestore_backend_round_trips_supertwins_search_sessions_by_token(self):
+        repository = self.make_repository()
+
+        with mock.patch("manga_watch.storage.get_firestore_repository", return_value=repository):
+            save_supertwins_search_session(
+                "session-a",
+                {"root_work_id": "root-1", "selected_urls_by_value": {"u:a": "https://example.com/a"}},
+                backend="firestore",
+            )
+            save_supertwins_search_session(
+                "session-b",
+                {"root_work_id": "root-2", "selected_urls_by_value": {"u:b": "https://example.com/b"}},
+                backend="firestore",
+            )
+            session_a = load_supertwins_search_session("session-a", backend="firestore")
+            session_b = load_supertwins_search_session("session-b", backend="firestore")
+            delete_supertwins_search_session("session-a", backend="firestore")
+
+        self.assertEqual("root-1", session_a["root_work_id"])
+        self.assertEqual("root-2", session_b["root_work_id"])
+        self.assertIn("runtime:session-b", repository.client.store["supertwins_search_sessions"])
+        self.assertNotIn("runtime:session-a", repository.client.store["supertwins_search_sessions"])

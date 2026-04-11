@@ -18,6 +18,7 @@ from manga_watch.discord_supertwins_search import (
     SearchSupertwinsCommandHandler,
 )
 from manga_watch.source_search import SearchResult
+from manga_watch.storage import load_supertwins_search_session
 
 
 def make_watchlist():
@@ -181,8 +182,155 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             search_source.calls,
         )
         select = payload["components"][0]["components"][0]
-        self.assertEqual(f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}root-1", select["custom_id"])
+        self.assertTrue(select["custom_id"].startswith(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX))
         self.assertEqual("作品A", select["options"][0]["label"])
+
+    def test_work_selection_persists_search_session_for_long_candidate_urls(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            watchlist_path = tmpdir / "watchlist.json"
+            state_path = tmpdir / "state.json"
+            write_json(watchlist_path, make_watchlist())
+            write_json(state_path, make_state())
+
+            long_url = "https://kakuyomu.jp/works/" + ("1234567890" * 12)
+            search_source = FakeSearchSource(
+                {
+                    "kakuyomu": [
+                        SearchResult(
+                            source="kakuyomu",
+                            title="作品A",
+                            seed_url=long_url,
+                            subtitle="kakuyomu",
+                        )
+                    ]
+                }
+            )
+            handler = SearchSupertwinsCommandHandler(search_source=search_source)
+            payload = handler.handle_component(
+                {"custom_id": SUPERTWINS_SEARCH_WORK_SELECT, "values": ["root-1"]},
+                watchlist_path=str(watchlist_path),
+                state_path=str(state_path),
+            )
+            result_select = payload["components"][0]["components"][0]
+            custom_id = result_select["custom_id"]
+            session_token = custom_id[len(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX) :]
+            selected_value = result_select["options"][0]["value"]
+            saved_session = load_supertwins_search_session(session_token, str(state_path))
+
+        self.assertLessEqual(len(selected_value), 100)
+        self.assertTrue(custom_id.startswith(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX))
+        self.assertTrue(session_token)
+        self.assertEqual(
+            {
+                "root_work_id": "root-1",
+                "selected_urls_by_value": {
+                    selected_value: long_url,
+                },
+            },
+            saved_session,
+        )
+
+    def test_work_selection_uses_unique_session_token_per_interaction(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            watchlist_path = tmpdir / "watchlist.json"
+            state_path = tmpdir / "state.json"
+            write_json(watchlist_path, make_watchlist())
+            write_json(state_path, make_state())
+
+            long_url = "https://kakuyomu.jp/works/" + ("1234567890" * 12)
+            search_source = FakeSearchSource(
+                {
+                    "kakuyomu": [
+                        SearchResult(
+                            source="kakuyomu",
+                            title="作品A",
+                            seed_url=long_url,
+                            subtitle="kakuyomu",
+                        )
+                    ]
+                }
+            )
+            handler = SearchSupertwinsCommandHandler(search_source=search_source)
+            first_payload = handler.handle_component(
+                {"custom_id": SUPERTWINS_SEARCH_WORK_SELECT, "values": ["root-1"]},
+                watchlist_path=str(watchlist_path),
+                state_path=str(state_path),
+            )
+            second_payload = handler.handle_component(
+                {"custom_id": SUPERTWINS_SEARCH_WORK_SELECT, "values": ["root-1"]},
+                watchlist_path=str(watchlist_path),
+                state_path=str(state_path),
+            )
+
+            first_custom_id = first_payload["components"][0]["components"][0]["custom_id"]
+            second_custom_id = second_payload["components"][0]["components"][0]["custom_id"]
+            first_token = first_custom_id[len(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX) :]
+            second_token = second_custom_id[len(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX) :]
+            first_value = first_payload["components"][0]["components"][0]["options"][0]["value"]
+            second_value = second_payload["components"][0]["components"][0]["options"][0]["value"]
+            first_session = load_supertwins_search_session(first_token, str(state_path))
+            second_session = load_supertwins_search_session(second_token, str(state_path))
+
+        self.assertNotEqual(first_custom_id, second_custom_id)
+        self.assertNotEqual(first_token, second_token)
+        self.assertEqual(first_value, second_value)
+        self.assertEqual(
+            {
+                "root_work_id": "root-1",
+                "selected_urls_by_value": {
+                    first_value: long_url,
+                },
+            },
+            first_session,
+        )
+        self.assertEqual(first_session, second_session)
+
+    def test_start_paginates_root_work_options_beyond_25_entries(self):
+        watchlist = make_watchlist()
+        state = make_state()
+        for index in range(3, 31):
+            work_id = f"work-{index}"
+            watchlist["works"].append(
+                {
+                    "id": work_id,
+                    "source": "kakuyomu",
+                    "seed_url": f"https://kakuyomu.jp/works/{index}",
+                    "enabled": True,
+                    "hidden": False,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                }
+            )
+            state["works"][work_id] = {
+                "latest": {"series_title": f"作品{index}", "episode_title": "第1話"},
+                "history": [],
+                "unread": {"event_ids": []},
+                "health": {},
+            }
+
+        handler = SearchSupertwinsCommandHandler(
+            search_source=FakeSearchSource({}),
+            watchlist_loader=lambda *args, **kwargs: watchlist,
+            state_loader=lambda *args, **kwargs: state,
+        )
+
+        first_page = handler.start()
+        first_select = first_page["components"][0]["components"][0]
+        next_button = first_page["components"][1]["components"][1]
+        second_page = handler.handle_component({"custom_id": next_button["custom_id"]})
+        second_select = second_page["components"][0]["components"][0]
+
+        self.assertEqual(25, len(first_select["options"]))
+        self.assertEqual(
+            "supertwins_search:page:1",
+            next_button["custom_id"],
+        )
+        self.assertEqual(5, len(second_select["options"]))
+        self.assertEqual(
+            "supertwins_search:page:0",
+            second_page["components"][1]["components"][0]["custom_id"],
+        )
 
     def test_result_selection_adds_hidden_subscription_and_registers_group(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -192,22 +340,45 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             write_json(watchlist_path, make_watchlist())
             write_json(state_path, make_state())
 
-            handler = SearchSupertwinsCommandHandler(search_source=FakeSearchSource({}))
+            long_url = "https://kakuyomu.jp/works/" + ("1234567890" * 12)
+            search_source = FakeSearchSource(
+                {
+                    "kakuyomu": [
+                        SearchResult(
+                            source="kakuyomu",
+                            title="作品A",
+                            seed_url=long_url,
+                            subtitle="kakuyomu",
+                        )
+                    ]
+                }
+            )
+            first_handler = SearchSupertwinsCommandHandler(search_source=search_source)
+            selection_payload = first_handler.handle_component(
+                {"custom_id": SUPERTWINS_SEARCH_WORK_SELECT, "values": ["root-1"]},
+                watchlist_path=str(watchlist_path),
+                state_path=str(state_path),
+            )
+            result_select = selection_payload["components"][0]["components"][0]
+            custom_id = result_select["custom_id"]
+            selected_value = result_select["options"][0]["value"]
+
+            second_handler = SearchSupertwinsCommandHandler(search_source=search_source)
             with mock.patch(
                 "manga_watch.discord_supertwins_search.build_watchlist_preview",
                 return_value={
-                    "id": "kakuyomu:123",
+                    "id": "kakuyomu:long",
                     "source": "kakuyomu",
-                    "seed_url": "https://kakuyomu.jp/works/123",
+                    "seed_url": long_url,
                     "enabled": True,
                     "hidden": False,
                     "notification_policy": {"mode": "all", "allowed_update_types": None},
                 },
             ):
-                payload = handler.handle_component(
+                payload = second_handler.handle_component(
                     {
-                        "custom_id": f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}root-1",
-                        "values": ["https://kakuyomu.jp/works/123"],
+                        "custom_id": custom_id,
+                        "values": [selected_value],
                     },
                     watchlist_path=str(watchlist_path),
                     state_path=str(state_path),
@@ -218,13 +389,15 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
 
         self.assertIn("hidden で追加", payload["content"])
         self.assertTrue(
-            next(entry for entry in saved_watchlist["works"] if entry["id"] == "kakuyomu:123")["hidden"]
+            next(entry for entry in saved_watchlist["works"] if entry["id"] == "kakuyomu:long")["hidden"]
         )
         self.assertEqual(
-            ["kakuyomu:123", "root-1", "work-2"],
+            ["kakuyomu:long", "root-1", "work-2"],
             saved_state["supertwins"]["groups"]["group-1"]["member_work_ids"],
         )
         self.assertNotIn("root-1", saved_state["supertwins"]["groups"])
+        with self.assertRaises(FileNotFoundError):
+            load_supertwins_search_session(custom_id[len(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX) :], str(state_path))
 
     def test_result_selection_hides_existing_duplicate_and_registers_group(self):
         watchlist = make_watchlist()
@@ -246,7 +419,26 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             write_json(watchlist_path, watchlist)
             write_json(state_path, make_state())
 
-            handler = SearchSupertwinsCommandHandler(search_source=FakeSearchSource({}))
+            search_source = FakeSearchSource(
+                {
+                    "kakuyomu": [
+                        SearchResult(
+                            source="kakuyomu",
+                            title="作品A",
+                            seed_url="https://kakuyomu.jp/works/123",
+                            subtitle="kakuyomu",
+                        )
+                    ]
+                }
+            )
+            handler = SearchSupertwinsCommandHandler(search_source=search_source)
+            selection_payload = handler.handle_component(
+                {"custom_id": SUPERTWINS_SEARCH_WORK_SELECT, "values": ["root-1"]},
+                watchlist_path=str(watchlist_path),
+                state_path=str(state_path),
+            )
+            result_select = selection_payload["components"][0]["components"][0]
+
             with mock.patch(
                 "manga_watch.discord_supertwins_search.build_watchlist_preview",
                 return_value={
@@ -260,8 +452,8 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             ):
                 handler.handle_component(
                     {
-                        "custom_id": f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}root-1",
-                        "values": ["https://kakuyomu.jp/works/123"],
+                        "custom_id": result_select["custom_id"],
+                        "values": [result_select["options"][0]["value"]],
                     },
                     watchlist_path=str(watchlist_path),
                     state_path=str(state_path),
@@ -277,6 +469,48 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
             ["kakuyomu:123", "root-1", "work-2"],
             saved_state["supertwins"]["groups"]["group-1"]["member_work_ids"],
         )
+
+    def test_result_selection_trims_resolved_url_loaded_from_session_payload(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            watchlist_path = tmpdir / "watchlist.json"
+            state_path = tmpdir / "state.json"
+            write_json(watchlist_path, make_watchlist())
+            write_json(state_path, make_state())
+
+            handler = SearchSupertwinsCommandHandler(
+                search_source=FakeSearchSource({}),
+                search_session_loader=lambda *args, **kwargs: {
+                    "root_work_id": "root-1",
+                    "selected_urls_by_value": {
+                        "u:token-1": "  https://kakuyomu.jp/works/123  ",
+                    },
+                },
+                search_session_deleter=lambda *args, **kwargs: None,
+            )
+
+            with mock.patch(
+                "manga_watch.discord_supertwins_search.build_watchlist_preview",
+                return_value={
+                    "id": "kakuyomu:123",
+                    "source": "kakuyomu",
+                    "seed_url": "https://kakuyomu.jp/works/123",
+                    "enabled": True,
+                    "hidden": False,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                },
+            ) as build_preview:
+                payload = handler.handle_component(
+                    {
+                        "custom_id": f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}session-1",
+                        "values": ["u:token-1"],
+                    },
+                    watchlist_path=str(watchlist_path),
+                    state_path=str(state_path),
+                )
+
+        self.assertIn("hidden で追加", payload["content"])
+        build_preview.assert_called_once_with("https://kakuyomu.jp/works/123")
 
 
 class DiscordSupertwinsManageTests(unittest.TestCase):
