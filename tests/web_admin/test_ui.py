@@ -50,6 +50,11 @@ class UiTests(TestCase):
                 "MANGA_WATCH_WATCHLIST": str(watchlist_path),
                 "MANGA_WATCH_STATE": str(state_path),
                 "MANGA_WATCH_STORAGE_BACKEND": "json",
+                "WEB_ADMIN_MACHINE_AUTH_MODE": "google_oidc",
+                "WEB_ADMIN_MACHINE_AUTH_AUDIENCE": "https://comic-crawler-web.run.app",
+                "WEB_ADMIN_MACHINE_AUTH_PRINCIPALS": "svc@example.com,operator@example.com",
+                "WEB_ADMIN_MACHINE_AUTH_INVOKER_ROLE": "roles/run.invoker",
+                "WEB_ADMIN_MACHINE_AUTH_WIF_PROVIDER": "projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
             },
             clear=False,
         )
@@ -70,6 +75,14 @@ class UiTests(TestCase):
         self.assertEqual(200, response.status_code)
         self.assertContains(response, "comic_crawler web admin")
         self.assertContains(response, "work-1")
+        self.assertContains(response, "google_oidc")
+        self.assertContains(response, "https://comic-crawler-web.run.app")
+        self.assertContains(response, "svc@example.com, operator@example.com")
+        self.assertContains(response, "roles/run.invoker")
+        self.assertContains(
+            response,
+            "projects/123/locations/global/workloadIdentityPools/pool/providers/provider",
+        )
 
     def test_ui_can_toggle_enabled_without_machine_credentials(self):
         user = get_user_model().objects.create_user(username="operator2", password="secret-pass")

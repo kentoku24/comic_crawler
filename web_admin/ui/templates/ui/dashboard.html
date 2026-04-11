@@ -21,6 +21,13 @@
     <p>storage backend: {{ capabilities.storage_backend }}</p>
     <p>run history supported: {{ capabilities.run_history_supported }}</p>
     <p>machine auth mode: {{ capabilities.machine_auth_policy.mode }}</p>
+    <p>machine auth audience: {{ capabilities.machine_auth_policy.audience|default:"(not configured)" }}</p>
+    <p>machine auth principals: {{ capabilities.machine_auth_policy.principals|join:", "|default:"(not configured)" }}</p>
+    <p>machine auth invoker role: {{ capabilities.machine_auth_policy.invoker_role }}</p>
+    <p>machine auth WIF provider: {{ capabilities.machine_auth_policy.workload_identity_federation_provider|default:"(not configured)" }}</p>
+    <p>service private: {{ capabilities.machine_auth_policy.service_private }}</p>
+    <p>allow static bearer token: {{ capabilities.machine_auth_policy.allow_static_bearer_token }}</p>
+    <p>audit note: {{ capabilities.machine_auth_policy.audit_note }}</p>
     {% if capabilities.run_history_reason %}
       <p>{{ capabilities.run_history_reason }}</p>
     {% endif %}
