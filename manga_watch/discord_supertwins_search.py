@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import base64
+import hashlib
+from collections import OrderedDict
 from dataclasses import dataclass
 from typing import Callable, Dict, List, Mapping, Optional
 
@@ -16,6 +19,7 @@ from manga_watch.watchlist import build_watchlist_preview
 SUPERTWINS_SEARCH_COMMAND = "supertwins-search"
 SUPERTWINS_SEARCH_COMPONENT_PREFIX = "supertwins_search:"
 SUPERTWINS_SEARCH_WORK_SELECT = "supertwins_search_work_select"
+SUPERTWINS_SEARCH_PAGE_PREFIX = f"{SUPERTWINS_SEARCH_COMPONENT_PREFIX}page:"
 SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX = f"{SUPERTWINS_SEARCH_COMPONENT_PREFIX}results:"
 SUPERTWINS_SEARCH_EMPTY_MESSAGE = "まだ watchlist に登録された作品がありません。"
 SUPERTWINS_SEARCH_WORK_PROMPT = "他媒体候補を探したい作品を選んでください。"
@@ -26,10 +30,18 @@ SUPERTWINS_SEARCH_STALE_MESSAGE = (
 )
 
 ACTION_ROW = 1
+BUTTON_COMPONENT = 2
+BUTTON_STYLE_PRIMARY = 1
+BUTTON_STYLE_SECONDARY = 2
 STRING_SELECT_COMPONENT = 3
 MAX_OPTIONS_PER_PAGE = 25
 MAX_COMPONENT_TEXT = 100
+MAX_COMPONENT_VALUE = 100
+MAX_SELECT_URL_CACHE_SIZE = 256
 DEFAULT_SEARCH_LIMIT = 10
+SELECT_URL_TOKEN_PREFIX = "u:"
+
+_SUPERTWINS_SEARCH_URL_CACHE: "OrderedDict[str, str]" = OrderedDict()
 
 
 def is_supertwins_search_component(custom_id: object) -> bool:
@@ -49,6 +61,36 @@ def _truncate_component_text(text: object, *, max_length: int = MAX_COMPONENT_TE
     if len(normalized) <= max_length:
         return normalized
     return normalized[: max_length - 1] + "…"
+
+
+def _remember_search_result_url(url: str) -> str:
+    digest = hashlib.sha256(url.encode("utf-8")).digest()
+    token = SELECT_URL_TOKEN_PREFIX + base64.urlsafe_b64encode(digest[:9]).decode("ascii").rstrip("=")
+    _SUPERTWINS_SEARCH_URL_CACHE[token] = url
+    _SUPERTWINS_SEARCH_URL_CACHE.move_to_end(token)
+    while len(_SUPERTWINS_SEARCH_URL_CACHE) > MAX_SELECT_URL_CACHE_SIZE:
+        _SUPERTWINS_SEARCH_URL_CACHE.popitem(last=False)
+    return token
+
+
+def _select_option_value(url: object) -> str:
+    normalized = _coerce_text(url) or ""
+    if len(normalized) <= MAX_COMPONENT_VALUE:
+        return normalized
+    return _remember_search_result_url(normalized)
+
+
+def _resolve_select_option_value(value: object) -> Optional[str]:
+    normalized = _coerce_text(value)
+    if not normalized:
+        return None
+    cached = _SUPERTWINS_SEARCH_URL_CACHE.get(normalized)
+    if cached is not None:
+        _SUPERTWINS_SEARCH_URL_CACHE.move_to_end(normalized)
+        return cached
+    if normalized.startswith(SELECT_URL_TOKEN_PREFIX):
+        return None
+    return normalized
 
 
 def _state_works(state: Mapping[str, object]) -> Mapping[str, object]:
@@ -94,6 +136,63 @@ def _work_options(watchlist: Mapping[str, object], state: Mapping[str, object]) 
     return sorted(options, key=lambda option: option["label"])
 
 
+def _page_options(
+    options: List[Dict[str, str]],
+    *,
+    page: int,
+) -> tuple[List[Dict[str, str]], int, int]:
+    page_count = max((len(options) + MAX_OPTIONS_PER_PAGE - 1) // MAX_OPTIONS_PER_PAGE, 1)
+    page_index = min(max(int(page), 0), page_count - 1)
+    start = page_index * MAX_OPTIONS_PER_PAGE
+    return options[start : start + MAX_OPTIONS_PER_PAGE], page_index, page_count
+
+
+def _work_components(
+    options: List[Dict[str, str]],
+    *,
+    page: int = 0,
+) -> List[Dict[str, object]]:
+    page_options, page_index, page_count = _page_options(options, page=page)
+    components: List[Dict[str, object]] = [
+        {
+            "type": ACTION_ROW,
+            "components": [
+                {
+                    "type": STRING_SELECT_COMPONENT,
+                    "custom_id": SUPERTWINS_SEARCH_WORK_SELECT,
+                    "placeholder": "起点の作品を選択",
+                    "min_values": 1,
+                    "max_values": 1,
+                    "options": page_options,
+                }
+            ],
+        }
+    ]
+    if page_count > 1:
+        components.append(
+            {
+                "type": ACTION_ROW,
+                "components": [
+                    {
+                        "type": BUTTON_COMPONENT,
+                        "style": BUTTON_STYLE_SECONDARY,
+                        "custom_id": f"{SUPERTWINS_SEARCH_PAGE_PREFIX}{max(page_index - 1, 0)}",
+                        "label": "Prev",
+                        "disabled": page_index == 0,
+                    },
+                    {
+                        "type": BUTTON_COMPONENT,
+                        "style": BUTTON_STYLE_PRIMARY,
+                        "custom_id": f"{SUPERTWINS_SEARCH_PAGE_PREFIX}{min(page_index + 1, page_count - 1)}",
+                        "label": "Next",
+                        "disabled": page_index >= page_count - 1,
+                    },
+                ],
+            }
+        )
+    return components
+
+
 def _search_results(
     root_source: str,
     query: str,
@@ -128,7 +227,7 @@ def _search_result_options(results: List[SearchResult]) -> List[Dict[str, str]]:
         options.append(
             {
                 "label": _truncate_component_text(result.title),
-                "value": result.seed_url,
+                "value": _select_option_value(result.seed_url),
                 "description": _truncate_component_text(result.source),
             }
         )
@@ -190,21 +289,7 @@ class SearchSupertwinsCommandHandler:
 
         return {
             "content": SUPERTWINS_SEARCH_WORK_PROMPT,
-            "components": [
-                {
-                    "type": ACTION_ROW,
-                    "components": [
-                        {
-                            "type": STRING_SELECT_COMPONENT,
-                            "custom_id": SUPERTWINS_SEARCH_WORK_SELECT,
-                            "placeholder": "起点の作品を選択",
-                            "min_values": 1,
-                            "max_values": 1,
-                            "options": options,
-                        }
-                    ],
-                }
-            ],
+            "components": _work_components(options, page=0),
         }
 
     def handle_component(
@@ -221,6 +306,12 @@ class SearchSupertwinsCommandHandler:
                 watchlist_path=watchlist_path,
                 state_path=state_path,
             )
+        if custom_id.startswith(SUPERTWINS_SEARCH_PAGE_PREFIX):
+            return self._handle_page_selection(
+                data,
+                watchlist_path=watchlist_path,
+                state_path=state_path,
+            )
         if custom_id.startswith(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX):
             return self._handle_result_selection(
                 data,
@@ -228,6 +319,30 @@ class SearchSupertwinsCommandHandler:
                 state_path=state_path,
             )
         return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
+
+    def _handle_page_selection(
+        self,
+        data: Mapping[str, object],
+        *,
+        watchlist_path: Optional[str],
+        state_path: Optional[str],
+    ) -> Dict[str, object]:
+        custom_id = str(data.get("custom_id") or "").strip()
+        raw_page = custom_id[len(SUPERTWINS_SEARCH_PAGE_PREFIX) :]
+        try:
+            page = int(raw_page)
+        except ValueError:
+            return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
+
+        watchlist = self.watchlist_loader(watchlist_path, backend=self.backend)
+        state = self.state_loader(state_path, backend=self.backend)
+        options = _work_options(watchlist, state)
+        if not options:
+            return {"content": SUPERTWINS_SEARCH_EMPTY_MESSAGE, "components": []}
+        return {
+            "content": SUPERTWINS_SEARCH_WORK_PROMPT,
+            "components": _work_components(options, page=page),
+        }
 
     def _handle_work_selection(
         self,
@@ -287,8 +402,9 @@ class SearchSupertwinsCommandHandler:
         state_path: Optional[str],
     ) -> Dict[str, object]:
         root_work_id = str(data.get("custom_id") or "").strip()[len(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX) :]
-        selected_urls = [str(value).strip() for value in data.get("values") or [] if str(value).strip()]
-        if not root_work_id or not selected_urls:
+        resolved_urls = [_resolve_select_option_value(value) for value in data.get("values") or []]
+        selected_urls = [value for value in resolved_urls if value]
+        if not root_work_id or not selected_urls or len(selected_urls) != len(resolved_urls):
             return {"content": SUPERTWINS_SEARCH_STALE_MESSAGE, "components": []}
 
         watchlist = self.watchlist_loader(watchlist_path, backend=self.backend)

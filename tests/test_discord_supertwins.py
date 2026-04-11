@@ -184,6 +184,107 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
         self.assertEqual(f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}root-1", select["custom_id"])
         self.assertEqual("作品A", select["options"][0]["label"])
 
+    def test_work_selection_tokenizes_long_candidate_urls(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            watchlist_path = tmpdir / "watchlist.json"
+            state_path = tmpdir / "state.json"
+            write_json(watchlist_path, make_watchlist())
+            write_json(state_path, make_state())
+
+            long_url = "https://kakuyomu.jp/works/" + ("1234567890" * 12)
+            search_source = FakeSearchSource(
+                {
+                    "kakuyomu": [
+                        SearchResult(
+                            source="kakuyomu",
+                            title="作品A",
+                            seed_url=long_url,
+                            subtitle="kakuyomu",
+                        )
+                    ]
+                }
+            )
+            handler = SearchSupertwinsCommandHandler(search_source=search_source)
+            payload = handler.handle_component(
+                {"custom_id": SUPERTWINS_SEARCH_WORK_SELECT, "values": ["root-1"]},
+                watchlist_path=str(watchlist_path),
+                state_path=str(state_path),
+            )
+            selected_value = payload["components"][0]["components"][0]["options"][0]["value"]
+
+            with mock.patch(
+                "manga_watch.discord_supertwins_search.build_watchlist_preview",
+                return_value={
+                    "id": "kakuyomu:long",
+                    "source": "kakuyomu",
+                    "seed_url": long_url,
+                    "enabled": True,
+                    "hidden": False,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                },
+            ):
+                result_payload = handler.handle_component(
+                    {
+                        "custom_id": f"{SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX}root-1",
+                        "values": [selected_value],
+                    },
+                    watchlist_path=str(watchlist_path),
+                    state_path=str(state_path),
+                )
+            saved_watchlist = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertLessEqual(len(selected_value), 100)
+        self.assertIn("hidden で追加", result_payload["content"])
+        self.assertTrue(
+            next(entry for entry in saved_watchlist["works"] if entry["id"] == "kakuyomu:long")["hidden"]
+        )
+
+    def test_start_paginates_root_work_options_beyond_25_entries(self):
+        watchlist = make_watchlist()
+        state = make_state()
+        for index in range(3, 31):
+            work_id = f"work-{index}"
+            watchlist["works"].append(
+                {
+                    "id": work_id,
+                    "source": "kakuyomu",
+                    "seed_url": f"https://kakuyomu.jp/works/{index}",
+                    "enabled": True,
+                    "hidden": False,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                }
+            )
+            state["works"][work_id] = {
+                "latest": {"series_title": f"作品{index}", "episode_title": "第1話"},
+                "history": [],
+                "unread": {"event_ids": []},
+                "health": {},
+            }
+
+        handler = SearchSupertwinsCommandHandler(
+            search_source=FakeSearchSource({}),
+            watchlist_loader=lambda *args, **kwargs: watchlist,
+            state_loader=lambda *args, **kwargs: state,
+        )
+
+        first_page = handler.start()
+        first_select = first_page["components"][0]["components"][0]
+        next_button = first_page["components"][1]["components"][1]
+        second_page = handler.handle_component({"custom_id": next_button["custom_id"]})
+        second_select = second_page["components"][0]["components"][0]
+
+        self.assertEqual(25, len(first_select["options"]))
+        self.assertEqual(
+            "supertwins_search:page:1",
+            next_button["custom_id"],
+        )
+        self.assertEqual(5, len(second_select["options"]))
+        self.assertEqual(
+            "supertwins_search:page:0",
+            second_page["components"][1]["components"][0]["custom_id"],
+        )
+
     def test_result_selection_adds_hidden_subscription_and_registers_group(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             tmpdir = Path(tmpdir)
