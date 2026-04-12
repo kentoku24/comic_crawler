@@ -533,6 +533,6 @@ def build_interaction_service_from_env(
         add_handler=AddCommandHandler.from_env(),
         search_handler=SearchCommandHandler(),
         remove_handler=RemoveCommandHandler(backend=storage_backend),
-        supertwins_search_handler=SearchSupertwinsCommandHandler(),
-        supertwins_manage_handler=ManageSupertwinsCommandHandler(),
+        supertwins_search_handler=SearchSupertwinsCommandHandler(backend=storage_backend),
+        supertwins_manage_handler=ManageSupertwinsCommandHandler(backend=storage_backend),
     )
