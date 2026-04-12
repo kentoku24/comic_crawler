@@ -15,7 +15,7 @@ SEARCH_RESULT_LIMIT = 25
 
 _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
     "comic-walker": {
-        "search_url": "https://comic-walker.com/search?q={query}",
+        "search_url": "https://comic-walker.com/search?keyword={query}",
         "allowed_domains": ("comic-walker.com", "www.comic-walker.com"),
     },
     "comic-action": {
