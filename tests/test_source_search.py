@@ -709,6 +709,36 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_does_not_truncate_champion_cross_titles_for_space_separated_prefix_queries(self):
+        html = """
+        <html>
+          <body>
+            <a href="/series/e349a3791821b/">
+              ONE PIECE
+            </a>
+          </body>
+        </html>
+        """
+        request_url = "https://championcross.jp/search?keyword=ONE"
+
+        results = search_source(
+            "champion-cross",
+            "ONE",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="champion-cross",
+                    title="ONE PIECE",
+                    seed_url="https://championcross.jp/series/e349a3791821b",
+                    subtitle="champion-cross",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_does_not_truncate_champion_cross_titles_for_prefix_queries(self):
         html = """
         <html>
