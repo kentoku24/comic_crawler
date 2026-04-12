@@ -18,7 +18,7 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "allowed_domains": ("comic-walker.com", "www.comic-walker.com"),
     },
     "comic-action": {
-        "search_url": "https://comic-action.com/search?keyword={query}",
+        "search_url": "https://comic-action.com/search?q={query}",
         "allowed_domains": ("comic-action.com", "www.comic-action.com"),
     },
     "comic-earthstar": {
@@ -62,12 +62,16 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "allowed_domains": ("takecomic.jp", "www.takecomic.jp"),
     },
     "nicovideo-manga": {
-        "search_url": "https://manga.nicovideo.jp/search?keyword={query}",
+        "search_url": "https://manga.nicovideo.jp/search?q={query}",
         "allowed_domains": ("manga.nicovideo.jp", "sp.manga.nicovideo.jp"),
     },
     "kakuyomu": {
         "search_url": "https://kakuyomu.jp/search?q={query}",
         "allowed_domains": ("kakuyomu.jp", "www.kakuyomu.jp"),
+    },
+    "gaugau": {
+        "search_url": "https://gaugau.futabanet.jp/list/search-result?word={query}",
+        "allowed_domains": ("gaugau.futabanet.jp",),
     },
 }
 
@@ -150,6 +154,72 @@ def _search_via_public_site(
     )
 
 
+def _search_comic_action(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    search_url = str(_SOURCE_SEARCH_CONFIG["comic-action"]["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for match in re.finditer(r'<li\b[^>]*SearchResultItem_li[^>]*>(.*?)</li>', html_text, re.I | re.S):
+        block = match.group(1)
+        title_match = re.search(r'<p\b[^>]*SearchResultItem_series_title[^>]*>(.*?)</p>', block, re.I | re.S)
+        title = _normalize_anchor_text(title_match.group(1) if title_match else "")
+        if not title:
+            image_alt_match = re.search(r'alt="([^"]+)"', block, re.I | re.S)
+            title = _normalize_anchor_text(image_alt_match.group(1) if image_alt_match else "")
+        if not title:
+            continue
+
+        href_match = re.search(r'href="([^"]+/episode/\d+[^"]*)"', block, re.I | re.S)
+        if not href_match:
+            continue
+
+        resolved_url = _resolve_result_url(href_match.group(1), search_url=search_url)
+        if not resolved_url:
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source("comic-action", resolved_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source="comic-action",
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle="comic-action",
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+def _search_gaugau(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    config = _SOURCE_SEARCH_CONFIG["gaugau"]
+    search_url = str(config["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    return _extract_work_results(
+        html_text,
+        source="gaugau",
+        search_url=search_url,
+        allowed_domains=("gaugau.futabanet.jp",),
+        limit=limit,
+    )
+
+
 def _extract_anchor_results(
     html_text: str,
     *,
@@ -175,6 +245,47 @@ def _extract_anchor_results(
         title = _extract_anchor_title(match.group(0), match.group(2))
         if not title:
             title = canonical_seed_url
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source=source,
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle=source,
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+def _extract_work_results(
+    html_text: str,
+    *,
+    source: str,
+    search_url: str,
+    allowed_domains: tuple[str, ...],
+    limit: int,
+) -> List[SearchResult]:
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for match in re.finditer(r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_text, re.I | re.S):
+        resolved_url = _resolve_result_url(match.group(1), search_url=search_url)
+        if not resolved_url or "/episodes/" in resolved_url:
+            continue
+        if not _is_allowed_domain(resolved_url, allowed_domains):
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source(source, resolved_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        title = _extract_anchor_title(match.group(0), match.group(2))
+        if not title:
+            continue
 
         seen_seed_urls.add(canonical_seed_url)
         results.append(
@@ -258,3 +369,5 @@ _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
     )
     for source in SUPPORTED_SEARCH_SOURCES
 }
+_SEARCHERS["comic-action"] = _search_comic_action
+_SEARCHERS["gaugau"] = _search_gaugau

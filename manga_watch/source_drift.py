@@ -41,6 +41,7 @@ from .sources.firecross import (
     extract_firecross_series_id,
     parse_firecross_reader_title,
 )
+from .sources.gaugau import GaugauAdapter
 from .sources.kakuyomu import KakuyomuAdapter
 from .sources.kuragebunch import (
     KuragebunchAdapter,
@@ -258,6 +259,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "latest page keeps a watch/mg URL for the newest episode",
             "latest page title still parses into series / episode labels",
             "canonical comic URL remains stable for the same comic id",
+        ),
+    ),
+    "gaugau": SourceCanaryContract(
+        source="gaugau",
+        seed_url="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+        fixture_bundle="tests/fixtures/gaugau/normal",
+        monitored_signals=(
+            "canonical work URL remains stable for the same work token",
+            "work page keeps a latest free episode URL",
+            "latest episode page title still parses into series / episode labels",
         ),
     ),
     "takecomic": SourceCanaryContract(
@@ -832,6 +843,26 @@ def _nicovideo_manga_canary(
     )
 
 
+def _gaugau_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = GaugauAdapter()
+    work = adapter.normalize(contract.seed_url)
+    latest = adapter.fetch_latest(work, http_client)
+    if not latest.episode_title:
+        raise SourceParseError("gaugau: latest episode title not found")
+
+    return (
+        (work.seed_url, latest.url),
+        (
+            CanaryObservation("canonical_seed_url", work.seed_url),
+            CanaryObservation("latest_episode_url", latest.url),
+            CanaryObservation("latest_episode_title", latest.episode_title),
+        ),
+    )
+
+
 CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
@@ -846,6 +877,7 @@ CANARY_RUNNERS = {
     "firecross": _firecross_canary,
     "kakuyomu": _kakuyomu_canary,
     "nicovideo-manga": _nicovideo_manga_canary,
+    "gaugau": _gaugau_canary,
     "takecomic": _takecomic_canary,
 }
 

@@ -8,6 +8,7 @@ from .comicborder import ComicBorderAdapter
 from .comic_trail import ComicTrailAdapter
 from .comic_walker import ComicWalkerAdapter
 from .firecross import FirecrossAdapter
+from .gaugau import GaugauAdapter
 from .kakuyomu import KakuyomuAdapter
 from .kuragebunch import KuragebunchAdapter
 from .magapoke import MagapokeAdapter
@@ -32,6 +33,7 @@ REGISTERED_ADAPTERS = (
     TakecomicAdapter(),
     NicovideoMangaAdapter(),
     KakuyomuAdapter(),
+    GaugauAdapter(),
 )
 REGISTERED_SOURCES = tuple(adapter.source for adapter in REGISTERED_ADAPTERS)
 
