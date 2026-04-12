@@ -15,7 +15,7 @@ class StaticHttpClient:
 
 class SourceSearchTests(unittest.TestCase):
     def test_supported_search_sources_are_limited_to_the_initial_supported_set(self):
-        self.assertEqual(("champion-cross", "kakuyomu"), supported_search_sources())
+        self.assertEqual(("champion-cross", "kakuyomu", "comic-walker"), supported_search_sources())
 
     def test_search_source_parses_champion_cross_results(self):
         html = """
@@ -80,6 +80,41 @@ class SourceSearchTests(unittest.TestCase):
                     title="別作品",
                     seed_url="https://kakuyomu.jp/works/900000000000000000",
                     subtitle="kakuyomu",
+                ),
+            ],
+            results,
+        )
+
+
+    def test_search_source_parses_comic_walker_results(self):
+        html = """
+        <html>
+          <body>
+            <a title="忍者と極道" href="/detail/KC_005419_S?episodeType=latest">忍者と極道</a>
+            <a title="別作品" href="/detail/KC_999999_S">別作品</a>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "comic-walker",
+            "忍者",
+            http_client=StaticHttpClient({"https://comic-walker.com/search?q=%E5%BF%8D%E8%80%85": html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="comic-walker",
+                    title="忍者と極道",
+                    seed_url="https://comic-walker.com/detail/KC_005419_S",
+                    subtitle="comic-walker",
+                ),
+                SearchResult(
+                    source="comic-walker",
+                    title="別作品",
+                    seed_url="https://comic-walker.com/detail/KC_999999_S",
+                    subtitle="comic-walker",
                 ),
             ],
             results,
