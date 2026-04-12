@@ -36,6 +36,7 @@ class DiscordSearchCommandRegistrationTests(unittest.TestCase):
                     "choices": [
                         {"name": "champion-cross", "value": "champion-cross"},
                         {"name": "kakuyomu", "value": "kakuyomu"},
+                        {"name": "comic-walker", "value": "comic-walker"},
                     ],
                 },
                 {

@@ -411,7 +411,7 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 ```
 
 Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、shared add logic で対応できる URL のみクロール対象へ追加します。`MANGA_WATCH_GITHUB_TOKEN` と `MANGA_WATCH_GITHUB_REPOSITORY` が設定されている場合、`unsupported_source` は追加失敗のまま GitHub Issue を自動作成し、「対応候補として記録した」と返信します。
-Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/search` `/remove` `/supertwins-search` `/supertwins-manage` を扱います。`/search` は媒体ごとに作品検索を行い、選択した結果を visible または hidden で watchlist に追加します。初期対応 source は `champion-cross` と `kakuyomu` です。検索未対応 source は明示的に unavailable を返します。
+Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/search` `/remove` `/supertwins-search` `/supertwins-manage` を扱います。`/search` は媒体ごとに作品検索を行い、選択した結果を visible または hidden で watchlist に追加します。初期対応 source は `champion-cross` / `kakuyomu` / `comic-walker` です。検索未対応 source は明示的に unavailable を返します。
 `/supertwins-search` は既存 watchlist 作品を起点に他媒体候補を探し、選択した候補を hidden で watchlist に追加しつつ state 上の `supertwins.groups` に登録します。既存 duplicate が選ばれた場合も、その entry を hidden 化したうえで group に追加します。`/supertwins-manage` は group と member を選択して、hidden のまま残す / hidden を解除する / subscription を削除する、の 3 アクションを扱います。削除だけは confirm を返します。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 

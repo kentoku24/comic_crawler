@@ -177,7 +177,13 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
                     "query": "作品A",
                     "http_client": None,
                     "limit": 10,
-                }
+                },
+                {
+                    "source": "comic-walker",
+                    "query": "作品A",
+                    "http_client": None,
+                    "limit": 10,
+                },
             ],
             search_source.calls,
         )

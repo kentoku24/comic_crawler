@@ -8,7 +8,7 @@ from urllib.parse import quote, urljoin, urlsplit, urlunsplit
 
 from manga_watch.sources.base import HttpClient, RequestsHttpClient
 
-SUPPORTED_SEARCH_SOURCES: tuple[str, ...] = ("champion-cross", "kakuyomu")
+SUPPORTED_SEARCH_SOURCES: tuple[str, ...] = ("champion-cross", "kakuyomu", "comic-walker")
 DEFAULT_SEARCH_LIMIT = 10
 SEARCH_RESULT_LIMIT = 25
 
@@ -101,6 +101,18 @@ def _search_champion_cross(query: str, http_client: HttpClient, *, limit: int) -
     return results
 
 
+
+
+def _search_comic_walker(query: str, http_client: HttpClient, *, limit: int) -> List[SearchResult]:
+    html = http_client.get_text(f"https://comic-walker.com/search?q={quote(query)}")
+    return _extract_anchor_results(
+        html,
+        source="comic-walker",
+        base_url="https://comic-walker.com",
+        href_pattern="/detail/KC_",
+        limit=limit,
+    )
+
 def _extract_anchor_results(
     html_text: str,
     *,
@@ -154,4 +166,5 @@ def _normalize_result_url(url: str) -> str:
 _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
     "champion-cross": _search_champion_cross,
     "kakuyomu": _search_kakuyomu,
+    "comic-walker": _search_comic_walker,
 }
