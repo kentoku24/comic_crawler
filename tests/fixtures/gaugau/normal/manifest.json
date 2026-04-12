@@ -1,0 +1,49 @@
+{
+  "seedUrl": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+  "expectedWork": {
+    "source": "gaugau",
+    "kind": "gaugau",
+    "workId": "gaugau:600a5fd37765610d30010000",
+    "seedUrl": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+    "series": "gaugau:600a5fd37765610d30010000",
+    "workToken": "600a5fd37765610d30010000"
+  },
+  "steps": [
+    {
+      "url": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+      "response": "01-work.html"
+    },
+    {
+      "url": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99",
+      "response": "02-latest.html"
+    }
+  ],
+  "expectedCheckedUrls": [
+    "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+    "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99"
+  ],
+  "expectedObservations": [
+    {
+      "name": "canonical_seed_url",
+      "value": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第51話(2)"
+    }
+  ],
+  "expectedLatest": {
+    "source": "gaugau",
+    "workId": "gaugau:600a5fd37765610d30010000",
+    "latestKey": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99",
+    "url": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99",
+    "series": "gaugau:600a5fd37765610d30010000",
+    "seriesTitle": "ダンジョンの中のひと",
+    "episodeTitle": "第51話(2)",
+    "pageTitle": "公式-ダンジョンの中のひと 第51話(2) | 無料・試し読み豊富、Web漫画・コミックサイト がうがうモンスター＋"
+  }
+}

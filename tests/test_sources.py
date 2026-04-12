@@ -20,6 +20,7 @@ from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_earthstar import ComicEarthstarAdapter
 from manga_watch.sources.comic_trail import parse_comic_trail_title
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
+from manga_watch.sources.gaugau import GaugauAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
 from manga_watch.sources.magapoke import MagapokeAdapter
 from manga_watch.sources.nicovideo_manga import NicovideoMangaAdapter
@@ -91,6 +92,9 @@ SOURCE_CASES = {
     "nicovideo-manga": (
         "normal",
     ),
+    "gaugau": (
+        "normal",
+    ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
 ERROR_TYPES = {
@@ -149,6 +153,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "normal": "main_story",
     },
     "nicovideo-manga": {
+        "normal": "main_story",
+    },
+    "gaugau": {
         "normal": "main_story",
     },
 }
@@ -254,6 +261,7 @@ class SourceAdapterTests(unittest.TestCase):
                 "takecomic",
                 "nicovideo-manga",
                 "kakuyomu",
+                "gaugau",
             ),
             REGISTERED_SOURCES,
         )
@@ -310,6 +318,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_nicovideo_manga_fixtures(self):
         self._assert_fixture_matrix("nicovideo-manga")
+
+    def test_gaugau_fixtures(self):
+        self._assert_fixture_matrix("gaugau")
 
     def test_magapoke_normalize_accepts_episode_url(self):
         work = MagapokeAdapter().normalize(
@@ -1874,6 +1885,77 @@ class SourceAdapterTests(unittest.TestCase):
         self.assertEqual("第51話", latest["episodeTitle"])
         self.assertEqual(
             ["https://manga.nicovideo.jp/comic/53764/new"],
+            client.calls,
+        )
+
+    def test_gaugau_normalize_accepts_work_url(self):
+        work = GaugauAdapter().normalize("https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000?from=search")
+
+        self.assertEqual(
+            {
+                "source": "gaugau",
+                "kind": "gaugau",
+                "workId": "gaugau:600a5fd37765610d30010000",
+                "seedUrl": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+                "series": "gaugau:600a5fd37765610d30010000",
+                "workToken": "600a5fd37765610d30010000",
+            },
+            work.to_dict(),
+        )
+
+    def test_gaugau_fetch_latest_prefers_first_episode_grid_entry_over_earlier_misc_link(self):
+        adapter = GaugauAdapter()
+        work = adapter.normalize("https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000")
+        client = StaticHttpClient(
+            {
+                "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000": """
+                <html>
+                  <head><title>公式-ダンジョンの中のひと | 作品詳細 | がうがうモンスター＋</title></head>
+                  <body>
+                    <h1>ダンジョンの中のひと</h1>
+                    <div class="hero">
+                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/1">
+                        古い導線
+                      </a>
+                    </div>
+                    <div class="episode__grid">
+                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99">
+                        <div class="episode__num">第51話(2)</div>
+                      </a>
+                    </div>
+                    <div class="episode__grid">
+                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/5">
+                        <div class="episode__num">第5話</div>
+                      </a>
+                    </div>
+                  </body>
+                </html>
+                """,
+                "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99": """
+                <html>
+                  <head>
+                    <title>公式-ダンジョンの中のひと 第51話(2) | 無料・試し読み豊富、Web漫画・コミックサイト がうがうモンスター＋</title>
+                  </head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("gaugau:600a5fd37765610d30010000", latest["workId"])
+        self.assertEqual(
+            "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第51話(2)", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+                "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99",
+            ],
             client.calls,
         )
 

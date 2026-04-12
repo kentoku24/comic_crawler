@@ -17,7 +17,7 @@ from manga_watch.discord_supertwins_search import (
     SUPERTWINS_SEARCH_WORK_SELECT,
     SearchSupertwinsCommandHandler,
 )
-from manga_watch.source_search import SearchResult
+from manga_watch.source_search import SearchResult, supported_search_sources
 from manga_watch.storage import load_supertwins_search_session
 
 
@@ -170,8 +170,9 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
                 state_path=str(state_path),
             )
 
-        self.assertNotIn("champion-cross", [call["source"] for call in search_source.calls])
-        self.assertIn("kakuyomu", [call["source"] for call in search_source.calls])
+        called_sources = [call["source"] for call in search_source.calls]
+        expected_sources = [source for source in supported_search_sources() if source != "champion-cross"]
+        self.assertEqual(expected_sources, called_sources)
         self.assertTrue(all(call["query"] == "作品A" for call in search_source.calls))
         self.assertTrue(all(call["limit"] == 10 for call in search_source.calls))
         select = payload["components"][0]["components"][0]
@@ -222,6 +223,84 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
                 },
             },
             saved_session,
+        )
+
+    def test_work_selection_includes_three_real_target_media_when_title_matches(self):
+        watchlist = {
+            "version": 2,
+            "works": [
+                {
+                    "id": "root-1",
+                    "source": "champion-cross",
+                    "seed_url": "https://championcross.jp/series/root-1",
+                    "enabled": True,
+                    "hidden": False,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                }
+            ],
+        }
+        state = make_state()
+        state["works"] = {
+            "root-1": {
+                "latest": {"series_title": "ダンジョンの中のひと", "episode_title": "第1話"},
+                "history": [],
+                "unread": {"event_ids": []},
+                "health": {},
+            }
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tmpdir = Path(tmpdir)
+            watchlist_path = tmpdir / "watchlist.json"
+            state_path = tmpdir / "state.json"
+            write_json(watchlist_path, watchlist)
+            write_json(state_path, state)
+
+            search_source = FakeSearchSource(
+                {
+                    "comic-action": [
+                        SearchResult(
+                            source="comic-action",
+                            title="ダンジョンの中のひと",
+                            seed_url="https://comic-action.com/episode/13933686331665056851",
+                            subtitle="comic-action",
+                        )
+                    ],
+                    "nicovideo-manga": [
+                        SearchResult(
+                            source="nicovideo-manga",
+                            title="ダンジョンの中のひと",
+                            seed_url="https://manga.nicovideo.jp/comic/53764",
+                            subtitle="nicovideo-manga",
+                        )
+                    ],
+                    "gaugau": [
+                        SearchResult(
+                            source="gaugau",
+                            title="ダンジョンの中のひと",
+                            seed_url="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+                            subtitle="gaugau",
+                        )
+                    ],
+                }
+            )
+            handler = SearchSupertwinsCommandHandler(search_source=search_source)
+            payload = handler.handle_component(
+                {"custom_id": SUPERTWINS_SEARCH_WORK_SELECT, "values": ["root-1"]},
+                watchlist_path=str(watchlist_path),
+                state_path=str(state_path),
+            )
+
+        self.assertTrue(
+            {"comic-action", "nicovideo-manga", "gaugau"}.issubset(
+                {call["source"] for call in search_source.calls}
+            )
+        )
+        options = payload["components"][0]["components"][0]["options"]
+        self.assertTrue(
+            {"comic-action", "nicovideo-manga", "gaugau"}.issubset(
+                {option["description"] for option in options}
+            ),
+            msg=str(options),
         )
 
     def test_work_selection_uses_unique_session_token_per_interaction(self):

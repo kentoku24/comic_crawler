@@ -152,6 +152,12 @@ SOURCE_CAPABILITIES = (
             "https://sp.manga.nicovideo.jp/comic/53764",
         ),
     ),
+    SourceCapability(
+        source="gaugau",
+        domains=("gaugau.futabanet.jp",),
+        input_labels=("work URL",),
+        examples=("https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",),
+    ),
 )
 
 

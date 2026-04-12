@@ -48,6 +48,7 @@ class DiscordSearchCommandRegistrationTests(unittest.TestCase):
                         {"name": "takecomic", "value": "takecomic"},
                         {"name": "nicovideo-manga", "value": "nicovideo-manga"},
                         {"name": "kakuyomu", "value": "kakuyomu"},
+                        {"name": "gaugau", "value": "gaugau"},
                     ],
                 },
                 {
