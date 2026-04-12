@@ -15,7 +15,25 @@ class StaticHttpClient:
 
 class SourceSearchTests(unittest.TestCase):
     def test_supported_search_sources_are_limited_to_the_initial_supported_set(self):
-        self.assertEqual(("champion-cross", "kakuyomu", "comic-walker"), supported_search_sources())
+        self.assertEqual(
+            (
+                "champion-cross",
+                "kakuyomu",
+                "comic-walker",
+                "comic-action",
+                "comic-earthstar",
+                "comicborder",
+                "comic-trail",
+                "kuragebunch",
+                "shonenjumpplus",
+                "sunday-webry",
+                "magapoke",
+                "firecross",
+                "takecomic",
+                "nicovideo-manga",
+            ),
+            supported_search_sources(),
+        )
 
     def test_search_source_parses_champion_cross_results(self):
         html = """
@@ -123,6 +141,38 @@ class SourceSearchTests(unittest.TestCase):
     def test_search_source_rejects_unknown_source(self):
         with self.assertRaisesRegex(ValueError, "unsupported search source"):
             search_source("unknown", "まんが", http_client=StaticHttpClient({}))
+
+    def test_search_source_parses_site_index_results_for_unimplemented_source(self):
+        html = """
+        <html>
+          <body>
+            <a href="https://duckduckgo.com/l/?uddg=https%3A%2F%2Fcomic-action.com%2Fepisode%2F2550912965438754901">私のタイトル</a>
+            <a href="https://comic-action.com/episode/2550912965438754902">別タイトル</a>
+          </body>
+        </html>
+        """
+        results = search_source(
+            "comic-action",
+            "タイトル",
+            http_client=StaticHttpClient({"https://duckduckgo.com/html/?q=site%3Acomic-action.com%20%E3%82%BF%E3%82%A4%E3%83%88%E3%83%AB": html}),
+        )
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="comic-action",
+                    title="私のタイトル",
+                    seed_url="https://comic-action.com/episode/2550912965438754901",
+                    subtitle="comic-action",
+                ),
+                SearchResult(
+                    source="comic-action",
+                    title="別タイトル",
+                    seed_url="https://comic-action.com/episode/2550912965438754902",
+                    subtitle="comic-action",
+                ),
+            ],
+            results,
+        )
 
 
 if __name__ == "__main__":
