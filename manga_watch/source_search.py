@@ -181,13 +181,9 @@ def _search_comic_action(
         if series_id_match:
             candidate_url = canonical_comic_action_series_feed_url("rss", series_id_match.group(1))
         else:
-            latest_match = re.search(
-                r'<a\b[^>]*href="([^"]+/episode/\d+[^"]*)"[^>]*SearchResultItem_sub_link',
-                block,
-                re.I | re.S,
-            )
+            latest_match = _extract_comic_action_latest_link(block)
             if latest_match:
-                candidate_url = latest_match.group(1)
+                candidate_url = latest_match
             else:
                 href_match = re.search(r'href="([^"]+/episode/\d+[^"]*)"', block, re.I | re.S)
                 if href_match:
@@ -217,6 +213,17 @@ def _search_comic_action(
             break
 
     return results
+
+
+def _extract_comic_action_latest_link(block: str) -> str:
+    for match in re.finditer(r'(<a\b[^>]*>.*?</a>)', block, re.I | re.S):
+        anchor_markup = match.group(1)
+        if "SearchResultItem_sub_link" not in anchor_markup:
+            continue
+        href_match = re.search(r'href="([^"]+/episode/\d+[^"]*)"', anchor_markup, re.I | re.S)
+        if href_match:
+            return href_match.group(1)
+    return ""
 
 
 def _search_gaugau(

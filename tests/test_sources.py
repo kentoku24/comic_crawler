@@ -1903,7 +1903,7 @@ class SourceAdapterTests(unittest.TestCase):
             work.to_dict(),
         )
 
-    def test_gaugau_fetch_latest_uses_first_free_episode_from_work_page(self):
+    def test_gaugau_fetch_latest_prefers_first_episode_grid_entry_over_earlier_misc_link(self):
         adapter = GaugauAdapter()
         work = adapter.normalize("https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000")
         client = StaticHttpClient(
@@ -1913,9 +1913,21 @@ class SourceAdapterTests(unittest.TestCase):
                   <head><title>公式-ダンジョンの中のひと | 作品詳細 | がうがうモンスター＋</title></head>
                   <body>
                     <h1>ダンジョンの中のひと</h1>
-                    <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99">
-                      <div class="episode__num">第51話(2)</div>
-                    </a>
+                    <div class="hero">
+                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/1">
+                        古い導線
+                      </a>
+                    </div>
+                    <div class="episode__grid">
+                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99">
+                        <div class="episode__num">第51話(2)</div>
+                      </a>
+                    </div>
+                    <div class="episode__grid">
+                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/5">
+                        <div class="episode__num">第5話</div>
+                      </a>
+                    </div>
                   </body>
                 </html>
                 """,

@@ -31,13 +31,17 @@ def extract_gaugau_work_token(seed_url: str) -> Optional[str]:
 def extract_gaugau_latest_episode_url(html_text: str, work_token: str) -> Optional[str]:
     if not html_text or not work_token:
         return None
-    match = re.search(
-        rf"https?://gaugau\.futabanet\.jp/list/work/{re.escape(work_token)}/episodes/\d+",
-        html_text,
-    )
-    if not match:
-        return None
-    return match.group(0)
+    episode_url_pattern = rf"https?://gaugau\.futabanet\.jp/list/work/{re.escape(work_token)}/episodes/\d+"
+    grid_pattern = rf'<div\b[^>]*episode__grid[^>]*>.*?href="({episode_url_pattern})"'
+    for match in re.finditer(grid_pattern, html_text, re.I | re.S):
+        href_match = re.search(episode_url_pattern, match.group(1))
+        if href_match:
+            return href_match.group(0)
+
+    fallback_match = re.search(episode_url_pattern, html_text)
+    if fallback_match:
+        return fallback_match.group(0)
+    return None
 
 
 def parse_gaugau_title(page_title: str) -> Tuple[Optional[str], Optional[str]]:

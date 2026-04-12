@@ -166,6 +166,53 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_parses_comic_action_latest_link_when_attributes_are_reordered(self):
+        html = """
+        <html>
+          <body>
+            <section>
+              <ul>
+                <li class="SearchResultItem_li__u1Vp8">
+                  <div>
+                    <a href="https://comic-action.com/episode/13933686331665056851">
+                      <img alt="ダンジョンの中のひと" />
+                    </a>
+                  </div>
+                  <div class="SearchResultItem_title_box__kqLq3">
+                    <p class="SearchResultItem_series_title__hDsk1">ダンジョンの中のひと</p>
+                    <a class="SearchResultItem_sub_link__ZIGr8" href="https://comic-action.com/episode/13933686331677886179">
+                      最新話を読む
+                    </a>
+                  </div>
+                </li>
+              </ul>
+            </section>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "comic-action",
+            "ダンジョンの中のひと",
+            http_client=StaticHttpClient(
+                {
+                    "https://comic-action.com/search?q=%E3%83%80%E3%83%B3%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E4%B8%AD%E3%81%AE%E3%81%B2%E3%81%A8": html
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="comic-action",
+                    title="ダンジョンの中のひと",
+                    seed_url="https://comic-action.com/episode/13933686331677886179",
+                    subtitle="comic-action",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_parses_nicovideo_manga_results_via_q_parameter(self):
         html = """
         <html>
