@@ -39,6 +39,11 @@ class FakeResponse:
         self.status_code = status_code
         self.text = text
 
+    def raise_for_status(self):
+        if 200 <= self.status_code < 300:
+            return None
+        raise RuntimeError(f"HTTP {self.status_code}: {self.text}")
+
 
 class FakeAuthorizedSession:
     def __init__(self, response=None):
@@ -47,6 +52,21 @@ class FakeAuthorizedSession:
 
     def post(self, url, **kwargs):
         self.posts.append({"url": url, **kwargs})
+        return self.response
+
+
+class FakeInteractionCallbackSession:
+    def __init__(self, response=None):
+        self.response = response or FakeResponse()
+        self.posts = []
+        self.patches = []
+
+    def post(self, url, **kwargs):
+        self.posts.append({"url": url, **kwargs})
+        return self.response
+
+    def patch(self, url, **kwargs):
+        self.patches.append({"url": url, **kwargs})
         return self.response
 
 
@@ -340,6 +360,26 @@ class FetchDispatcherTests(unittest.TestCase):
             },
             build_manual_run_request_body(),
         )
+
+    def test_discord_interaction_callback_client_uses_shorter_timeout_for_defer(self):
+        from manga_watch.discord_interactions import DiscordInteractionCallbackClient
+
+        session = FakeInteractionCallbackSession()
+        client = DiscordInteractionCallbackClient(
+            session=session,
+            timeout=15,
+            defer_timeout=2,
+        )
+
+        client.defer_component(interaction_id="interaction-1", interaction_token="token-1")
+        client.edit_original_response(
+            application_id="app-1",
+            interaction_token="token-1",
+            data={"content": "updated"},
+        )
+
+        self.assertEqual(2, session.posts[0]["timeout"])
+        self.assertEqual(15, session.patches[0]["timeout"])
 
 
 class BuildInteractionServiceFromEnvTests(unittest.TestCase):

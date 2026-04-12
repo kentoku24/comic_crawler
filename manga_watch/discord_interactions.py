@@ -6,6 +6,7 @@ from dataclasses import dataclass
 from typing import Callable, Dict, Mapping, Optional, Protocol
 
 import google.auth
+import requests
 from google.auth.transport.requests import AuthorizedSession
 from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
@@ -22,6 +23,8 @@ from manga_watch.discord_supertwins_manage import (
 )
 from manga_watch.discord_supertwins_search import (
     SUPERTWINS_SEARCH_COMMAND,
+    SUPERTWINS_SEARCH_STALE_MESSAGE,
+    SUPERTWINS_SEARCH_WORK_SELECT,
     SearchSupertwinsCommandHandler,
     is_supertwins_search_component,
 )
@@ -37,6 +40,7 @@ INTERACTION_TYPE_APPLICATION_COMMAND = 2
 INTERACTION_TYPE_MESSAGE_COMPONENT = 3
 INTERACTION_RESPONSE_TYPE_PONG = 1
 INTERACTION_RESPONSE_TYPE_CHANNEL_MESSAGE = 4
+INTERACTION_RESPONSE_TYPE_DEFERRED_UPDATE_MESSAGE = 6
 INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE = 7
 EPHEMERAL_MESSAGE_FLAG = 64
 DEFAULT_HTTP_TIMEOUT = 15
@@ -122,6 +126,20 @@ class FetchDispatcher(Protocol):
         ...
 
 
+class InteractionCallbackClient(Protocol):
+    def defer_component(self, *, interaction_id: str, interaction_token: str) -> None:
+        ...
+
+    def edit_original_response(
+        self,
+        *,
+        application_id: str,
+        interaction_token: str,
+        data: Mapping[str, object],
+    ) -> None:
+        ...
+
+
 class InProcessFetchDispatcher:
     def __init__(self, coordinator: RunCoordinator):
         self.coordinator = coordinator
@@ -176,6 +194,44 @@ class CloudRunJobFetchDispatcher:
         raise RuntimeError(
             f"Cloud Run Job launch failed with HTTP {response.status_code}: {detail[:300]}"
         )
+
+
+class DiscordInteractionCallbackClient:
+    def __init__(
+        self,
+        *,
+        session: Optional[requests.Session] = None,
+        timeout: int = DEFAULT_HTTP_TIMEOUT,
+        defer_timeout: float = 2.0,
+    ):
+        self.session = session or requests.Session()
+        self.timeout = timeout
+        self.defer_timeout = defer_timeout
+
+    def defer_component(self, *, interaction_id: str, interaction_token: str) -> None:
+        response = self.session.post(
+            f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback",
+            json={"type": INTERACTION_RESPONSE_TYPE_DEFERRED_UPDATE_MESSAGE},
+            timeout=self.defer_timeout,
+        )
+        response.raise_for_status()
+
+    def edit_original_response(
+        self,
+        *,
+        application_id: str,
+        interaction_token: str,
+        data: Mapping[str, object],
+    ) -> None:
+        response = self.session.patch(
+            f"https://discord.com/api/v10/webhooks/{application_id}/{interaction_token}/messages/@original",
+            json={
+                "allowed_mentions": {"parse": []},
+                **dict(data),
+            },
+            timeout=self.timeout,
+        )
+        response.raise_for_status()
 
 
 def build_fetch_dispatcher_from_env(
@@ -256,6 +312,14 @@ def text_response(status_code: int, message: str) -> InteractionHttpResponse:
     )
 
 
+def empty_response(status_code: int) -> InteractionHttpResponse:
+    return InteractionHttpResponse(
+        status_code=status_code,
+        body=b"",
+        content_type="text/plain; charset=utf-8",
+    )
+
+
 def interaction_message_response(content: str) -> InteractionHttpResponse:
     return interaction_payload_response(
         INTERACTION_RESPONSE_TYPE_CHANNEL_MESSAGE,
@@ -305,6 +369,7 @@ class DiscordInteractionService:
     remove_handler: Optional[RemoveCommandHandler] = None
     supertwins_search_handler: Optional[SearchSupertwinsCommandHandler] = None
     supertwins_manage_handler: Optional[ManageSupertwinsCommandHandler] = None
+    interaction_callback_client: Optional[InteractionCallbackClient] = None
 
     def handle_request(
         self,
@@ -413,6 +478,8 @@ class DiscordInteractionService:
                 state_path=self.state_path,
             )
         elif self.supertwins_search_handler is not None and is_supertwins_search_component(custom_id):
+            if custom_id == SUPERTWINS_SEARCH_WORK_SELECT and self.interaction_callback_client is not None:
+                return self._handle_deferred_supertwins_search_work_select(payload, data)
             response_payload = self.supertwins_search_handler.handle_component(
                 data,
                 watchlist_path=self.watchlist_path,
@@ -430,6 +497,70 @@ class DiscordInteractionService:
             INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
             response_payload,
         )
+
+    def _handle_deferred_supertwins_search_work_select(
+        self,
+        payload: Mapping[str, object],
+        data: Mapping[str, object],
+    ) -> InteractionHttpResponse:
+        interaction_id = _coerce_text(payload.get("id"))
+        application_id = _coerce_text(payload.get("application_id"))
+        interaction_token = _coerce_text(payload.get("token"))
+        if (
+            not interaction_id
+            or not application_id
+            or not interaction_token
+            or self.interaction_callback_client is None
+            or self.supertwins_search_handler is None
+        ):
+            response_payload = self.supertwins_search_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+            return interaction_payload_response(
+                INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
+                response_payload,
+            )
+
+        try:
+            self.interaction_callback_client.defer_component(
+                interaction_id=interaction_id,
+                interaction_token=interaction_token,
+            )
+        except Exception:
+            response_payload = self.supertwins_search_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+            return interaction_payload_response(
+                INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
+                response_payload,
+            )
+
+        response_payload: Mapping[str, object] = {
+            "content": SUPERTWINS_SEARCH_STALE_MESSAGE,
+            "components": [],
+        }
+        try:
+            response_payload = self.supertwins_search_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+        except Exception:
+            pass
+
+        try:
+            self.interaction_callback_client.edit_original_response(
+                application_id=application_id,
+                interaction_token=interaction_token,
+                data=response_payload,
+            )
+        except Exception:
+            pass
+        return empty_response(202)
 
     def _verify_request(self, *, headers: Mapping[str, str], body: bytes) -> bool:
         if self.verifier is None:
@@ -535,4 +666,5 @@ def build_interaction_service_from_env(
         remove_handler=RemoveCommandHandler(backend=storage_backend),
         supertwins_search_handler=SearchSupertwinsCommandHandler(backend=storage_backend),
         supertwins_manage_handler=ManageSupertwinsCommandHandler(backend=storage_backend),
+        interaction_callback_client=DiscordInteractionCallbackClient(),
     )
