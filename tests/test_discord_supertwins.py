@@ -17,7 +17,7 @@ from manga_watch.discord_supertwins_search import (
     SUPERTWINS_SEARCH_WORK_SELECT,
     SearchSupertwinsCommandHandler,
 )
-from manga_watch.source_search import SearchResult
+from manga_watch.source_search import SearchResult, supported_search_sources
 from manga_watch.storage import load_supertwins_search_session
 
 
@@ -170,8 +170,8 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
                 state_path=str(state_path),
             )
 
-        self.assertNotIn("champion-cross", [call["source"] for call in search_source.calls])
-        self.assertIn("kakuyomu", [call["source"] for call in search_source.calls])
+        expected_sources = [source for source in supported_search_sources() if source != "champion-cross"]
+        self.assertEqual(expected_sources, [call["source"] for call in search_source.calls])
         self.assertTrue(all(call["query"] == "作品A" for call in search_source.calls))
         self.assertTrue(all(call["limit"] == 10 for call in search_source.calls))
         select = payload["components"][0]["components"][0]
