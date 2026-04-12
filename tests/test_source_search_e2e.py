@@ -12,27 +12,88 @@ RUN_REAL_SEARCH_E2E = os.environ.get("RUN_REAL_SEARCH_E2E") == "1"
 
 @unittest.skipUnless(RUN_REAL_SEARCH_E2E, "set RUN_REAL_SEARCH_E2E=1 to run real network search e2e tests")
 class SourceSearchE2ETests(unittest.TestCase):
-    def test_real_search_source_requests_include_expected_titles_for_remaining_media(self):
+    def test_real_search_source_requests_reach_expected_works_for_recognized_media_title_pairs(self):
         client = RequestsHttpClient()
         cases = [
-            ("comic-walker", "異世界迷宮の迷子ちゃん", "異世界迷宮の迷子ちゃん"),
-            ("comic-earthstar", "戦国小町苦労譚", "戦国小町苦労譚"),
-            ("comicborder", "勇者のクズ", "勇者のクズ"),
-            ("comic-trail", "アタリ", "アタリ"),
-            ("kuragebunch", "極主夫道", "極主夫道"),
-            ("shonenjumpplus", "ふつうの軽音部", "ふつうの軽音部"),
-            ("sunday-webry", "レッドブルー", "レッドブルー"),
-            ("champion-cross", "僕の心のヤバイやつ", "僕の心のヤバイやつ"),
-            ("magapoke", "薫る花は凛と咲く", "薫る花は凛と咲く"),
-            ("takecomic", "のみじょし", "のみじょし"),
-            ("kakuyomu", "異世界刀匠魔剣製作記", "異世界刀匠魔剣製作記"),
+            (
+                "comic-walker",
+                "異世界迷宮の迷子ちゃん",
+                "異世界迷宮の迷子ちゃん",
+                "https://comic-walker.com/detail/KC_008280_S",
+            ),
+            (
+                "comic-earthstar",
+                "戦国小町苦労譚",
+                "戦国小町苦労譚",
+                "https://comic-earthstar.com/episode/12207421983458916468",
+            ),
+            (
+                "comicborder",
+                "勇者のクズ",
+                "勇者のクズ",
+                "https://comicborder.com/episode/3269754496750702763",
+            ),
+            (
+                "comic-trail",
+                "アタリ",
+                "アタリ",
+                "https://comic-trail.com/episode/12207421983425238737",
+            ),
+            (
+                "kuragebunch",
+                "極主夫道",
+                "極主夫道",
+                "https://kuragebunch.com/episode/12207421983484661205",
+            ),
+            (
+                "shonenjumpplus",
+                "ふつうの軽音部",
+                "ふつうの軽音部",
+                "https://shonenjumpplus.com/episode/17107419589191808162",
+            ),
+            (
+                "sunday-webry",
+                "レッドブルー",
+                "レッドブルー",
+                "https://www.sunday-webry.com/episode/12207421983588825279",
+            ),
+            (
+                "champion-cross",
+                "僕の心のヤバイやつ",
+                "僕の心のヤバイやつ",
+                "https://championcross.jp/series/899dda204c3f2",
+            ),
+            (
+                "magapoke",
+                "薫る花は凛と咲く",
+                "薫る花は凛と咲く",
+                "https://pocket.shonenmagazine.com/title/01524",
+            ),
+            (
+                "takecomic",
+                "のみじょし",
+                "のみじょし",
+                "https://takecomic.jp/series/422e135f10aeb",
+            ),
+            (
+                "kakuyomu",
+                "異世界刀匠魔剣製作記",
+                "異世界刀匠魔剣製作記",
+                "https://kakuyomu.jp/works/16817139555923024504",
+            ),
         ]
 
-        for source, query, expected_title in cases:
+        for source, query, expected_title, expected_seed_url in cases:
             with self.subTest(source=source):
                 results = search_source(source, query, http_client=client)
                 self.assertTrue(results, msg=f"{source} returned no results for {query}")
-                self.assertIn(expected_title, [result.title for result in results], msg=str(results))
+                self.assertTrue(
+                    any(
+                        result.title == expected_title and result.seed_url == expected_seed_url
+                        for result in results
+                    ),
+                    msg=str(results),
+                )
 
     def test_real_search_source_requests_include_expected_media_for_dungeon_no_naka_no_hito(self):
         client = RequestsHttpClient()
