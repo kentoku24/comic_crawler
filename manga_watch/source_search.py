@@ -72,11 +72,16 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
 }
 
 _CONFIGURED_SOURCE_NAMES = set(_SOURCE_SEARCH_CONFIG)
+_UNKNOWN_CONFIGURED_SOURCES = _CONFIGURED_SOURCE_NAMES - set(REGISTERED_SOURCES)
+if _UNKNOWN_CONFIGURED_SOURCES:
+    unknown_sources = ", ".join(sorted(_UNKNOWN_CONFIGURED_SOURCES))
+    raise RuntimeError(f"search config contains unknown sources: {unknown_sources}")
 
 # Search capability is opt-in per source; keep registry order and expose only configured ones.
 SUPPORTED_SEARCH_SOURCES: tuple[str, ...] = tuple(
     source for source in REGISTERED_SOURCES if source in _CONFIGURED_SOURCE_NAMES
 )
+
 
 @dataclass(frozen=True)
 class SearchResult:
@@ -167,8 +172,7 @@ def _extract_anchor_results(
         if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
             continue
 
-        title_attr_match = re.search(r'title="([^"]+)"', match.group(0), re.I | re.S)
-        title = _normalize_anchor_text(title_attr_match.group(1) if title_attr_match else match.group(2))
+        title = _extract_anchor_title(match.group(0), match.group(2))
         if not title:
             title = canonical_seed_url
 
@@ -187,15 +191,38 @@ def _extract_anchor_results(
     return results
 
 
+def _extract_anchor_title(anchor_markup: str, anchor_html: str) -> str:
+    title_attr_match = re.search(r'title\s*=\s*(["\'])(.*?)\1', anchor_markup, re.I | re.S)
+    if title_attr_match:
+        title = _normalize_anchor_text(title_attr_match.group(2))
+        if title:
+            return title
+
+    title = _normalize_anchor_text(anchor_html)
+    if title:
+        return title
+
+    image_alt_match = re.search(r'<img\b[^>]*alt\s*=\s*(["\'])(.*?)\1', anchor_html, re.I | re.S)
+    if not image_alt_match:
+        return ""
+
+    alt_title = _normalize_anchor_text(image_alt_match.group(2))
+    if not alt_title:
+        return ""
+    stripped_alt_title = re.sub(r"【.*$", "", alt_title).strip()
+    return stripped_alt_title or alt_title
+
+
 def _resolve_result_url(href: str, *, search_url: str) -> Optional[str]:
     normalized = unescape(str(href or "")).strip().replace("\\/", "/")
     if not normalized:
         return None
 
-    if normalized.startswith("/"):
-        normalized = urljoin(search_url, normalized)
-
     parsed = urlsplit(normalized)
+    if not parsed.scheme:
+        normalized = urljoin(search_url, normalized)
+        parsed = urlsplit(normalized)
+
     if parsed.scheme not in ("http", "https"):
         return None
     return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")).rstrip("/")
