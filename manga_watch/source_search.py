@@ -4,11 +4,26 @@ import re
 from dataclasses import dataclass
 from html import unescape
 from typing import Callable, Dict, List, Optional
-from urllib.parse import quote, urljoin, urlsplit, urlunsplit
+from urllib.parse import parse_qs, quote, unquote, urljoin, urlsplit, urlunsplit
 
 from manga_watch.sources.base import HttpClient, RequestsHttpClient
 
-SUPPORTED_SEARCH_SOURCES: tuple[str, ...] = ("champion-cross", "kakuyomu", "comic-walker")
+SUPPORTED_SEARCH_SOURCES: tuple[str, ...] = (
+    "champion-cross",
+    "kakuyomu",
+    "comic-walker",
+    "comic-action",
+    "comic-earthstar",
+    "comicborder",
+    "comic-trail",
+    "kuragebunch",
+    "shonenjumpplus",
+    "sunday-webry",
+    "magapoke",
+    "firecross",
+    "takecomic",
+    "nicovideo-manga",
+)
 DEFAULT_SEARCH_LIMIT = 10
 SEARCH_RESULT_LIMIT = 25
 
@@ -113,6 +128,35 @@ def _search_comic_walker(query: str, http_client: HttpClient, *, limit: int) -> 
         limit=limit,
     )
 
+
+_SITE_SEARCH_SPECS: Dict[str, Dict[str, str]] = {
+    "comic-action": {"host": "comic-action.com", "href_pattern": "/episode/"},
+    "comic-earthstar": {"host": "comic-earthstar.com", "href_pattern": "/episode/"},
+    "comicborder": {"host": "comicborder.com", "href_pattern": "/comics/"},
+    "comic-trail": {"host": "comic-trail.com", "href_pattern": "/episode/"},
+    "kuragebunch": {"host": "kuragebunch.com", "href_pattern": "/episode/"},
+    "shonenjumpplus": {"host": "shonenjumpplus.com", "href_pattern": "/episode/"},
+    "sunday-webry": {"host": "sunday-webry.com", "href_pattern": "/episode/"},
+    "magapoke": {"host": "pocket.shonenmagazine.com", "href_pattern": "/episode/"},
+    "firecross": {"host": "firecross.jp", "href_pattern": "/episode/"},
+    "takecomic": {"host": "take-comic.jp", "href_pattern": "/episode/"},
+    "nicovideo-manga": {"host": "seiga.nicovideo.jp", "href_pattern": "/watch/"},
+}
+
+
+def _search_site_index(source: str, query: str, http_client: HttpClient, *, limit: int) -> List[SearchResult]:
+    spec = _SITE_SEARCH_SPECS[source]
+    ddg_query = quote(f"site:{spec['host']} {query}")
+    html = http_client.get_text(f"https://duckduckgo.com/html/?q={ddg_query}")
+    return _extract_anchor_results(
+        html,
+        source=source,
+        base_url=f"https://{spec['host']}",
+        href_pattern=spec["href_pattern"],
+        limit=limit,
+    )
+
+
 def _extract_anchor_results(
     html_text: str,
     *,
@@ -124,7 +168,7 @@ def _extract_anchor_results(
     results: List[SearchResult] = []
     seen_urls = set()
     for match in re.finditer(r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_text, re.I | re.S):
-        href = unescape(match.group(1)).replace("\\/", "/")
+        href = _unwrap_result_href(unescape(match.group(1)).replace("\\/", "/"))
         if href_pattern not in href:
             continue
         if source == "kakuyomu" and "/episodes/" in href:
@@ -150,6 +194,15 @@ def _extract_anchor_results(
     return results
 
 
+def _unwrap_result_href(href: str) -> str:
+    parsed = urlsplit(href)
+    if parsed.netloc.endswith("duckduckgo.com") and parsed.path.startswith("/l/"):
+        encoded_target = parse_qs(parsed.query).get("uddg", [None])[0]
+        if encoded_target:
+            return unquote(encoded_target)
+    return href
+
+
 def _normalize_anchor_text(text: str) -> str:
     normalized = re.sub(r"<[^>]+>", "", text or "")
     normalized = unescape(re.sub(r"\s+", " ", normalized)).strip()
@@ -167,4 +220,5 @@ _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
     "champion-cross": _search_champion_cross,
     "kakuyomu": _search_kakuyomu,
     "comic-walker": _search_comic_walker,
+    **{source: (lambda q, c, *, limit, _source=source: _search_site_index(_source, q, c, limit=limit)) for source in _SITE_SEARCH_SPECS},
 }
