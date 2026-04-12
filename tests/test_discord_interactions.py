@@ -399,6 +399,10 @@ class BuildInteractionServiceFromEnvTests(unittest.TestCase):
         self.assertFalse(service.verification_disabled)
         self.assertIsNotNone(service.remove_handler)
         self.assertEqual("firestore", service.remove_handler.backend)
+        self.assertIsNotNone(service.supertwins_search_handler)
+        self.assertEqual("firestore", service.supertwins_search_handler.backend)
+        self.assertIsNotNone(service.supertwins_manage_handler)
+        self.assertEqual("firestore", service.supertwins_manage_handler.backend)
 
     def test_build_interaction_service_configures_github_issue_reporter_when_env_present(self):
         runner_config = RunnerConfig(
