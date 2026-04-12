@@ -301,6 +301,44 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_parses_comic_walker_results_via_keyword_parameter(self):
+        html = """
+        <html>
+          <body>
+            <a class="WorkThumbnail_link__LWlLk" href="/detail/KC_003921_S/episodes/KC_0039210000100011_E">
+              <span class="WorkThumbnail_title__EmZ6E" lang="ja">魔術師クノンは見えている</span>
+            </a>
+            <a class="WorkThumbnail_link__LWlLk" href="/detail/KC_999999_S/episodes/KC_9999990000100011_E">
+              <span class="WorkThumbnail_title__EmZ6E" lang="ja">別作品</span>
+            </a>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "comic-walker",
+            "クノン",
+            http_client=StaticHttpClient({"https://comic-walker.com/search?keyword=%E3%82%AF%E3%83%8E%E3%83%B3": html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="comic-walker",
+                    title="魔術師クノンは見えている",
+                    seed_url="https://comic-walker.com/detail/KC_003921_S",
+                    subtitle="comic-walker",
+                ),
+                SearchResult(
+                    source="comic-walker",
+                    title="別作品",
+                    seed_url="https://comic-walker.com/detail/KC_999999_S",
+                    subtitle="comic-walker",
+                ),
+            ],
+            results,
+        )
+
     def test_search_source_rejects_unknown_source(self):
         with self.assertRaisesRegex(ValueError, "unsupported search source"):
             search_source("unknown", "まんが", http_client=StaticHttpClient({}))
