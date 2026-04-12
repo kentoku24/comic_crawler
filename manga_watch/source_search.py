@@ -72,16 +72,10 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
 }
 
 _CONFIGURED_SOURCE_NAMES = set(_SOURCE_SEARCH_CONFIG)
-_REGISTERED_SOURCE_NAMES = set(REGISTERED_SOURCES)
-_UNKNOWN_CONFIG_SOURCES = _CONFIGURED_SOURCE_NAMES - _REGISTERED_SOURCE_NAMES
-_MISSING_CONFIG_SOURCES = _REGISTERED_SOURCE_NAMES - _CONFIGURED_SOURCE_NAMES
-if _UNKNOWN_CONFIG_SOURCES:
-    raise RuntimeError(f"unknown search source config: {sorted(_UNKNOWN_CONFIG_SOURCES)!r}")
-if _MISSING_CONFIG_SOURCES:
-    raise RuntimeError(f"missing search source config: {sorted(_MISSING_CONFIG_SOURCES)!r}")
 
+# Search capability is opt-in per source; keep registry order and expose only configured ones.
 SUPPORTED_SEARCH_SOURCES: tuple[str, ...] = tuple(
-    source for source in REGISTERED_SOURCES if source in _SOURCE_SEARCH_CONFIG
+    source for source in REGISTERED_SOURCES if source in _CONFIGURED_SOURCE_NAMES
 )
 
 @dataclass(frozen=True)
