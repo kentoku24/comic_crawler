@@ -34,17 +34,14 @@ class SourceSearchTests(unittest.TestCase):
             supported_search_sources(),
         )
 
-    def test_search_source_parses_duckduckgo_results_and_normalizes_seed_url(self):
+    def test_search_source_parses_site_results_and_normalizes_seed_url(self):
         html = """
         <html><body>
-          <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fkakuyomu.jp%2Fworks%2F822139840410356917%2Fepisodes%2F1">雉はどっちだ</a>
+          <a href="/works/822139840410356917/episodes/1" title="雉はどっちだ">ignored body</a>
           <a href="https://example.com/ignore">ignored</a>
         </body></html>
         """
-        request_url = (
-            "https://duckduckgo.com/html/?q="
-            "%E3%81%BE%E3%82%93%E3%81%8C+site%3Akakuyomu.jp"
-        )
+        request_url = "https://kakuyomu.jp/search?q=%E3%81%BE%E3%82%93%E3%81%8C"
 
         results = search_source(
             "kakuyomu",

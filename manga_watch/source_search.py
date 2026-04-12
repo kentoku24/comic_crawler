@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from html import unescape
 from typing import Callable, Dict, List, Optional
-from urllib.parse import parse_qs, quote_plus, unquote, urljoin, urlsplit, urlunsplit
+from urllib.parse import quote_plus, urljoin, urlsplit, urlunsplit
 
 from manga_watch.sources import REGISTERED_SOURCES, normalize_seed_url
 from manga_watch.sources.base import HttpClient, RequestsHttpClient
@@ -15,22 +15,60 @@ SUPPORTED_SEARCH_SOURCES: tuple[str, ...] = tuple(
 )
 DEFAULT_SEARCH_LIMIT = 10
 SEARCH_RESULT_LIMIT = 25
-_DDG_SEARCH_URL = "https://duckduckgo.com/html/?q={query}"
 
-_SOURCE_SEARCH_TARGETS: Dict[str, tuple[str, ...]] = {
-    "champion-cross": ("championcross.jp",),
-    "comic-action": ("comic-action.com",),
-    "comic-earthstar": ("comic-earthstar.com",),
-    "comic-trail": ("comic-trail.com",),
-    "comicborder": ("comicborder.com",),
-    "firecross": ("firecross.jp",),
-    "kakuyomu": ("kakuyomu.jp",),
-    "kuragebunch": ("kuragebunch.com",),
-    "magapoke": ("pocket.shonenmagazine.com", "pocket.shonenmagazine.com/rss"),
-    "nicovideo-manga": ("manga.nicovideo.jp", "sp.manga.nicovideo.jp"),
-    "shonenjumpplus": ("shonenjumpplus.com",),
-    "sunday-webry": ("sunday-webry.com",),
-    "takecomic": ("takecomic.jp",),
+_SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
+    "comic-action": {
+        "search_url": "https://comic-action.com/search?keyword={query}",
+        "allowed_domains": ("comic-action.com", "www.comic-action.com"),
+    },
+    "comic-earthstar": {
+        "search_url": "https://comic-earthstar.com/search?keyword={query}",
+        "allowed_domains": ("comic-earthstar.com", "www.comic-earthstar.com"),
+    },
+    "comicborder": {
+        "search_url": "https://comicborder.com/search?keyword={query}",
+        "allowed_domains": ("comicborder.com", "www.comicborder.com"),
+    },
+    "comic-trail": {
+        "search_url": "https://comic-trail.com/search?keyword={query}",
+        "allowed_domains": ("comic-trail.com", "www.comic-trail.com"),
+    },
+    "kuragebunch": {
+        "search_url": "https://kuragebunch.com/search?keyword={query}",
+        "allowed_domains": ("kuragebunch.com", "www.kuragebunch.com"),
+    },
+    "shonenjumpplus": {
+        "search_url": "https://shonenjumpplus.com/search?query={query}",
+        "allowed_domains": ("shonenjumpplus.com", "www.shonenjumpplus.com"),
+    },
+    "sunday-webry": {
+        "search_url": "https://www.sunday-webry.com/search?query={query}",
+        "allowed_domains": ("sunday-webry.com", "www.sunday-webry.com"),
+    },
+    "champion-cross": {
+        "search_url": "https://championcross.jp/search?keyword={query}",
+        "allowed_domains": ("championcross.jp", "www.championcross.jp"),
+    },
+    "magapoke": {
+        "search_url": "https://pocket.shonenmagazine.com/search?query={query}",
+        "allowed_domains": ("pocket.shonenmagazine.com",),
+    },
+    "firecross": {
+        "search_url": "https://firecross.jp/search?keyword={query}",
+        "allowed_domains": ("firecross.jp", "www.firecross.jp"),
+    },
+    "takecomic": {
+        "search_url": "https://takecomic.jp/search?keyword={query}",
+        "allowed_domains": ("takecomic.jp", "www.takecomic.jp"),
+    },
+    "nicovideo-manga": {
+        "search_url": "https://manga.nicovideo.jp/search?keyword={query}",
+        "allowed_domains": ("manga.nicovideo.jp", "sp.manga.nicovideo.jp"),
+    },
+    "kakuyomu": {
+        "search_url": "https://kakuyomu.jp/search?q={query}",
+        "allowed_domains": ("kakuyomu.jp", "www.kakuyomu.jp"),
+    },
 }
 
 
@@ -77,36 +115,54 @@ def search_source(
     return searcher(normalized_query, client, limit=safe_limit)
 
 
-def _search_with_duckduckgo(
+def _search_via_public_site(
     source: str,
     query: str,
     http_client: HttpClient,
     *,
     limit: int,
 ) -> List[SearchResult]:
-    domains = _SOURCE_SEARCH_TARGETS.get(source)
-    if not domains:
+    config = _SOURCE_SEARCH_CONFIG.get(source)
+    if not config:
         raise UnsupportedSourceSearchError(f"unsupported search source: {source}")
 
-    search_query = f"{query} {' OR '.join(f'site:{domain}' for domain in domains)}"
-    html_text = http_client.get_text(_DDG_SEARCH_URL.format(query=quote_plus(search_query)))
-    return _extract_duckduckgo_results(html_text, source=source, limit=limit)
+    search_url = str(config["search_url"]).format(query=quote_plus(query))
+    allowed_domains = tuple(str(domain).lower() for domain in config["allowed_domains"])
+    html_text = http_client.get_text(search_url)
+
+    return _extract_anchor_results(
+        html_text,
+        source=source,
+        search_url=search_url,
+        allowed_domains=allowed_domains,
+        limit=limit,
+    )
 
 
-def _extract_duckduckgo_results(html_text: str, *, source: str, limit: int) -> List[SearchResult]:
+def _extract_anchor_results(
+    html_text: str,
+    *,
+    source: str,
+    search_url: str,
+    allowed_domains: tuple[str, ...],
+    limit: int,
+) -> List[SearchResult]:
     results: List[SearchResult] = []
     seen_seed_urls = set()
 
     for match in re.finditer(r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_text, re.I | re.S):
-        resolved_url = _resolve_duckduckgo_result_url(match.group(1))
+        resolved_url = _resolve_result_url(match.group(1), search_url=search_url)
         if not resolved_url:
+            continue
+        if not _is_allowed_domain(resolved_url, allowed_domains):
             continue
 
         canonical_seed_url = _canonical_seed_url_for_source(source, resolved_url)
         if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
             continue
 
-        title = _normalize_anchor_text(match.group(2))
+        title_attr_match = re.search(r'title="([^"]+)"', match.group(0), re.I | re.S)
+        title = _normalize_anchor_text(title_attr_match.group(1) if title_attr_match else match.group(2))
         if not title:
             title = canonical_seed_url
 
@@ -125,22 +181,23 @@ def _extract_duckduckgo_results(html_text: str, *, source: str, limit: int) -> L
     return results
 
 
-def _resolve_duckduckgo_result_url(href: str) -> Optional[str]:
+def _resolve_result_url(href: str, *, search_url: str) -> Optional[str]:
     normalized = unescape(str(href or "")).strip().replace("\\/", "/")
     if not normalized:
         return None
 
     if normalized.startswith("/"):
-        parsed = urlsplit(urljoin("https://duckduckgo.com", normalized))
-        query = parse_qs(parsed.query)
-        values = query.get("uddg")
-        if values:
-            return unquote(values[0])
+        normalized = urljoin(search_url, normalized)
 
     parsed = urlsplit(normalized)
-    if parsed.scheme in ("http", "https"):
-        return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", ""))
-    return None
+    if parsed.scheme not in ("http", "https"):
+        return None
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")).rstrip("/")
+
+
+def _is_allowed_domain(url: str, allowed_domains: tuple[str, ...]) -> bool:
+    host = (urlsplit(url).netloc or "").lower()
+    return any(host == domain or host.endswith(f".{domain}") for domain in allowed_domains)
 
 
 def _canonical_seed_url_for_source(source: str, candidate_url: str) -> Optional[str]:
@@ -161,6 +218,10 @@ def _normalize_anchor_text(text: str) -> str:
 
 
 _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
-    source: (lambda query, http_client, *, limit, _source=source: _search_with_duckduckgo(_source, query, http_client, limit=limit))
+    source: (
+        lambda query, http_client, *, limit, _source=source: _search_via_public_site(
+            _source, query, http_client, limit=limit
+        )
+    )
     for source in SUPPORTED_SEARCH_SOURCES
 }
