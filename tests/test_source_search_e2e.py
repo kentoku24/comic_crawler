@@ -12,6 +12,28 @@ RUN_REAL_SEARCH_E2E = os.environ.get("RUN_REAL_SEARCH_E2E") == "1"
 
 @unittest.skipUnless(RUN_REAL_SEARCH_E2E, "set RUN_REAL_SEARCH_E2E=1 to run real network search e2e tests")
 class SourceSearchE2ETests(unittest.TestCase):
+    def test_real_search_source_requests_include_expected_titles_for_remaining_media(self):
+        client = RequestsHttpClient()
+        cases = [
+            ("comic-walker", "異世界迷宮の迷子ちゃん", "異世界迷宮の迷子ちゃん"),
+            ("comic-earthstar", "戦国小町苦労譚", "戦国小町苦労譚"),
+            ("comicborder", "勇者のクズ", "勇者のクズ"),
+            ("comic-trail", "アタリ", "アタリ"),
+            ("kuragebunch", "極主夫道", "極主夫道"),
+            ("shonenjumpplus", "ふつうの軽音部", "ふつうの軽音部"),
+            ("sunday-webry", "レッドブルー", "レッドブルー"),
+            ("champion-cross", "僕の心のヤバイやつ", "僕の心のヤバイやつ"),
+            ("magapoke", "薫る花は凛と咲く", "薫る花は凛と咲く"),
+            ("takecomic", "のみじょし", "のみじょし"),
+            ("kakuyomu", "異世界刀匠魔剣製作記", "異世界刀匠魔剣製作記"),
+        ]
+
+        for source, query, expected_title in cases:
+            with self.subTest(source=source):
+                results = search_source(source, query, http_client=client)
+                self.assertTrue(results, msg=f"{source} returned no results for {query}")
+                self.assertIn(expected_title, [result.title for result in results], msg=str(results))
+
     def test_real_search_source_requests_include_expected_media_for_dungeon_no_naka_no_hito(self):
         client = RequestsHttpClient()
 
@@ -86,8 +108,17 @@ class SourceSearchE2ETests(unittest.TestCase):
             state_path.unlink(missing_ok=True)
 
         options = payload["components"][0]["components"][0]["options"]
-        option_sources = {option["description"] for option in options}
-        self.assertTrue({"comic-action", "nicovideo-manga", "gaugau"}.issubset(option_sources), msg=str(options))
+        labels_by_source = {}
+        for option in options:
+            source = option.get("description")
+            label = option.get("label")
+            if source not in labels_by_source:
+                labels_by_source[source] = []
+            labels_by_source[source].append(label)
+
+        for source in ("comic-action", "nicovideo-manga", "gaugau"):
+            self.assertIn(source, labels_by_source, msg=str(options))
+            self.assertIn("ダンジョンの中のひと", labels_by_source[source], msg=str(options))
 
 
 if __name__ == "__main__":
