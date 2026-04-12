@@ -709,6 +709,36 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_does_not_truncate_champion_cross_titles_for_prefix_queries(self):
+        html = """
+        <html>
+          <body>
+            <a href="/series/899dda204c3f2/">
+              僕の心のヤバイやつ【最新話無料】 桜井のりお
+            </a>
+          </body>
+        </html>
+        """
+        request_url = "https://championcross.jp/search?keyword=%E5%83%95%E3%81%AE%E5%BF%83"
+
+        results = search_source(
+            "champion-cross",
+            "僕の心",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="champion-cross",
+                    title="僕の心のヤバイやつ 桜井のりお",
+                    seed_url="https://championcross.jp/series/899dda204c3f2",
+                    subtitle="champion-cross",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_parses_magapoke_homepage_results(self):
         html = """
         <html>

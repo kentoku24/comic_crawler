@@ -755,7 +755,9 @@ def _clean_champion_cross_title(title: str, query: str) -> str:
     normalized = _normalize_anchor_text(title)
     normalized = re.sub(r"【.*?】", "", normalized).strip()
     if query and normalized.startswith(query):
-        return query
+        suffix = normalized[len(query) :]
+        if not suffix or suffix.startswith(" "):
+            return query
     return normalized or _normalize_anchor_text(title)
 
 
