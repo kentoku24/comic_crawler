@@ -275,7 +275,7 @@ def _search_kakuyomu(
         source="kakuyomu",
         search_url=search_url,
         allowed_domains=("kakuyomu.jp", "www.kakuyomu.jp"),
-        limit=limit,
+        limit=SEARCH_RESULT_LIMIT,
     )
     if results:
         return _filter_results_by_query(query, results, limit=limit)
@@ -299,12 +299,15 @@ def _search_takecomic(
     results: List[SearchResult] = []
     seen_seed_urls = set()
 
-    for match in re.finditer(
-        r'<a\b[^>]*class="[^"]*series-list-item-link[^"]*"[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
-        html_text,
-        re.I | re.S,
-    ):
-        resolved_url = _resolve_result_url(match.group(1), search_url=search_url)
+    for match in re.finditer(r'(<a\b[^>]*>.*?</a>)', html_text, re.I | re.S):
+        anchor_markup = match.group(1)
+        class_match = re.search(r'class="([^"]*)"', anchor_markup, re.I | re.S)
+        if not class_match or "series-list-item-link" not in class_match.group(1):
+            continue
+        href_match = re.search(r'href="([^"]+)"', anchor_markup, re.I | re.S)
+        if not href_match:
+            continue
+        resolved_url = _resolve_result_url(href_match.group(1), search_url=search_url)
         if not resolved_url:
             continue
 
@@ -312,7 +315,7 @@ def _search_takecomic(
         if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
             continue
 
-        title_match = re.search(r'data-e2e="sliTitle"[^>]*>(.*?)</', match.group(2), re.I | re.S)
+        title_match = re.search(r'data-e2e="sliTitle"[^>]*>(.*?)</', anchor_markup, re.I | re.S)
         title = _normalize_anchor_text(title_match.group(1) if title_match else "")
         if not title:
             continue
@@ -326,7 +329,7 @@ def _search_takecomic(
                 subtitle="takecomic",
             )
         )
-        if len(results) >= limit:
+        if len(results) >= SEARCH_RESULT_LIMIT:
             break
 
     return _filter_results_by_query(query, results, limit=limit)
@@ -757,8 +760,8 @@ def _clean_champion_cross_title(title: str, query: str) -> str:
 
 
 def _query_matches_title(query: str, title: str) -> bool:
-    normalized_query = re.sub(r"\s+", "", query or "")
-    normalized_title = re.sub(r"\s+", "", title or "")
+    normalized_query = re.sub(r"\s+", "", query or "").casefold()
+    normalized_title = re.sub(r"\s+", "", title or "").casefold()
     if not normalized_query or not normalized_title:
         return False
     return normalized_query == normalized_title or normalized_query in normalized_title or normalized_title in normalized_query

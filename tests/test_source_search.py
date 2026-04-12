@@ -679,6 +679,36 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_matches_titles_case_insensitively(self):
+        html = """
+        <html>
+          <body>
+            <a href="/series/e349a3791821b/">
+              ONE PIECE
+            </a>
+          </body>
+        </html>
+        """
+        request_url = "https://championcross.jp/search?keyword=one+piece"
+
+        results = search_source(
+            "champion-cross",
+            "one piece",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="champion-cross",
+                    title="ONE PIECE",
+                    seed_url="https://championcross.jp/series/e349a3791821b",
+                    subtitle="champion-cross",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_parses_magapoke_homepage_results(self):
         html = """
         <html>
@@ -765,6 +795,89 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_parses_takecomic_results_when_href_precedes_class(self):
+        html = """
+        <html>
+          <body>
+            <div class="series-list-item">
+              <a href="/series/422e135f10aeb" class="series-list-item-link">
+                <div class="series-list-item-desc">
+                  <div class="series-list-item-h"><span data-e2e="sliTitle">のみじょし</span></div>
+                </div>
+              </a>
+            </div>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "takecomic",
+            "のみじょし",
+            http_client=StaticHttpClient(
+                {
+                    "https://takecomic.jp/search?keyword=%E3%81%AE%E3%81%BF%E3%81%98%E3%82%87%E3%81%97": html,
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="takecomic",
+                    title="のみじょし",
+                    seed_url="https://takecomic.jp/series/422e135f10aeb",
+                    subtitle="takecomic",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_filters_takecomic_results_before_applying_limit(self):
+        html = """
+        <html>
+          <body>
+            <div class="series-list-item">
+              <a class="series-list-item-link" href="/series/506d4c55753aa">
+                <span data-e2e="sliTitle">ねこもんすたー</span>
+              </a>
+            </div>
+            <div class="series-list-item">
+              <a class="series-list-item-link" href="/series/78ed85a57a8f2">
+                <span data-e2e="sliTitle">未経験の私がアシですか!?</span>
+              </a>
+            </div>
+            <div class="series-list-item">
+              <a class="series-list-item-link" href="/series/422e135f10aeb">
+                <span data-e2e="sliTitle">のみじょし</span>
+              </a>
+            </div>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "takecomic",
+            "のみじょし",
+            http_client=StaticHttpClient(
+                {
+                    "https://takecomic.jp/search?keyword=%E3%81%AE%E3%81%BF%E3%81%98%E3%82%87%E3%81%97": html,
+                }
+            ),
+            limit=2,
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="takecomic",
+                    title="のみじょし",
+                    seed_url="https://takecomic.jp/series/422e135f10aeb",
+                    subtitle="takecomic",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_prefers_kakuyomu_work_links_over_episode_links(self):
         html = """
         <html>
@@ -783,6 +896,40 @@ class SourceSearchTests(unittest.TestCase):
                     "https://kakuyomu.jp/search?q=%E7%95%B0%E4%B8%96%E7%95%8C%E5%88%80%E5%8C%A0%E9%AD%94%E5%89%A3%E8%A3%BD%E4%BD%9C%E8%A8%98": html
                 }
             ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="kakuyomu",
+                    title="異世界刀匠魔剣製作記",
+                    seed_url="https://kakuyomu.jp/works/16817139555923024504",
+                    subtitle="kakuyomu",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_filters_kakuyomu_work_results_before_applying_limit(self):
+        html = """
+        <html>
+          <body>
+            <a href="/works/1" title="作品A">作品A</a>
+            <a href="/works/2" title="作品B">作品B</a>
+            <a href="/works/16817139555923024504" title="異世界刀匠魔剣製作記">異世界刀匠魔剣製作記</a>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "kakuyomu",
+            "異世界刀匠魔剣製作記",
+            http_client=StaticHttpClient(
+                {
+                    "https://kakuyomu.jp/search?q=%E7%95%B0%E4%B8%96%E7%95%8C%E5%88%80%E5%8C%A0%E9%AD%94%E5%89%A3%E8%A3%BD%E4%BD%9C%E8%A8%98": html
+                }
+            ),
+            limit=2,
         )
 
         self.assertEqual(
