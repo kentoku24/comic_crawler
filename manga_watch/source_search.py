@@ -539,7 +539,7 @@ def _extract_comic_earthstar_homepage_results(
         source="comic-earthstar",
         homepage_url=homepage_url,
         limit=limit,
-        block_pattern=r'<a\b[^>]*href="([^"]+/episode/[^"]+)"[^>]*>(.*?)</a>',
+        block_pattern=r'<a\b[^>]*href="([^"]*?/episode/[^"]+)"[^>]*>(.*?)</a>',
         title_patterns=(r'UpdatedSeriesListItem_description[^>]*>(.*?)</', r'alt="([^"]+)"'),
     )
 
@@ -577,7 +577,7 @@ def _extract_comic_trail_homepage_results(
         source="comic-trail",
         homepage_url=homepage_url,
         limit=limit,
-        block_pattern=r'<a\b[^>]*href="([^"]+/episode/[^"]+)"[^>]*>(.*?)</a>',
+        block_pattern=r'<a\b[^>]*href="([^"]*?/episode/[^"]+)"[^>]*>(.*?)</a>',
         title_patterns=(r'alt="([^"|]+)(?:\||｜)[^"]*"', r'<h4[^>]*>(.*?)</h4>'),
     )
 
@@ -595,7 +595,7 @@ def _extract_kuragebunch_homepage_results(
         source="kuragebunch",
         homepage_url=homepage_url,
         limit=limit,
-        block_pattern=r'<a\b[^>]*href="([^"]+/episode/[^"]+)"[^>]*>(.*?)</a>',
+        block_pattern=r'<a\b[^>]*href="([^"]*?/episode/[^"]+)"[^>]*>(.*?)</a>',
         title_patterns=(r'<h4[^>]*>(.*?)</h4>', r'alt="([^"]+)"'),
     )
 
@@ -613,7 +613,7 @@ def _extract_shonenjumpplus_homepage_results(
         source="shonenjumpplus",
         homepage_url=homepage_url,
         limit=limit,
-        block_pattern=r'<a\b[^>]*href="([^"]+/episode/[^"]+)"[^>]*>(.*?)</a>',
+        block_pattern=r'<a\b[^>]*href="([^"]*?/episode/[^"]+)"[^>]*>(.*?)</a>',
         title_patterns=(r'daily-series-title[^>]*>(.*?)</h2>', r'gtm-daily-series-thumb-horizontal-([^"\s]+)'),
     )
 
@@ -631,7 +631,7 @@ def _extract_sunday_webry_homepage_results(
         source="sunday-webry",
         homepage_url=homepage_url,
         limit=limit,
-        block_pattern=r'<a\b[^>]*href="([^"]+/episode/[^"]+)"[^>]*>(.*?)</a>',
+        block_pattern=r'<a\b[^>]*href="([^"]*?/episode/[^"]+)"[^>]*>(.*?)</a>',
         title_patterns=(r'<h4[^>]*>(.*?)</h4>', r'alt="([^"]+)"'),
     )
 
@@ -751,7 +751,8 @@ def _normalize_anchor_text(text: str) -> str:
 def _clean_champion_cross_title(title: str, query: str) -> str:
     normalized = _normalize_anchor_text(title)
     normalized = re.sub(r"【.*?】", "", normalized).strip()
-    normalized = re.sub(r"\s+[^\s]+(?:/[^\s]+)?$", "", normalized).strip()
+    if query and normalized.startswith(query):
+        return query
     return normalized or _normalize_anchor_text(title)
 
 

@@ -580,6 +580,45 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_parses_root_relative_homepage_fallback_results(self):
+        html = """
+        <html>
+          <body>
+            <li class="daily-series-item">
+              <a href="/episode/12207421983588825279">
+                <div class="thumb-wrapper">
+                  <img alt="レッドブルー" />
+                </div>
+                <h4>レッドブルー</h4>
+              </a>
+            </li>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "sunday-webry",
+            "レッドブルー",
+            http_client=StaticHttpClient(
+                {
+                    "https://www.sunday-webry.com/search?query=%E3%83%AC%E3%83%83%E3%83%89%E3%83%96%E3%83%AB%E3%83%BC": "<html></html>",
+                    "https://www.sunday-webry.com/": html,
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="sunday-webry",
+                    title="レッドブルー",
+                    seed_url="https://www.sunday-webry.com/episode/12207421983588825279",
+                    subtitle="sunday-webry",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_strips_champion_cross_campaign_suffixes(self):
         html = """
         <html>
@@ -604,6 +643,36 @@ class SourceSearchTests(unittest.TestCase):
                     source="champion-cross",
                     title="僕の心のヤバイやつ",
                     seed_url="https://championcross.jp/series/899dda204c3f2",
+                    subtitle="champion-cross",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_keeps_multiword_champion_cross_titles(self):
+        html = """
+        <html>
+          <body>
+            <a href="/series/e349a3791821b/">
+              ONE PIECE
+            </a>
+          </body>
+        </html>
+        """
+        request_url = "https://championcross.jp/search?keyword=ONE+PIECE"
+
+        results = search_source(
+            "champion-cross",
+            "ONE PIECE",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="champion-cross",
+                    title="ONE PIECE",
+                    seed_url="https://championcross.jp/series/e349a3791821b",
                     subtitle="champion-cross",
                 )
             ],
