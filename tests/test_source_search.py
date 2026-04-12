@@ -1004,6 +1004,40 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_falls_back_to_kakuyomu_episode_links_when_work_results_do_not_match(self):
+        html = """
+        <html>
+          <body>
+            <a href="/works/1" title="作品A">作品A</a>
+            <a href="/works/2" title="作品B">作品B</a>
+            <a href="/works/16817139555923024504/episodes/16817139555923278878">異世界刀匠魔剣製作記</a>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "kakuyomu",
+            "異世界刀匠魔剣製作記",
+            http_client=StaticHttpClient(
+                {
+                    "https://kakuyomu.jp/search?q=%E7%95%B0%E4%B8%96%E7%95%8C%E5%88%80%E5%8C%A0%E9%AD%94%E5%89%A3%E8%A3%BD%E4%BD%9C%E8%A8%98": html
+                }
+            ),
+            limit=2,
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="kakuyomu",
+                    title="異世界刀匠魔剣製作記",
+                    seed_url="https://kakuyomu.jp/works/16817139555923024504/episodes/16817139555923278878",
+                    subtitle="kakuyomu",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_rejects_unknown_source(self):
         with self.assertRaisesRegex(ValueError, "unsupported search source"):
             search_source("unknown", "まんが", http_client=StaticHttpClient({}))

@@ -270,20 +270,33 @@ def _search_kakuyomu(
     config = _SOURCE_SEARCH_CONFIG["kakuyomu"]
     search_url = str(config["search_url"]).format(query=quote_plus(query))
     html_text = http_client.get_text(search_url)
-    results = _extract_work_results(
+    work_results = _extract_work_results(
         html_text,
         source="kakuyomu",
         search_url=search_url,
         allowed_domains=("kakuyomu.jp", "www.kakuyomu.jp"),
         limit=SEARCH_RESULT_LIMIT,
     )
-    if results:
-        return _filter_results_by_query(query, results, limit=limit)
-    return _extract_anchor_results(
-        html_text,
-        source="kakuyomu",
-        search_url=search_url,
-        allowed_domains=("kakuyomu.jp", "www.kakuyomu.jp"),
+    if not work_results:
+        return _extract_anchor_results(
+            html_text,
+            source="kakuyomu",
+            search_url=search_url,
+            allowed_domains=("kakuyomu.jp", "www.kakuyomu.jp"),
+            limit=limit,
+        )
+    filtered_work_results = _filter_results_by_query(query, work_results, limit=limit)
+    if filtered_work_results:
+        return filtered_work_results
+    return _filter_results_by_query(
+        query,
+        _extract_anchor_results(
+            html_text,
+            source="kakuyomu",
+            search_url=search_url,
+            allowed_domains=("kakuyomu.jp", "www.kakuyomu.jp"),
+            limit=SEARCH_RESULT_LIMIT,
+        ),
         limit=limit,
     )
 
