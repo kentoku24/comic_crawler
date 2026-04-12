@@ -14,57 +14,42 @@ class StaticHttpClient:
 
 
 class SourceSearchTests(unittest.TestCase):
-    def test_supported_search_sources_are_limited_to_the_initial_supported_set(self):
-        self.assertEqual(("champion-cross", "kakuyomu"), supported_search_sources())
-
-    def test_search_source_parses_champion_cross_results(self):
-        html = """
-        <html>
-          <body>
-            <a href="/series/e349a3791821b/?keyword=%E3%81%BE%E3%82%93%E3%81%8C">酒井美羽の少女まんが戦記</a>
-            <a href="/series/aaaaaaaaaaaaa/?keyword=%E3%81%BE%E3%82%93%E3%81%8C">別の作品</a>
-          </body>
-        </html>
-        """
-
-        results = search_source(
-            "champion-cross",
-            "まんが",
-            http_client=StaticHttpClient({"https://championcross.jp/search?keyword=%E3%81%BE%E3%82%93%E3%81%8C": html}),
-        )
-
+    def test_supported_search_sources_excludes_only_comic_walker(self):
         self.assertEqual(
-            [
-                SearchResult(
-                    source="champion-cross",
-                    title="酒井美羽の少女まんが戦記",
-                    seed_url="https://championcross.jp/series/e349a3791821b",
-                    subtitle="champion-cross",
-                ),
-                SearchResult(
-                    source="champion-cross",
-                    title="別の作品",
-                    seed_url="https://championcross.jp/series/aaaaaaaaaaaaa",
-                    subtitle="champion-cross",
-                ),
-            ],
-            results,
+            (
+                "comic-action",
+                "comic-earthstar",
+                "comicborder",
+                "comic-trail",
+                "kuragebunch",
+                "shonenjumpplus",
+                "sunday-webry",
+                "champion-cross",
+                "magapoke",
+                "firecross",
+                "takecomic",
+                "nicovideo-manga",
+                "kakuyomu",
+            ),
+            supported_search_sources(),
         )
 
-    def test_search_source_parses_kakuyomu_results(self):
+    def test_search_source_parses_duckduckgo_results_and_normalizes_seed_url(self):
         html = """
-        <html>
-          <body>
-            <a title="雉はどっちだ" href="/works/822139840410356917">雉はどっちだ</a>
-            <a title="別作品" href="/works/900000000000000000">別作品</a>
-          </body>
-        </html>
+        <html><body>
+          <a href="//duckduckgo.com/l/?uddg=https%3A%2F%2Fkakuyomu.jp%2Fworks%2F822139840410356917%2Fepisodes%2F1">雉はどっちだ</a>
+          <a href="https://example.com/ignore">ignored</a>
+        </body></html>
         """
+        request_url = (
+            "https://duckduckgo.com/html/?q="
+            "%E3%81%BE%E3%82%93%E3%81%8C+site%3Akakuyomu.jp"
+        )
 
         results = search_source(
             "kakuyomu",
             "まんが",
-            http_client=StaticHttpClient({"https://kakuyomu.jp/search?q=%E3%81%BE%E3%82%93%E3%81%8C": html}),
+            http_client=StaticHttpClient({request_url: html}),
         )
 
         self.assertEqual(
@@ -72,15 +57,9 @@ class SourceSearchTests(unittest.TestCase):
                 SearchResult(
                     source="kakuyomu",
                     title="雉はどっちだ",
-                    seed_url="https://kakuyomu.jp/works/822139840410356917",
+                    seed_url="https://kakuyomu.jp/works/822139840410356917/episodes/1",
                     subtitle="kakuyomu",
-                ),
-                SearchResult(
-                    source="kakuyomu",
-                    title="別作品",
-                    seed_url="https://kakuyomu.jp/works/900000000000000000",
-                    subtitle="kakuyomu",
-                ),
+                )
             ],
             results,
         )
