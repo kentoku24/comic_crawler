@@ -202,15 +202,17 @@ class DiscordInteractionCallbackClient:
         *,
         session: Optional[requests.Session] = None,
         timeout: int = DEFAULT_HTTP_TIMEOUT,
+        defer_timeout: float = 2.0,
     ):
         self.session = session or requests.Session()
         self.timeout = timeout
+        self.defer_timeout = defer_timeout
 
     def defer_component(self, *, interaction_id: str, interaction_token: str) -> None:
         response = self.session.post(
             f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback",
             json={"type": INTERACTION_RESPONSE_TYPE_DEFERRED_UPDATE_MESSAGE},
-            timeout=self.timeout,
+            timeout=self.defer_timeout,
         )
         response.raise_for_status()
 
