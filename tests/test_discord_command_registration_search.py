@@ -34,8 +34,6 @@ class DiscordSearchCommandRegistrationTests(unittest.TestCase):
                     "description": "検索したい媒体",
                     "required": True,
                     "choices": [
-                        {"name": "champion-cross", "value": "champion-cross"},
-                        {"name": "kakuyomu", "value": "kakuyomu"},
                         {"name": "comic-walker", "value": "comic-walker"},
                         {"name": "comic-action", "value": "comic-action"},
                         {"name": "comic-earthstar", "value": "comic-earthstar"},
@@ -44,10 +42,12 @@ class DiscordSearchCommandRegistrationTests(unittest.TestCase):
                         {"name": "kuragebunch", "value": "kuragebunch"},
                         {"name": "shonenjumpplus", "value": "shonenjumpplus"},
                         {"name": "sunday-webry", "value": "sunday-webry"},
+                        {"name": "champion-cross", "value": "champion-cross"},
                         {"name": "magapoke", "value": "magapoke"},
                         {"name": "firecross", "value": "firecross"},
                         {"name": "takecomic", "value": "takecomic"},
                         {"name": "nicovideo-manga", "value": "nicovideo-manga"},
+                        {"name": "kakuyomu", "value": "kakuyomu"},
                     ],
                 },
                 {

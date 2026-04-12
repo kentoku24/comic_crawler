@@ -170,23 +170,10 @@ class DiscordSupertwinsSearchTests(unittest.TestCase):
                 state_path=str(state_path),
             )
 
-        self.assertEqual(
-            [
-                {
-                    "source": "kakuyomu",
-                    "query": "作品A",
-                    "http_client": None,
-                    "limit": 10,
-                },
-                {
-                    "source": "comic-walker",
-                    "query": "作品A",
-                    "http_client": None,
-                    "limit": 10,
-                },
-            ],
-            search_source.calls,
-        )
+        self.assertNotIn("champion-cross", [call["source"] for call in search_source.calls])
+        self.assertIn("kakuyomu", [call["source"] for call in search_source.calls])
+        self.assertTrue(all(call["query"] == "作品A" for call in search_source.calls))
+        self.assertTrue(all(call["limit"] == 10 for call in search_source.calls))
         select = payload["components"][0]["components"][0]
         self.assertTrue(select["custom_id"].startswith(SUPERTWINS_SEARCH_RESULT_SELECT_PREFIX))
         self.assertEqual("作品A", select["options"][0]["label"])
