@@ -20,7 +20,10 @@ class SourceSearchE2ETests(unittest.TestCase):
         gaugau_results = search_source("gaugau", "ダンジョンの中のひと", http_client=client)
 
         self.assertTrue(
-            any(result.seed_url == "https://comic-action.com/episode/13933686331665056851" for result in comic_action_results)
+            any(
+                result.seed_url == "https://comic-action.com/rss/series/13933686331663374228"
+                for result in comic_action_results
+            )
         )
         self.assertTrue(
             any(result.seed_url == "https://manga.nicovideo.jp/comic/53764" for result in nicovideo_results),

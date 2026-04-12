@@ -8,6 +8,7 @@ from urllib.parse import quote_plus, urljoin, urlsplit, urlunsplit
 
 from manga_watch.sources import REGISTERED_SOURCES, normalize_seed_url
 from manga_watch.sources.base import HttpClient, RequestsHttpClient
+from manga_watch.sources.comic_action import canonical_comic_action_series_feed_url
 
 DEFAULT_SEARCH_LIMIT = 10
 SEARCH_RESULT_LIMIT = 25
@@ -175,11 +176,27 @@ def _search_comic_action(
         if not title:
             continue
 
-        href_match = re.search(r'href="([^"]+/episode/\d+[^"]*)"', block, re.I | re.S)
-        if not href_match:
+        series_id_match = re.search(r"/series-thumbnail/(\d+)", block, re.I)
+        candidate_url = ""
+        if series_id_match:
+            candidate_url = canonical_comic_action_series_feed_url("rss", series_id_match.group(1))
+        else:
+            latest_match = re.search(
+                r'<a\b[^>]*href="([^"]+/episode/\d+[^"]*)"[^>]*SearchResultItem_sub_link',
+                block,
+                re.I | re.S,
+            )
+            if latest_match:
+                candidate_url = latest_match.group(1)
+            else:
+                href_match = re.search(r'href="([^"]+/episode/\d+[^"]*)"', block, re.I | re.S)
+                if href_match:
+                    candidate_url = href_match.group(1)
+
+        if not candidate_url:
             continue
 
-        resolved_url = _resolve_result_url(href_match.group(1), search_url=search_url)
+        resolved_url = _resolve_result_url(candidate_url, search_url=search_url)
         if not resolved_url:
             continue
 

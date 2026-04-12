@@ -125,7 +125,10 @@ class SourceSearchTests(unittest.TestCase):
                 <li class="SearchResultItem_li__u1Vp8">
                   <div>
                     <a href="https://comic-action.com/episode/13933686331665056851">
-                      <img alt="ダンジョンの中のひと" />
+                      <img
+                        alt="ダンジョンの中のひと"
+                        src="https://cdn-img.comic-action.com/public/series-thumbnail/13933686331663374228-4e8c11f394783f9b8a20a98d4354d771"
+                      />
                     </a>
                   </div>
                   <div class="SearchResultItem_title_box__kqLq3">
@@ -156,7 +159,7 @@ class SourceSearchTests(unittest.TestCase):
                 SearchResult(
                     source="comic-action",
                     title="ダンジョンの中のひと",
-                    seed_url="https://comic-action.com/episode/13933686331665056851",
+                    seed_url="https://comic-action.com/rss/series/13933686331663374228",
                     subtitle="comic-action",
                 )
             ],
