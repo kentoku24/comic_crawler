@@ -115,6 +115,48 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_prefers_champion_cross_series_card_over_noise_links(self):
+        html = """
+        <html>
+          <body>
+            <div class="incremental-suggestion-panel">
+              <a class="incremental-result-item x-incremental-result-anchor" href="/championcross/series/4756324e1c1b1/?keyword=%E7%B9%94%E6%B4%A5%E6%B1%9F%E5%A4%A7%E5%BF%97">
+                火曜更新
+              </a>
+            </div>
+            <div class="series-list">
+              <div class="manga-store-item">
+                <a class="c-ms-clk-article c-ms-mode-series click-link" href="https://championcross.jp/series/4756324e1c1b1">
+                  <div class="manga-title-box">
+                    <h2 class="manga-title">織津江大志の異世界クリ娘サバイバル日誌</h2>
+                  </div>
+                </a>
+              </div>
+            </div>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "champion-cross",
+            "織津江大志",
+            http_client=StaticHttpClient(
+                {"https://championcross.jp/search?keyword=%E7%B9%94%E6%B4%A5%E6%B1%9F%E5%A4%A7%E5%BF%97": html}
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="champion-cross",
+                    title="織津江大志の異世界クリ娘サバイバル日誌",
+                    seed_url="https://championcross.jp/series/4756324e1c1b1",
+                    subtitle="champion-cross",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_parses_comic_action_results_via_q_parameter(self):
         html = """
         <html>
