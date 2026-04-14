@@ -11,6 +11,12 @@ RUN_REAL_SEARCH_E2E = os.environ.get("RUN_REAL_SEARCH_E2E") == "1"
 
 REPRESENTATIVE_SEARCH_CASES = (
     {
+        "source": "comic-walker",
+        "query": "異世界迷宮の迷子ちゃん",
+        "expected_title": "異世界迷宮の迷子ちゃん",
+        "expected_seed_url": "https://comic-walker.com/detail/KC_008280_S",
+    },
+    {
         "source": "comic-action",
         "query": "ダンジョンの中のひと",
         "expected_title": "ダンジョンの中のひと",
@@ -27,6 +33,54 @@ REPRESENTATIVE_SEARCH_CASES = (
         "query": "僕の心のヤバイやつ",
         "expected_title": "僕の心のヤバイやつ【最新話無料】",
         "expected_seed_url": "https://championcross.jp/series/899dda204c3f2",
+    },
+    {
+        "source": "kuragebunch",
+        "query": "今日から始める幼なじみ",
+        "expected_title": "今日から始める幼なじみ",
+        "expected_seed_url": "https://kuragebunch.com/episode/3269632237305143755",
+    },
+    {
+        "source": "sunday-webry",
+        "query": "尾守つみきと奇日常。",
+        "expected_title": "尾守つみきと奇日常。",
+        "expected_seed_url": "https://www.sunday-webry.com/episode/14079602755299850599",
+    },
+    {
+        "source": "champion-cross",
+        "query": "織津江大志",
+        "expected_title": "織津江大志の異世界クリ娘サバイバル日誌",
+        "expected_seed_url": "https://championcross.jp/series/4756324e1c1b1",
+    },
+    {
+        "source": "firecross",
+        "query": "灰原くん",
+        "expected_title": "灰原くんの強くて青春ニューゲーム",
+        "expected_seed_url": "https://firecross.jp/ebook/series/441",
+    },
+    {
+        "source": "takecomic",
+        "query": "異世界の常識は難しい",
+        "expected_title": "異世界の常識は難しい～希少で最弱な人族に転生したけど物理以外で最強になりそうです～",
+        "expected_seed_url": "https://takecomic.jp/series/bb237f85f48a3",
+    },
+    {
+        "source": "nicovideo-manga",
+        "query": "ダンジョンの中のひと",
+        "expected_title": "ダンジョンの中のひと",
+        "expected_seed_url": "https://manga.nicovideo.jp/comic/53764",
+    },
+    {
+        "source": "kakuyomu",
+        "query": "リビルドワールド",
+        "expected_title": "リビルドワールド",
+        "expected_seed_url": "https://kakuyomu.jp/works/1177354054882530555",
+    },
+    {
+        "source": "gaugau",
+        "query": "ダンジョンの中のひと",
+        "expected_title": "ダンジョンの中のひと",
+        "expected_seed_url": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
     },
 )
 
@@ -47,15 +101,9 @@ class SourceSearchE2ETests(unittest.TestCase):
                     ),
                     msg=str(results),
                 )
-
-        nicovideo_results = search_source("nicovideo-manga", "ダンジョンの中のひと", http_client=client)
         gaugau_results = search_source("gaugau", "ダンジョンの中のひと", http_client=client)
         kuragebunch_results = search_source("kuragebunch", "今日から始める幼なじみ", http_client=client)
         sunday_webry_results = search_source("sunday-webry", "尾守つみきと奇日常。", http_client=client)
-        self.assertTrue(
-            any(result.seed_url == "https://manga.nicovideo.jp/comic/53764" for result in nicovideo_results),
-            msg=str(nicovideo_results),
-        )
         self.assertTrue(
             any(
                 result.title == "ダンジョンの中のひと"
