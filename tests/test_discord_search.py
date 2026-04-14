@@ -384,6 +384,23 @@ class DiscordSearchTests(unittest.TestCase):
 
         self.assertEqual({"content": "作品検索に失敗しました。サーバーログを確認してください。", "components": []}, response)
 
+    def test_start_returns_no_results_when_failures_mix_with_empty_successes(self):
+        search_source = MultiSourceSearchSourceWithFailures(
+            results_by_source={
+                "comic-walker": [],
+                "takecomic": [],
+            },
+            failing_sources={"champion-cross"},
+        )
+        handler = SearchCommandHandler(
+            search_source=search_source,
+            supported_sources=lambda: ("comic-walker", "champion-cross", "takecomic"),
+        )
+
+        response = handler.start(source=None, query="まんが")
+
+        self.assertEqual({"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}, response)
+
     def test_handle_component_adds_selected_result_with_hidden_flag(self):
         add_subscription = FakeAddSubscription()
         handler = SearchCommandHandler(

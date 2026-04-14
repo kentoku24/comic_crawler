@@ -259,6 +259,7 @@ class SearchCommandHandler:
     ) -> Dict[str, object]:
         buckets: List[List[SearchResult]] = []
         had_failure = False
+        had_completed_lookup = False
         for source_name in self.supported_sources():
             try:
                 results = self.search_source(
@@ -270,12 +271,13 @@ class SearchCommandHandler:
             except Exception:
                 had_failure = True
                 continue
+            had_completed_lookup = True
             deduped_results = _dedupe_bucket_results(results, default_source=source_name)
             if deduped_results:
                 buckets.append(deduped_results[:DEFAULT_CROSS_SOURCE_LIMIT])
 
         if not buckets:
-            if had_failure:
+            if had_failure and not had_completed_lookup:
                 return {"content": SEARCH_FAILURE_MESSAGE, "components": []}
             return {"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}
 
