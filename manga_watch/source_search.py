@@ -36,7 +36,7 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "allowed_domains": ("comic-trail.com", "www.comic-trail.com"),
     },
     "kuragebunch": {
-        "search_url": "https://kuragebunch.com/search?keyword={query}",
+        "search_url": "https://kuragebunch.com/search?q={query}",
         "allowed_domains": ("kuragebunch.com", "www.kuragebunch.com"),
     },
     "shonenjumpplus": {
@@ -216,6 +216,50 @@ def _search_comic_action(
     return results
 
 
+def _search_kuragebunch(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    search_url = str(_SOURCE_SEARCH_CONFIG["kuragebunch"]["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for match in re.finditer(r'<li\b[^>]*test-result-readable-product[^>]*>(.*?)</li>', html_text, re.I | re.S):
+        block = match.group(1)
+        title = _extract_kuragebunch_title(block)
+        if not title:
+            continue
+
+        candidate_url = _extract_kuragebunch_result_url(block)
+        if not candidate_url:
+            continue
+
+        resolved_url = _resolve_result_url(candidate_url, search_url=search_url)
+        if not resolved_url:
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source("kuragebunch", resolved_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source="kuragebunch",
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle="kuragebunch",
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
+
+
 def _search_sunday_webry(
     query: str,
     http_client: HttpClient,
@@ -243,9 +287,9 @@ def _search_sunday_webry(
             r'<a\b[^>]*href="([^"]+)"[^>]*class="[^"]*\bmain-link\b[^"]*"',
             r'<div\b[^>]*class="[^"]*\bthmb-container\b[^"]*"[^>]*>.*?<a\b[^>]*href="([^"]+)"',
         ):
-            match = re.search(pattern, block, re.I | re.S)
-            if match:
-                candidate_url = match.group(1)
+            pattern_match = re.search(pattern, block, re.I | re.S)
+            if pattern_match:
+                candidate_url = pattern_match.group(1)
                 break
 
         if not candidate_url:
@@ -288,6 +332,37 @@ def _extract_comic_action_latest_link(block: str) -> str:
         href_match = re.search(r'href="([^"]+/episode/\d+[^"]*)"', anchor_markup, re.I | re.S)
         if href_match:
             return href_match.group(1)
+    return ""
+
+
+def _extract_kuragebunch_title(block: str) -> str:
+    for pattern in (
+        r'<p\b[^>]*test-title[^>]*>(.*?)</p>',
+        r'data-title="([^"]+)"',
+        r'<img\b[^>]*alt="([^"]+)"',
+    ):
+        match = re.search(pattern, block, re.I | re.S)
+        if match:
+            title = _normalize_anchor_text(match.group(1))
+            if title:
+                return title
+    return ""
+
+
+def _extract_kuragebunch_result_url(block: str) -> str:
+    for marker in ("test-first-url", "test-thumbnail-permalink"):
+        match = re.search(rf'<a\b(?=[^>]*{marker})[^>]*href="([^"]+)"', block, re.I | re.S)
+        if match:
+            return match.group(1)
+
+    match = re.search(r'<a\b[^>]*class="[^"]*\bmain-link\b[^"]*"[^>]*href="([^"]+)"', block, re.I | re.S)
+    if match:
+        return match.group(1)
+
+    match = re.search(r'<a\b[^>]*href="([^"]+)"[^>]*class="[^"]*\bmain-link\b[^"]*"', block, re.I | re.S)
+    if match:
+        return match.group(1)
+
     return ""
 
 
@@ -619,6 +694,7 @@ _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
     for source in SUPPORTED_SEARCH_SOURCES
 }
 _SEARCHERS["comic-action"] = _search_comic_action
+_SEARCHERS["kuragebunch"] = _search_kuragebunch
 _SEARCHERS["firecross"] = _search_firecross
 _SEARCHERS["champion-cross"] = _search_champion_cross
 _SEARCHERS["sunday-webry"] = _search_sunday_webry
