@@ -243,7 +243,7 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
     ),
     "kakuyomu": SourceCanaryContract(
         source="kakuyomu",
-        seed_url="https://kakuyomu.jp/works/16818093092974667738/episodes/822139844009936710",
+        seed_url="https://kakuyomu.jp/works/16818093092974667738",
         fixture_bundle="tests/fixtures/kakuyomu/normal",
         monitored_signals=(
             "work page keeps __NEXT_DATA__",

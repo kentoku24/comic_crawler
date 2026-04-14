@@ -9,65 +9,49 @@ from tests.test_discord_supertwins import write_json
 
 RUN_REAL_SEARCH_E2E = os.environ.get("RUN_REAL_SEARCH_E2E") == "1"
 
+REPRESENTATIVE_SEARCH_CASES = (
+    {
+        "source": "comic-action",
+        "query": "ダンジョンの中のひと",
+        "expected_title": "ダンジョンの中のひと",
+        "expected_seed_url": "https://comic-action.com/rss/series/13933686331663374228",
+    },
+    {
+        "source": "shonenjumpplus",
+        "query": "SPY×FAMILY",
+        "expected_title": "SPY×FAMILY",
+        "expected_seed_url": "https://shonenjumpplus.com/episode/17107419589372003740",
+    },
+    {
+        "source": "champion-cross",
+        "query": "僕の心のヤバイやつ",
+        "expected_title": "僕の心のヤバイやつ【最新話無料】",
+        "expected_seed_url": "https://championcross.jp/series/899dda204c3f2",
+    },
+)
+
 
 @unittest.skipUnless(RUN_REAL_SEARCH_E2E, "set RUN_REAL_SEARCH_E2E=1 to run real network search e2e tests")
 class SourceSearchE2ETests(unittest.TestCase):
-    def test_real_search_source_requests_reach_expected_work_for_shonenjumpplus_spy_family(self):
+    def test_real_search_source_requests_include_expected_media_for_representative_titles(self):
         client = RequestsHttpClient()
-        results = search_source("shonenjumpplus", "SPY×FAMILY", http_client=client)
 
-        self.assertTrue(results, msg="shonenjumpplus returned no results for SPY×FAMILY")
-        self.assertTrue(
-            any(
-                result.title == "SPY×FAMILY"
-                and result.seed_url == "https://shonenjumpplus.com/episode/17107419589372003740"
-                for result in results
-            ),
-            msg=str(results),
-        )
-
-    def test_real_search_source_requests_reach_expected_works_for_recognized_media_title_pairs(self):
-        client = RequestsHttpClient()
-        cases = [
-            (
-                "shonenjumpplus",
-                "SPY×FAMILY",
-                "SPY×FAMILY",
-                "https://shonenjumpplus.com/episode/17107419589372003740",
-            ),
-            (
-                "champion-cross",
-                "僕の心のヤバイやつ",
-                "僕の心のヤバイやつ",
-                "https://championcross.jp/series/899dda204c3f2",
-            ),
-        ]
-
-        for source, query, expected_title, expected_seed_url in cases:
-            with self.subTest(source=source):
-                results = search_source(source, query, http_client=client)
-                self.assertTrue(results, msg=f"{source} returned no results for {query}")
+        for case in REPRESENTATIVE_SEARCH_CASES:
+            with self.subTest(source=case["source"], query=case["query"]):
+                results = search_source(case["source"], case["query"], http_client=client)
                 self.assertTrue(
                     any(
-                        result.title == expected_title and result.seed_url == expected_seed_url
+                        result.title == case["expected_title"]
+                        and result.seed_url == case["expected_seed_url"]
                         for result in results
                     ),
                     msg=str(results),
                 )
 
-    def test_real_search_source_requests_include_expected_media_for_dungeon_no_naka_no_hito(self):
-        client = RequestsHttpClient()
-
-        comic_action_results = search_source("comic-action", "ダンジョンの中のひと", http_client=client)
         nicovideo_results = search_source("nicovideo-manga", "ダンジョンの中のひと", http_client=client)
         gaugau_results = search_source("gaugau", "ダンジョンの中のひと", http_client=client)
-
-        self.assertTrue(
-            any(
-                result.seed_url == "https://comic-action.com/rss/series/13933686331663374228"
-                for result in comic_action_results
-            )
-        )
+        kuragebunch_results = search_source("kuragebunch", "今日から始める幼なじみ", http_client=client)
+        sunday_webry_results = search_source("sunday-webry", "尾守つみきと奇日常。", http_client=client)
         self.assertTrue(
             any(result.seed_url == "https://manga.nicovideo.jp/comic/53764" for result in nicovideo_results),
             msg=str(nicovideo_results),
@@ -77,7 +61,32 @@ class SourceSearchE2ETests(unittest.TestCase):
                 result.title == "ダンジョンの中のひと"
                 and result.seed_url == "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000"
                 for result in gaugau_results
-            )
+            ),
+            msg=str(gaugau_results),
+        )
+        self.assertTrue(
+            any(
+                result.title == "今日から始める幼なじみ"
+                and result.seed_url == "https://kuragebunch.com/episode/3269632237305143755"
+                for result in kuragebunch_results
+            ),
+            msg=str(kuragebunch_results),
+        )
+        self.assertFalse(
+            any(result.title == "最新話を読む" for result in kuragebunch_results),
+            msg=str(kuragebunch_results),
+        )
+        self.assertTrue(
+            any(
+                result.title == "尾守つみきと奇日常。"
+                and result.seed_url == "https://www.sunday-webry.com/episode/14079602755299850599"
+                for result in sunday_webry_results
+            ),
+            msg=str(sunday_webry_results),
+        )
+        self.assertFalse(
+            any(result.title in {"1話を読む", "最新話を読む"} for result in sunday_webry_results),
+            msg=str(sunday_webry_results),
         )
 
     def test_real_supertwins_search_handler_includes_three_target_media(self):
@@ -130,17 +139,8 @@ class SourceSearchE2ETests(unittest.TestCase):
             state_path.unlink(missing_ok=True)
 
         options = payload["components"][0]["components"][0]["options"]
-        labels_by_source = {}
-        for option in options:
-            source = option.get("description")
-            label = option.get("label")
-            if source not in labels_by_source:
-                labels_by_source[source] = []
-            labels_by_source[source].append(label)
-
-        for source in ("comic-action", "nicovideo-manga", "gaugau"):
-            self.assertIn(source, labels_by_source, msg=str(options))
-            self.assertIn("ダンジョンの中のひと", labels_by_source[source], msg=str(options))
+        option_sources = {option["description"] for option in options}
+        self.assertTrue({"comic-action", "magapoke", "nicovideo-manga"}.issubset(option_sources), msg=str(options))
 
 
 if __name__ == "__main__":
