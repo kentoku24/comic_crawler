@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from html import unescape
 from typing import Callable, Dict, List, Optional
-from urllib.parse import quote_plus, urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, quote_plus, urljoin, urlsplit, urlunsplit
 
 from manga_watch.sources import REGISTERED_SOURCES, normalize_seed_url
 from manga_watch.sources.base import HttpClient, RequestsHttpClient
@@ -52,7 +52,7 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "allowed_domains": ("championcross.jp", "www.championcross.jp"),
     },
     "magapoke": {
-        "search_url": "https://pocket.shonenmagazine.com/search?query={query}",
+        "search_url": "https://pocket.shonenmagazine.com/search/{query}",
         "allowed_domains": ("pocket.shonenmagazine.com",),
     },
     "firecross": {
@@ -143,7 +143,7 @@ def _search_via_public_site(
     if not config:
         raise UnsupportedSourceSearchError(f"unsupported search source: {source}")
 
-    search_url = str(config["search_url"]).format(query=quote_plus(query))
+    search_url = str(config["search_url"]).format(query=_encode_search_query(source, query))
     allowed_domains = tuple(str(domain).lower() for domain in config["allowed_domains"])
     html_text = http_client.get_text(search_url)
 
@@ -216,6 +216,12 @@ def _search_comic_action(
     return results
 
 
+def _encode_search_query(source: str, query: str) -> str:
+    if source == "magapoke":
+        return quote(query, safe="")
+    return quote_plus(query)
+
+
 def _extract_comic_action_latest_link(block: str) -> str:
     for match in re.finditer(r'(<a\b[^>]*>.*?</a>)', block, re.I | re.S):
         anchor_markup = match.group(1)
@@ -225,6 +231,74 @@ def _extract_comic_action_latest_link(block: str) -> str:
         if href_match:
             return href_match.group(1)
     return ""
+
+
+def _search_champion_cross(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    search_url = str(_SOURCE_SEARCH_CONFIG["champion-cross"]["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for match in re.finditer(r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_text, re.I | re.S):
+        anchor_markup = match.group(0)
+        if "c-ms-mode-series" not in anchor_markup:
+            continue
+
+        resolved_url = _resolve_result_url(match.group(1), search_url=search_url)
+        if not resolved_url:
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source("champion-cross", resolved_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        title = _champion_cross_title(anchor_markup, match.group(2))
+        if not title:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source="champion-cross",
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle="champion-cross",
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    if results:
+        return results
+
+    return _extract_anchor_results(
+        html_text,
+        source="champion-cross",
+        search_url=search_url,
+        allowed_domains=("championcross.jp", "www.championcross.jp"),
+        limit=limit,
+    )
+
+
+def _champion_cross_title(anchor_markup: str, anchor_html: str) -> str:
+    title_match = re.search(r'<h2\b[^>]*class="[^"]*\bmanga-title\b[^"]*"[^>]*>(.*?)</h2>', anchor_html, re.I | re.S)
+    if title_match:
+        title = _normalize_anchor_text(title_match.group(1))
+        if title:
+            return title
+
+    image_alt_match = re.search(r'<img\b[^>]*alt\s*=\s*(["\'])(.*?)\1', anchor_html, re.I | re.S)
+    if image_alt_match:
+        title = _normalize_anchor_text(image_alt_match.group(2))
+        if title:
+            return title
+
+    return _extract_anchor_title(anchor_markup, anchor_html)
 
 
 def _search_gaugau(
@@ -354,6 +428,8 @@ def _extract_anchor_results(
             continue
 
         title = _extract_anchor_title(match.group(0), match.group(2))
+        if source == "takecomic":
+            title = _normalize_takecomic_search_title(title)
         if not title:
             title = canonical_seed_url
 
@@ -472,6 +548,10 @@ def _normalize_anchor_text(text: str) -> str:
     return normalized
 
 
+def _normalize_takecomic_search_title(title: str) -> str:
+    return re.sub(r"^更新\s*", "", title or "").strip()
+
+
 _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
     source: (
         lambda query, http_client, *, limit, _source=source: _search_via_public_site(
@@ -482,4 +562,5 @@ _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
 }
 _SEARCHERS["comic-action"] = _search_comic_action
 _SEARCHERS["firecross"] = _search_firecross
+_SEARCHERS["champion-cross"] = _search_champion_cross
 _SEARCHERS["gaugau"] = _search_gaugau
