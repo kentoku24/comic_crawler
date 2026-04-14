@@ -12,6 +12,20 @@ RUN_REAL_SEARCH_E2E = os.environ.get("RUN_REAL_SEARCH_E2E") == "1"
 
 @unittest.skipUnless(RUN_REAL_SEARCH_E2E, "set RUN_REAL_SEARCH_E2E=1 to run real network search e2e tests")
 class SourceSearchE2ETests(unittest.TestCase):
+    def test_real_search_source_requests_reach_expected_work_for_shonenjumpplus_spy_family(self):
+        client = RequestsHttpClient()
+        results = search_source("shonenjumpplus", "SPY×FAMILY", http_client=client)
+
+        self.assertTrue(results, msg="shonenjumpplus returned no results for SPY×FAMILY")
+        self.assertTrue(
+            any(
+                result.title == "SPY×FAMILY"
+                and result.seed_url == "https://shonenjumpplus.com/episode/17107419589372003740"
+                for result in results
+            ),
+            msg=str(results),
+        )
+
     def test_real_search_source_requests_reach_expected_works_for_recognized_media_title_pairs(self):
         client = RequestsHttpClient()
         cases = [
@@ -47,9 +61,9 @@ class SourceSearchE2ETests(unittest.TestCase):
             ),
             (
                 "shonenjumpplus",
-                "ふつうの軽音部",
-                "ふつうの軽音部",
-                "https://shonenjumpplus.com/episode/17107419589191808162",
+                "SPY×FAMILY",
+                "SPY×FAMILY",
+                "https://shonenjumpplus.com/episode/17107419589372003740",
             ),
             (
                 "sunday-webry",

@@ -507,9 +507,9 @@ class SourceSearchTests(unittest.TestCase):
         <html>
           <body>
             <li class="daily-series-item">
-              <a href="https://shonenjumpplus.com/episode/17107419589191808162">
+              <a href="https://shonenjumpplus.com/episode/17107419589372003740">
                 <div class="daily-series-info">
-                  <h2 class="daily-series-title">ふつうの軽音部</h2>
+                  <h2 class="daily-series-title">SPY×FAMILY</h2>
                 </div>
               </a>
             </li>
@@ -519,10 +519,10 @@ class SourceSearchTests(unittest.TestCase):
 
         results = search_source(
             "shonenjumpplus",
-            "ふつうの軽音部",
+            "SPY×FAMILY",
             http_client=StaticHttpClient(
                 {
-                    "https://shonenjumpplus.com/search?query=%E3%81%B5%E3%81%A4%E3%81%86%E3%81%AE%E8%BB%BD%E9%9F%B3%E9%83%A8": "<html></html>",
+                    "https://shonenjumpplus.com/search?query=SPY%C3%97FAMILY": "<html></html>",
                     "https://shonenjumpplus.com/": html,
                 }
             ),
@@ -532,8 +532,8 @@ class SourceSearchTests(unittest.TestCase):
             [
                 SearchResult(
                     source="shonenjumpplus",
-                    title="ふつうの軽音部",
-                    seed_url="https://shonenjumpplus.com/episode/17107419589191808162",
+                    title="SPY×FAMILY",
+                    seed_url="https://shonenjumpplus.com/episode/17107419589372003740",
                     subtitle="shonenjumpplus",
                 )
             ],
