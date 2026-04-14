@@ -8,6 +8,7 @@ from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence
 
 from manga_watch.discord_fetch import handle_fetch_trigger
 from manga_watch.discord_latest import handle_latest_query
+from manga_watch.discord_title_search import handle_title_query
 
 DEFAULT_COMMAND_POLL_INTERVAL = 5.0
 DISCORD_MESSAGE_LIMIT = 2000
@@ -109,6 +110,7 @@ class DiscordCommandListener:
     poll_interval_seconds: float = DEFAULT_COMMAND_POLL_INTERVAL
     latest_handler: Callable[..., Optional[str]] = handle_latest_query
     fetch_handler: Callable[..., Optional[Dict[str, object]]] = handle_fetch_trigger
+    title_handler: Callable[..., Optional[str]] = handle_title_query
     report_logger: Callable[[str], None] = print
     error_logger: Callable[[str], None] = print
     sleep_fn: Callable[[float], None] = time.sleep
@@ -164,6 +166,11 @@ class DiscordCommandListener:
         if latest_response is not None:
             self._send_response(latest_response)
             return latest_response
+
+        title_response = self.title_handler(content)
+        if title_response is not None:
+            self._send_response(title_response)
+            return title_response
 
         fetch_response = self.fetch_handler(content, coordinator=self.coordinator)
         if fetch_response is None:
