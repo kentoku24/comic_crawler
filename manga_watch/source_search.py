@@ -4,7 +4,7 @@ import re
 from dataclasses import dataclass
 from html import unescape
 from typing import Callable, Dict, List, Optional
-from urllib.parse import quote_plus, urljoin, urlsplit, urlunsplit
+from urllib.parse import quote, quote_plus, urljoin, urlsplit, urlunsplit
 
 from manga_watch.sources import REGISTERED_SOURCES, normalize_seed_url
 from manga_watch.sources.base import HttpClient, RequestsHttpClient
@@ -142,7 +142,7 @@ def _search_via_public_site(
     if not config:
         raise UnsupportedSourceSearchError(f"unsupported search source: {source}")
 
-    search_url = str(config["search_url"]).format(query=quote_plus(query))
+    search_url = str(config["search_url"]).format(query=_encode_search_query(source, query))
     allowed_domains = tuple(str(domain).lower() for domain in config["allowed_domains"])
     html_text = http_client.get_text(search_url)
 
@@ -213,6 +213,12 @@ def _search_comic_action(
             break
 
     return results
+
+
+def _encode_search_query(source: str, query: str) -> str:
+    if source == "magapoke":
+        return quote(query, safe="")
+    return quote_plus(query)
 
 
 def _extract_comic_action_latest_link(block: str) -> str:

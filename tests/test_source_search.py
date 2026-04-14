@@ -282,6 +282,28 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_percent_encodes_magapoke_queries_with_spaces(self):
+        html = (FIXTURES_ROOT / "magapoke" / "01-search.html").read_text(encoding="utf-8")
+        request_url = "https://pocket.shonenmagazine.com/search/Foo%20Bar"
+
+        results = search_source(
+            "magapoke",
+            "Foo Bar",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="magapoke",
+                    title="薫る花は凛と咲く",
+                    seed_url="https://pocket.shonenmagazine.com/title/01524",
+                    subtitle="magapoke",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_parses_gaugau_results(self):
         html = """
         <html>
