@@ -1,0 +1,208 @@
+from __future__ import annotations
+
+import re
+from dataclasses import dataclass
+from html import unescape
+from typing import Callable, Dict, List, Optional
+from urllib.parse import quote_plus, urljoin, urlsplit, urlunsplit
+
+from manga_watch.sources import REGISTERED_SOURCES, normalize_seed_url
+from manga_watch.sources.base import HttpClient, RequestsHttpClient
+
+DEFAULT_SEARCH_LIMIT = 10
+SEARCH_RESULT_LIMIT = 25
+
+_SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
+    "comic-walker": {
+        "search_url": "https://comic-walker.com/search?keyword={query}",
+        "allowed_domains": ("comic-walker.com", "www.comic-walker.com"),
+    },
+    "comic-action": {
+        "search_url": "https://comic-action.com/search?q={query}",
+        "allowed_domains": ("comic-action.com", "www.comic-action.com"),
+    },
+    "champion-cross": {
+        "search_url": "https://championcross.jp/search?keyword={query}",
+        "allowed_domains": ("championcross.jp", "www.championcross.jp"),
+    },
+    "kakuyomu": {
+        "search_url": "https://kakuyomu.jp/search?q={query}",
+        "allowed_domains": ("kakuyomu.jp", "www.kakuyomu.jp"),
+    },
+    "nicovideo-manga": {
+        "search_url": "https://manga.nicovideo.jp/search?q={query}",
+        "allowed_domains": ("manga.nicovideo.jp", "sp.manga.nicovideo.jp"),
+    },
+}
+
+_CONFIGURED_SOURCES = set(_SOURCE_SEARCH_CONFIG)
+_UNKNOWN_CONFIGURED_SOURCES = _CONFIGURED_SOURCES - set(REGISTERED_SOURCES)
+if _UNKNOWN_CONFIGURED_SOURCES:
+    unknown_sources = ", ".join(sorted(_UNKNOWN_CONFIGURED_SOURCES))
+    raise RuntimeError(f"search config contains unknown sources: {unknown_sources}")
+
+SUPPORTED_SEARCH_SOURCES: tuple[str, ...] = tuple(
+    source for source in REGISTERED_SOURCES if source in _CONFIGURED_SOURCES
+)
+
+
+@dataclass(frozen=True)
+class SearchResult:
+    source: str
+    title: str
+    seed_url: str
+    subtitle: Optional[str] = None
+
+
+class UnsupportedSourceSearchError(ValueError):
+    pass
+
+
+def supported_search_sources() -> tuple[str, ...]:
+    return SUPPORTED_SEARCH_SOURCES
+
+
+def searchable_source_choices() -> List[Dict[str, str]]:
+    return [{"name": source, "value": source} for source in supported_search_sources()]
+
+
+def search_source(
+    source: str,
+    query: str,
+    *,
+    http_client: Optional[HttpClient] = None,
+    limit: int = DEFAULT_SEARCH_LIMIT,
+) -> List[SearchResult]:
+    normalized_source = str(source or "").strip()
+    normalized_query = str(query or "").strip()
+    if not normalized_source:
+        raise ValueError("search source is required")
+    if not normalized_query:
+        raise ValueError("search query is required")
+
+    if normalized_source not in _SOURCE_SEARCH_CONFIG:
+        raise UnsupportedSourceSearchError(f"unsupported search source: {normalized_source}")
+
+    client = http_client or RequestsHttpClient()
+    safe_limit = max(1, min(int(limit), SEARCH_RESULT_LIMIT))
+    return _search_via_public_site(normalized_source, normalized_query, client, limit=safe_limit)
+
+
+def _search_via_public_site(
+    source: str,
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    config = _SOURCE_SEARCH_CONFIG[source]
+    search_url = str(config["search_url"]).format(query=quote_plus(query))
+    allowed_domains = tuple(str(domain).lower() for domain in config["allowed_domains"])
+    html_text = http_client.get_text(search_url)
+    return _extract_anchor_results(
+        html_text,
+        source=source,
+        search_url=search_url,
+        allowed_domains=allowed_domains,
+        limit=limit,
+    )
+
+
+def _extract_anchor_results(
+    html_text: str,
+    *,
+    source: str,
+    search_url: str,
+    allowed_domains: tuple[str, ...],
+    limit: int,
+) -> List[SearchResult]:
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for match in re.finditer(r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_text, re.I | re.S):
+        resolved_url = _resolve_result_url(match.group(1), search_url=search_url)
+        if not resolved_url:
+            continue
+        if not _is_allowed_domain(resolved_url, allowed_domains):
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source(source, resolved_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        title = _extract_anchor_title(match.group(0), match.group(2))
+        if not title:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source=source,
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle=source,
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+def _extract_anchor_title(anchor_markup: str, anchor_html: str) -> str:
+    title_attr_match = re.search(r'title\s*=\s*(["\'])(.*?)\1', anchor_markup, re.I | re.S)
+    if title_attr_match:
+        title = _normalize_anchor_text(title_attr_match.group(2))
+        if title:
+            return title
+
+    title = _normalize_anchor_text(anchor_html)
+    if title:
+        return title
+
+    image_alt_match = re.search(r'<img\b[^>]*alt\s*=\s*(["\'])(.*?)\1', anchor_html, re.I | re.S)
+    if not image_alt_match:
+        return ""
+
+    alt_title = _normalize_anchor_text(image_alt_match.group(2))
+    if not alt_title:
+        return ""
+    stripped_alt_title = re.sub(r"【.*$", "", alt_title).strip()
+    return stripped_alt_title or alt_title
+
+
+def _resolve_result_url(href: str, *, search_url: str) -> Optional[str]:
+    normalized = unescape(str(href or "")).strip().replace("\\/", "/")
+    if not normalized:
+        return None
+
+    parsed = urlsplit(normalized)
+    if not parsed.scheme:
+        normalized = urljoin(search_url, normalized)
+        parsed = urlsplit(normalized)
+
+    if parsed.scheme not in ("http", "https"):
+        return None
+    return urlunsplit((parsed.scheme, parsed.netloc, parsed.path, "", "")).rstrip("/")
+
+
+def _is_allowed_domain(url: str, allowed_domains: tuple[str, ...]) -> bool:
+    host = (urlsplit(url).netloc or "").lower()
+    return any(host == domain or host.endswith(f".{domain}") for domain in allowed_domains)
+
+
+def _canonical_seed_url_for_source(source: str, candidate_url: str) -> Optional[str]:
+    try:
+        descriptor = normalize_seed_url(candidate_url)
+    except Exception:
+        return None
+    if descriptor.source != source:
+        return None
+    return descriptor.seed_url
+
+
+def _normalize_anchor_text(text: str) -> str:
+    normalized = re.sub(r"<[^>]+>", "", text or "")
+    normalized = unescape(re.sub(r"\s+", " ", normalized)).strip()
+    normalized = re.sub(r"^最新UP!?\s*", "", normalized)
+    return normalized

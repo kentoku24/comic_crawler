@@ -18,6 +18,7 @@ from .sources.champion_cross import (
 from .sources.comic_action import ComicActionAdapter, extract_comic_action_series_id, parse_comic_action_title
 from .sources.comic_walker import ComicWalkerAdapter, parse_comic_walker_title
 from .sources.kakuyomu import KakuyomuAdapter
+from .sources.nicovideo_manga import NicovideoMangaAdapter, canonical_nicovideo_manga_latest_url
 from .sources.util import html_title
 
 
@@ -108,6 +109,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "work page keeps __NEXT_DATA__",
             "latest episode id / title are discoverable from the work page payload",
             "latest episode page title is still readable",
+        ),
+    ),
+    "nicovideo-manga": SourceCanaryContract(
+        source="nicovideo-manga",
+        seed_url="https://sp.manga.nicovideo.jp/comic/53764",
+        fixture_bundle="tests/fixtures/nicovideo-manga/normal",
+        monitored_signals=(
+            "canonical comic URL is stable",
+            "latest episode URL is discoverable",
+            "latest episode page title still parses into series / episode labels",
         ),
     ),
 }
@@ -256,6 +267,28 @@ def _kakuyomu_canary(contract: SourceCanaryContract, http_client: HttpClient) ->
     )
 
 
+def _nicovideo_manga_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = NicovideoMangaAdapter()
+    work = adapter.normalize(contract.seed_url)
+    latest = adapter.fetch_latest(work, http_client)
+    comic_id = str(work.metadata.get("comicId") or "")
+    latest_page_url = canonical_nicovideo_manga_latest_url(comic_id)
+    if not latest.episode_title:
+        raise SourceParseError("nicovideo-manga: latest episode title not found")
+
+    return (
+        (latest_page_url, latest.url),
+        (
+            CanaryObservation("canonical_seed_url", work.seed_url),
+            CanaryObservation("latest_episode_url", latest.url),
+            CanaryObservation("latest_episode_title", latest.episode_title),
+        ),
+    )
+
+
 def _champion_cross_canary(
     contract: SourceCanaryContract,
     http_client: HttpClient,
@@ -290,6 +323,7 @@ CANARY_RUNNERS = {
     "comic-action": _comic_action_canary,
     "champion-cross": _champion_cross_canary,
     "kakuyomu": _kakuyomu_canary,
+    "nicovideo-manga": _nicovideo_manga_canary,
 }
 
 

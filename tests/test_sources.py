@@ -13,6 +13,7 @@ from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
+from manga_watch.sources.nicovideo_manga import NicovideoMangaAdapter
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures"
 SOURCE_CASES = {
@@ -43,6 +44,9 @@ SOURCE_CASES = {
         "normal",
         "episode_seed_missing_next_update",
     ),
+    "nicovideo-manga": (
+        "normal",
+    ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
 ERROR_TYPES = {
@@ -71,6 +75,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "normal": "main_story",
         "episode_seed_missing_next_update": "main_story",
         "episode_seed_missing_next_update": "main_story",
+    },
+    "nicovideo-manga": {
+        "normal": "main_story",
     },
 }
 
@@ -155,7 +162,7 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "champion-cross", "kakuyomu"),
+            ("comic-walker", "comic-action", "champion-cross", "kakuyomu", "nicovideo-manga"),
             REGISTERED_SOURCES,
         )
 
@@ -182,6 +189,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_champion_cross_fixtures(self):
         self._assert_fixture_matrix("champion-cross")
+
+    def test_nicovideo_manga_fixtures(self):
+        self._assert_fixture_matrix("nicovideo-manga")
 
     def test_comic_walker_normalize_accepts_canonical_series_url(self):
         work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")

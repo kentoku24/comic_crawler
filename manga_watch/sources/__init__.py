@@ -1,4 +1,5 @@
 from .base import HttpClient, LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
+from .nicovideo_manga import NicovideoMangaAdapter
 from .registry import (
     DEFAULT_ADAPTERS,
     REGISTERED_ADAPTERS,
@@ -15,6 +16,7 @@ __all__ = [
     "REGISTERED_ADAPTERS",
     "REGISTERED_SOURCES",
     "RequestsHttpClient",
+    "NicovideoMangaAdapter",
     "SourceAdapter",
     "WorkDescriptor",
     "fetch_latest_for_work",

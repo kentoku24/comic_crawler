@@ -56,6 +56,15 @@ SOURCE_CAPABILITIES = (
             "https://kakuyomu.jp/works/12345678901234567890/episodes/12345678901234567891",
         ),
     ),
+    SourceCapability(
+        source="nicovideo-manga",
+        domains=("manga.nicovideo.jp", "sp.manga.nicovideo.jp"),
+        input_labels=("comic URL",),
+        examples=(
+            "https://manga.nicovideo.jp/comic/53764",
+            "https://sp.manga.nicovideo.jp/comic/53764",
+        ),
+    ),
 )
 
 

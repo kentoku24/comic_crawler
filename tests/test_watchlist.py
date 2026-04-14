@@ -168,6 +168,23 @@ class WatchlistCliTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
+    def test_watchlist_add_accepts_nicovideo_manga_comic_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://manga.nicovideo.jp/comic/53764",
+                watchlist_path=str(watchlist_path),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("nicovideo-manga:53764", payload["entry"]["id"])
+        self.assertEqual("https://manga.nicovideo.jp/comic/53764", payload["entry"]["seed_url"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
     def test_watchlist_add_reports_unsupported_source(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
