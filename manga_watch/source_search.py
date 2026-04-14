@@ -348,6 +348,153 @@ def _search_takecomic(
     return _filter_results_by_query(query, results, limit=limit)
 
 
+def _search_firecross(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    config = _SOURCE_SEARCH_CONFIG["firecross"]
+    search_url = str(config["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for match in re.finditer(r'<li\b[^>]*class="[^"]*\bseriesList_item\b[^"]*"[^>]*>(.*?)</li>', html_text, re.I | re.S):
+        block = match.group(1)
+        title = _extract_firecross_search_title(block)
+        if not title:
+            continue
+
+        candidate_url = _extract_firecross_search_seed_url(block, search_url=search_url)
+        if not candidate_url:
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source("firecross", candidate_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source="firecross",
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle="firecross",
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+def _extract_firecross_search_title(block: str) -> str:
+    title_match = re.search(r'<a\b[^>]*class="[^"]*\bseriesList_itemTitle\b[^"]*"[^>]*>(.*?)</a>', block, re.I | re.S)
+    if title_match:
+        title = _normalize_anchor_text(title_match.group(1))
+        if title:
+            return title
+
+    image_alt_match = re.search(r'<img\b[^>]*alt\s*=\s*(["\'])(.*?)\1', block, re.I | re.S)
+    if image_alt_match:
+        title = _normalize_anchor_text(image_alt_match.group(2))
+        if title:
+            return title
+
+    return ""
+
+
+def _extract_firecross_search_seed_url(block: str, *, search_url: str) -> Optional[str]:
+    web_read_match = re.search(
+        r'<a\b[^>]*href="([^"]+)"[^>]*>\s*WEB読み\s*</a>',
+        block,
+        re.I | re.S,
+    )
+    if web_read_match:
+        resolved_url = _resolve_result_url(web_read_match.group(1), search_url=search_url)
+        if resolved_url:
+            return resolved_url
+
+    series_page_match = re.search(
+        r'<a\b[^>]*class="[^"]*\bseriesList_itemTitle\b[^"]*"[^>]*href="([^"]+)"',
+        block,
+        re.I | re.S,
+    )
+    if series_page_match:
+        resolved_url = _resolve_result_url(series_page_match.group(1), search_url=search_url)
+        if not resolved_url:
+            return None
+        parsed = urlsplit(resolved_url)
+        match = re.match(r"^/(?:comic|hjbunko|hjnovels)/series/([0-9A-Za-z_-]+)$", parsed.path)
+        if not match:
+            return None
+        return canonical_firecross_ebook_series_url(match.group(1))
+
+    return None
+
+
+def _search_sunday_webry(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    search_url = str(_SOURCE_SEARCH_CONFIG["sunday-webry"]["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for match in re.finditer(r'<li\b[^>]*>(.*?)</li>', html_text, re.I | re.S):
+        block = match.group(0)
+        data_title_match = re.search(r'data-title="([^"]*)"', block, re.I | re.S)
+        title = _normalize_anchor_text(data_title_match.group(1) if data_title_match else "")
+        if not title:
+            title_match = re.search(r'<p\b[^>]*class="[^"]*\bseries-title\b[^"]*"[^>]*>(.*?)</p>', block, re.I | re.S)
+            title = _normalize_anchor_text(title_match.group(1) if title_match else "")
+        if not title:
+            continue
+
+        candidate_url = ""
+        for pattern in (
+            r'<a\b[^>]*class="[^"]*\bmain-link\b[^"]*"[^>]*href="([^"]+)"',
+            r'<a\b[^>]*href="([^"]+)"[^>]*class="[^"]*\bmain-link\b[^"]*"',
+            r'<div\b[^>]*class="[^"]*\bthmb-container\b[^"]*"[^>]*>.*?<a\b[^>]*href="([^"]+)"',
+        ):
+            match = re.search(pattern, block, re.I | re.S)
+            if match:
+                candidate_url = match.group(1)
+                break
+
+        if not candidate_url:
+            continue
+
+        resolved_url = _resolve_result_url(candidate_url, search_url=search_url)
+        if not resolved_url:
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source("sunday-webry", resolved_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source="sunday-webry",
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle="sunday-webry",
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    if results:
+        return results
+
+    return _search_from_homepage("sunday-webry", query, http_client, limit=limit)
+
+
 def _search_champion_cross(
     query: str,
     http_client: HttpClient,
@@ -398,6 +545,8 @@ def _extract_anchor_results(
             continue
 
         title = _extract_anchor_title(match.group(0), match.group(2))
+        if source == "takecomic":
+            title = _normalize_takecomic_search_title(title)
         if not title:
             title = canonical_seed_url
 
@@ -764,6 +913,10 @@ def _normalize_anchor_text(text: str) -> str:
     return normalized
 
 
+def _normalize_takecomic_search_title(title: str) -> str:
+    return re.sub(r"^更新\s*", "", title or "").strip()
+
+
 def _clean_champion_cross_title(title: str, query: str) -> str:
     normalized = _normalize_anchor_text(title)
     normalized = re.sub(r"【.*?】", "", normalized).strip()
@@ -830,7 +983,9 @@ _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
     for source in SUPPORTED_SEARCH_SOURCES
 }
 _SEARCHERS["comic-action"] = _search_comic_action
+_SEARCHERS["firecross"] = _search_firecross
 _SEARCHERS["champion-cross"] = _search_champion_cross
+_SEARCHERS["sunday-webry"] = _search_sunday_webry
 _SEARCHERS["gaugau"] = _search_gaugau
 _SEARCHERS["kakuyomu"] = _search_kakuyomu
 _SEARCHERS["takecomic"] = _search_takecomic

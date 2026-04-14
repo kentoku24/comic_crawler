@@ -1,6 +1,11 @@
+from pathlib import Path
+from urllib.parse import quote_plus
+
 import unittest
 
 from manga_watch.source_search import SearchResult, search_source, supported_search_sources
+
+FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "source-search"
 
 
 class StaticHttpClient:
@@ -345,6 +350,44 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_parses_comic_walker_results_via_keyword_parameter(self):
+        html = """
+        <html>
+          <body>
+            <a class="WorkThumbnail_link__LWlLk" href="/detail/KC_003921_S/episodes/KC_0039210000100011_E">
+              <span class="WorkThumbnail_title__EmZ6E" lang="ja">魔術師クノンは見えている</span>
+            </a>
+            <a class="WorkThumbnail_link__LWlLk" href="/detail/KC_999999_S/episodes/KC_9999990000100011_E">
+              <span class="WorkThumbnail_title__EmZ6E" lang="ja">別作品</span>
+            </a>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "comic-walker",
+            "クノン",
+            http_client=StaticHttpClient({"https://comic-walker.com/search?q=%E3%82%AF%E3%83%8E%E3%83%B3": html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="comic-walker",
+                    title="魔術師クノンは見えている",
+                    seed_url="https://comic-walker.com/detail/KC_003921_S",
+                    subtitle="comic-walker",
+                ),
+                SearchResult(
+                    source="comic-walker",
+                    title="別作品",
+                    seed_url="https://comic-walker.com/detail/KC_999999_S",
+                    subtitle="comic-walker",
+                ),
+            ],
+            results,
+        )
+
     def test_search_source_parses_comic_earthstar_homepage_results(self):
         html = """
         <html>
@@ -380,6 +423,55 @@ class SourceSearchTests(unittest.TestCase):
                     title="戦国小町苦労譚",
                     seed_url="https://comic-earthstar.com/episode/12207421983458916468",
                     subtitle="comic-earthstar",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_parses_firecross_results_via_search_page_web_reading_link(self):
+        html = """
+        <html>
+          <body>
+            <ul class="seriesList" id="search-result">
+              <li class="seriesList_item">
+                <div class="series-list-figure">
+                  <a href="https://firecross.jp/hjbunko/series/441">
+                    <picture>
+                      <img alt="灰原くんの強くて青春ニューゲーム" />
+                    </picture>
+                  </a>
+                </div>
+                <div class="seriesList_itemMeta">
+                  <span class="series-list-label series-list-label--hb">HJ文庫</span>
+                </div>
+                <a class="seriesList_itemTitle border" href="https://firecross.jp/hjbunko/series/441">灰原くんの強くて青春ニューゲーム</a>
+                <div class="seriesList_itemBtnSet">
+                  <a class="btn-search-result" href="https://firecross.jp/hjbunko/series/441">シリーズ紹介</a>
+                  <a class="btn-search-result" href="https://firecross.jp/ebook/series/441">WEB読み</a>
+                </div>
+              </li>
+            </ul>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "firecross",
+            "灰原くん",
+            http_client=StaticHttpClient(
+                {
+                    "https://firecross.jp/search?keyword=%E7%81%B0%E5%8E%9F%E3%81%8F%E3%82%93": html
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="firecross",
+                    title="灰原くんの強くて青春ニューゲーム",
+                    seed_url="https://firecross.jp/ebook/series/441",
+                    subtitle="firecross",
                 )
             ],
             results,
@@ -574,6 +666,28 @@ class SourceSearchTests(unittest.TestCase):
                     source="sunday-webry",
                     title="レッドブルー",
                     seed_url="https://www.sunday-webry.com/episode/12207421983588825279",
+                    subtitle="sunday-webry",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_parses_sunday_webry_results_via_query_parameter(self):
+        html = (FIXTURES_ROOT / "sunday-webry" / "search_title.html").read_text(encoding="utf-8")
+        request_url = "https://www.sunday-webry.com/search?query=" + quote_plus("尾守つみきと奇日常。")
+
+        results = search_source(
+            "sunday-webry",
+            "尾守つみきと奇日常。",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="sunday-webry",
+                    title="尾守つみきと奇日常。",
+                    seed_url="https://www.sunday-webry.com/episode/14079602755299850599",
                     subtitle="sunday-webry",
                 )
             ],
