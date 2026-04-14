@@ -43,6 +43,26 @@ class MultiSourceSearchSource:
         return list(self.results_by_source.get(source, []))
 
 
+class MultiSourceSearchSourceWithFailures:
+    def __init__(self, results_by_source=None, failing_sources=None):
+        self.results_by_source = {key: list(value) for key, value in (results_by_source or {}).items()}
+        self.failing_sources = set(failing_sources or ())
+        self.calls = []
+
+    def __call__(self, source, query, *, http_client=None, limit=10):
+        self.calls.append(
+            {
+                "source": source,
+                "query": query,
+                "http_client": http_client,
+                "limit": limit,
+            }
+        )
+        if source in self.failing_sources:
+            raise RuntimeError(f"boom: {source}")
+        return list(self.results_by_source.get(source, []))
+
+
 class FakeAddSubscription:
     def __init__(self):
         self.calls = []
@@ -306,6 +326,80 @@ class DiscordSearchTests(unittest.TestCase):
         self.assertEqual("source-0-0", options[0]["label"])
         self.assertEqual("source-1-0", options[1]["label"])
         self.assertEqual("source-2-0", options[2]["label"])
+
+    def test_start_returns_partial_cross_source_results_when_some_sources_fail(self):
+        search_source = MultiSourceSearchSourceWithFailures(
+            results_by_source={
+                "comic-walker": [
+                    SearchResult(
+                        source="comic-walker",
+                        title="walker only",
+                        seed_url="https://comic-walker.com/detail/1",
+                    )
+                ],
+                "takecomic": [
+                    SearchResult(
+                        source="takecomic",
+                        title="take only",
+                        seed_url="https://takecomic.jp/comics/1",
+                    )
+                ],
+            },
+            failing_sources={"champion-cross"},
+        )
+        handler = SearchCommandHandler(
+            search_source=search_source,
+            supported_sources=lambda: ("comic-walker", "champion-cross", "takecomic"),
+        )
+
+        response = handler.start(source=None, query="まんが")
+
+        self.assertEqual("横断検索結果です。1件選んでください。", response["content"])
+        self.assertEqual(
+            [
+                {
+                    "label": "walker only",
+                    "value": "https://comic-walker.com/detail/1",
+                    "description": "comic-walker",
+                },
+                {
+                    "label": "take only",
+                    "value": "https://takecomic.jp/comics/1",
+                    "description": "takecomic",
+                },
+            ],
+            response["components"][0]["components"][0]["options"],
+        )
+
+    def test_start_returns_failure_message_when_all_cross_source_searches_fail(self):
+        search_source = MultiSourceSearchSourceWithFailures(
+            failing_sources={"comic-walker", "champion-cross", "takecomic"}
+        )
+        handler = SearchCommandHandler(
+            search_source=search_source,
+            supported_sources=lambda: ("comic-walker", "champion-cross", "takecomic"),
+        )
+
+        response = handler.start(source=None, query="まんが")
+
+        self.assertEqual({"content": "作品検索に失敗しました。サーバーログを確認してください。", "components": []}, response)
+
+    def test_start_returns_no_results_when_failures_mix_with_empty_successes(self):
+        search_source = MultiSourceSearchSourceWithFailures(
+            results_by_source={
+                "comic-walker": [],
+                "takecomic": [],
+            },
+            failing_sources={"champion-cross"},
+        )
+        handler = SearchCommandHandler(
+            search_source=search_source,
+            supported_sources=lambda: ("comic-walker", "champion-cross", "takecomic"),
+        )
+
+        response = handler.start(source=None, query="まんが")
+
+        self.assertEqual({"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}, response)
 
     def test_handle_component_adds_selected_result_with_hidden_flag(self):
         add_subscription = FakeAddSubscription()

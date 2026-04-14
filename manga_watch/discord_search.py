@@ -222,14 +222,11 @@ class SearchCommandHandler:
 
         normalized_visibility = _normalize_visibility(visibility)
         if not normalized_source:
-            try:
-                return self._start_cross_source(
-                    query=normalized_query,
-                    visibility=normalized_visibility,
-                    http_client=http_client,
-                )
-            except Exception:
-                return {"content": SEARCH_FAILURE_MESSAGE, "components": []}
+            return self._start_cross_source(
+                query=normalized_query,
+                visibility=normalized_visibility,
+                http_client=http_client,
+            )
 
         try:
             results = self.search_source(
@@ -261,18 +258,27 @@ class SearchCommandHandler:
         http_client: object = None,
     ) -> Dict[str, object]:
         buckets: List[List[SearchResult]] = []
+        had_failure = False
+        had_completed_lookup = False
         for source_name in self.supported_sources():
-            results = self.search_source(
-                source_name,
-                query,
-                http_client=http_client,
-                limit=DEFAULT_CROSS_SOURCE_LIMIT,
-            )
+            try:
+                results = self.search_source(
+                    source_name,
+                    query,
+                    http_client=http_client,
+                    limit=DEFAULT_CROSS_SOURCE_LIMIT,
+                )
+            except Exception:
+                had_failure = True
+                continue
+            had_completed_lookup = True
             deduped_results = _dedupe_bucket_results(results, default_source=source_name)
             if deduped_results:
                 buckets.append(deduped_results[:DEFAULT_CROSS_SOURCE_LIMIT])
 
         if not buckets:
+            if had_failure and not had_completed_lookup:
+                return {"content": SEARCH_FAILURE_MESSAGE, "components": []}
             return {"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}
 
         interleaved_results = _interleave_result_buckets(
