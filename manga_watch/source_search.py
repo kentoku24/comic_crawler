@@ -226,6 +226,73 @@ def _extract_comic_action_latest_link(block: str) -> str:
     return ""
 
 
+def _search_champion_cross(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    search_url = str(_SOURCE_SEARCH_CONFIG["champion-cross"]["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for match in re.finditer(r'<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>', html_text, re.I | re.S):
+        anchor_markup = match.group(0)
+        if "c-ms-mode-series" not in anchor_markup:
+            continue
+
+        resolved_url = _resolve_result_url(match.group(1), search_url=search_url)
+        if not resolved_url:
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source("champion-cross", resolved_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        title = _champion_cross_title(anchor_markup, match.group(2))
+        if not title:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source="champion-cross",
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle="champion-cross",
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    if results:
+        return results
+
+    return _extract_anchor_results(
+        html_text,
+        source="champion-cross",
+        search_url=search_url,
+        allowed_domains=("championcross.jp", "www.championcross.jp"),
+        limit=limit,
+    )
+
+def _champion_cross_title(anchor_markup: str, anchor_html: str) -> str:
+    title_match = re.search(r'<h2\b[^>]*class="[^"]*\bmanga-title\b[^"]*"[^>]*>(.*?)</h2>', anchor_html, re.I | re.S)
+    if title_match:
+        title = _normalize_anchor_text(title_match.group(1))
+        if title:
+            return title
+
+    image_alt_match = re.search(r'<img\b[^>]*alt\s*=\s*(["\'])(.*?)\1', anchor_html, re.I | re.S)
+    if image_alt_match:
+        title = _normalize_anchor_text(image_alt_match.group(2))
+        if title:
+            return title
+
+    return _extract_anchor_title(anchor_markup, anchor_html)
+
+
 def _search_gaugau(
     query: str,
     http_client: HttpClient,
@@ -394,4 +461,5 @@ _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
     for source in SUPPORTED_SEARCH_SOURCES
 }
 _SEARCHERS["comic-action"] = _search_comic_action
+_SEARCHERS["champion-cross"] = _search_champion_cross
 _SEARCHERS["gaugau"] = _search_gaugau
