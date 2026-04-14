@@ -318,6 +318,67 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_parses_comic_earthstar_results_via_q_parameter(self):
+        html = """
+        <html>
+          <body>
+            <section>
+              <h4 class="SearchResult_bold_title__xPHvc">「俺は全てを【パリイ】する」の検索結果</h4>
+              <ul class="SearchResult_search_result_list__XKa5L">
+                <li class="SearchResultItem_li__u1Vp8">
+                  <div>
+                    <a href="https://comic-earthstar.com/episode/14079602755509014909">
+                      <img
+                        alt="俺は全てを【パリイ】する　～逆勘違いの世界最強は冒険者の夢をみる～"
+                        src="https://cdn-img.comic-earthstar.com/public/series-thumbnail/14079602755508978459-f5ccb81402690f486c14edf241e4b0db?1774260578"
+                      />
+                    </a>
+                  </div>
+                  <div class="SearchResultItem_title_box__kqLq3">
+                    <p class="SearchResultItem_series_title__hDsk1">俺は全てを【パリイ】する　～逆勘違いの世界最強は冒険者の夢をみる～</p>
+                    <p class="SearchResultItem_author__WEU8G">漫画：KRSG/原作：鍋敷・カワグチ</p>
+                    <a href="https://comic-earthstar.com/episode/14079602755509014909" class="SearchResultItem_main_link__NWMR7">1話を読む</a>
+                    <a href="https://comic-earthstar.com/episode/2551460909735889958" class="SearchResultItem_sub_link__ZIGr8">最新話を読む</a>
+                  </div>
+                </li>
+              </ul>
+            </section>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "comic-earthstar",
+            "俺は全てを【パリイ】する",
+            http_client=StaticHttpClient(
+                {
+                    "https://comic-earthstar.com/search?q=%E4%BF%BA%E3%81%AF%E5%85%A8%E3%81%A6%E3%82%92%E3%80%90%E3%83%91%E3%83%AA%E3%82%A4%E3%80%91%E3%81%99%E3%82%8B": html,
+                    "https://comic-earthstar.com/episode/14079602755509014909": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://comic-earthstar.com/rss/series/14079602755508978459">
+                      </head>
+                      <body>
+                        <div data-gtm-data-layer="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;14079602755508978459&quot;}}"></div>
+                      </body>
+                    </html>
+                    """,
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="comic-earthstar",
+                    title="俺は全てを【パリイ】する ～逆勘違いの世界最強は冒険者の夢をみる～",
+                    seed_url="https://comic-earthstar.com/rss/series/14079602755508978459",
+                    subtitle="comic-earthstar",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_parses_kuragebunch_results_via_q_parameter(self):
         html = (FIXTURES_ROOT / "kuragebunch" / "01-search.html").read_text(encoding="utf-8")
         request_url = f"https://kuragebunch.com/search?q={quote_plus('今日から始める幼なじみ')}"
