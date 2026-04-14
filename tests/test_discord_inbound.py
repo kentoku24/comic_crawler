@@ -120,6 +120,38 @@ class DiscordInboundTests(unittest.TestCase):
         self.assertEqual([FETCH_ACCEPTED_MESSAGE], responses)
         self.assertEqual(FETCH_ACCEPTED_MESSAGE, client.sent_messages[0]["content"])
 
+    def test_listener_handles_title_query(self):
+        client = FakeDiscordClient(
+            polls=[
+                [{"id": "22", "content": "old", "author": {"id": "user-1"}}],
+                [{"id": "23", "content": "title ダンジョン飯", "author": {"id": "user-2"}}],
+            ]
+        )
+        listener = DiscordCommandListener(
+            client=client,
+            channel_id="main-channel",
+            coordinator=object(),
+            timezone_name="Asia/Tokyo",
+            latest_handler=lambda content, **_: None,
+            fetch_handler=lambda content, **_: None,
+            title_handler=lambda content, **_: (
+                "`ダンジョン飯` の title 検索を開始しました。対象媒体数: 2"
+                if str(content).strip() == "title ダンジョン飯"
+                else None
+            ),
+            report_logger=lambda _: None,
+            error_logger=lambda _: None,
+        )
+
+        listener.poll_once()
+        responses = listener.poll_once()
+
+        self.assertEqual(["`ダンジョン飯` の title 検索を開始しました。対象媒体数: 2"], responses)
+        self.assertEqual(
+            "`ダンジョン飯` の title 検索を開始しました。対象媒体数: 2",
+            client.sent_messages[0]["content"],
+        )
+
     def test_listener_ignores_bot_messages(self):
         client = FakeDiscordClient(
             polls=[
