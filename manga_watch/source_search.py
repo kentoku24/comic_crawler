@@ -226,9 +226,10 @@ def _search_sunday_webry(
     results: List[SearchResult] = []
     seen_seed_urls = set()
 
-    for match in re.finditer(r'<li\b[^>]*data-title="([^"]+)"[^>]*>(.*?)</li>', html_text, re.I | re.S):
+    for match in re.finditer(r'<li\b[^>]*>(.*?)</li>', html_text, re.I | re.S):
         block = match.group(0)
-        title = _normalize_anchor_text(match.group(1))
+        data_title_match = re.search(r'data-title="([^"]*)"', block, re.I | re.S)
+        title = _normalize_anchor_text(data_title_match.group(1) if data_title_match else "")
         if not title:
             title_match = re.search(r'<p\b[^>]*class="[^"]*\bseries-title\b[^"]*"[^>]*>(.*?)</p>', block, re.I | re.S)
             title = _normalize_anchor_text(title_match.group(1) if title_match else "")
