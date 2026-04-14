@@ -559,6 +559,28 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_parses_sunday_webry_results_via_q_parameter(self):
+        html = (FIXTURES_ROOT / "sunday-webry" / "search_title.html").read_text(encoding="utf-8")
+        request_url = "https://www.sunday-webry.com/search?q=" + quote_plus("尾守つみきと奇日常。")
+
+        results = search_source(
+            "sunday-webry",
+            "尾守つみきと奇日常。",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="sunday-webry",
+                    title="尾守つみきと奇日常。",
+                    seed_url="https://www.sunday-webry.com/episode/14079602755299850599",
+                    subtitle="sunday-webry",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_rejects_unknown_source(self):
         with self.assertRaisesRegex(ValueError, "unsupported search source"):
             search_source("unknown", "まんが", http_client=StaticHttpClient({}))

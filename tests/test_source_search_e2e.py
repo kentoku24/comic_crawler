@@ -41,7 +41,7 @@ class SourceSearchE2ETests(unittest.TestCase):
             msg=str(results),
         )
 
-    def test_real_search_source_requests_include_expected_media_for_dungeon_no_naka_no_hito(self):
+    def test_real_search_source_requests_include_expected_media_for_representative_titles(self):
         client = RequestsHttpClient()
 
         for case in REPRESENTATIVE_SEARCH_CASES:
@@ -59,6 +59,7 @@ class SourceSearchE2ETests(unittest.TestCase):
         nicovideo_results = search_source("nicovideo-manga", "ダンジョンの中のひと", http_client=client)
         gaugau_results = search_source("gaugau", "ダンジョンの中のひと", http_client=client)
         kuragebunch_results = search_source("kuragebunch", "今日から始める幼なじみ", http_client=client)
+        sunday_webry_results = search_source("sunday-webry", "尾守つみきと奇日常。", http_client=client)
         self.assertTrue(
             any(result.seed_url == "https://manga.nicovideo.jp/comic/53764" for result in nicovideo_results),
             msg=str(nicovideo_results),
@@ -80,6 +81,18 @@ class SourceSearchE2ETests(unittest.TestCase):
         self.assertFalse(
             any(result.title == "最新話を読む" for result in kuragebunch_results),
             msg=str(kuragebunch_results),
+        )
+        self.assertTrue(
+            any(
+                result.title == "尾守つみきと奇日常。"
+                and result.seed_url == "https://www.sunday-webry.com/episode/14079602755299850599"
+                for result in sunday_webry_results
+            ),
+            msg=str(sunday_webry_results),
+        )
+        self.assertFalse(
+            any(result.title in {"1話を読む", "最新話を読む"} for result in sunday_webry_results),
+            msg=str(sunday_webry_results),
         )
 
     def test_real_firecross_search_requests_include_haihara_kun_no_tsurukute_seishun_new_game(self):
