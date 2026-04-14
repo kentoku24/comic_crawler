@@ -267,10 +267,10 @@ def _extract_anchor_results(
             continue
 
         title = _extract_anchor_title(match.group(0), match.group(2))
+        if source == "takecomic":
+            title = _normalize_takecomic_search_title(title)
         if not title:
             title = canonical_seed_url
-        elif source == "takecomic":
-            title = _normalize_takecomic_search_title(title)
 
         seen_seed_urls.add(canonical_seed_url)
         results.append(

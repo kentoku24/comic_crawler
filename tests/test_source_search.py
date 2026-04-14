@@ -44,6 +44,37 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_falls_back_to_canonical_url_when_takecomic_title_is_only_badge(self):
+        query = "takecomic badge only"
+        request_url = f"https://takecomic.jp/search?keyword={quote_plus(query)}"
+        html = """
+        <html><body>
+          <a class="series-list-item-link" href="/series/bb237f85f48a3">
+            <div class="g-updated-mark-wrap">
+              <div class="g-updated-mark">更新</div>
+            </div>
+          </a>
+        </body></html>
+        """
+
+        results = search_source(
+            "takecomic",
+            query,
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="takecomic",
+                    title="https://takecomic.jp/series/bb237f85f48a3",
+                    seed_url="https://takecomic.jp/series/bb237f85f48a3",
+                    subtitle="takecomic",
+                )
+            ],
+            results,
+        )
+
     def test_supported_search_sources_match_registered_sources(self):
         self.assertEqual(
             (
