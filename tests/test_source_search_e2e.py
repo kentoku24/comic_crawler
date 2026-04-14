@@ -114,7 +114,8 @@ class SourceSearchE2ETests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                result.seed_url == "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000"
+                result.title == "ダンジョンの中のひと"
+                and result.seed_url == "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000"
                 for result in gaugau_results
             )
         )
