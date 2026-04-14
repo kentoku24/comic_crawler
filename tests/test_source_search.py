@@ -22,9 +22,8 @@ class SourceSearchTests(unittest.TestCase):
         html = (
             Path(__file__).parent
             / "fixtures"
-            / "takecomic"
-            / "search_update_label"
-            / "01-search.html"
+            / "source_search"
+            / "takecomic_search_update_label.html"
         ).read_text(encoding="utf-8")
 
         results = search_source(
