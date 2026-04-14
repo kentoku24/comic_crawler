@@ -12,12 +12,13 @@ RUN_REAL_SEARCH_E2E = os.environ.get("RUN_REAL_SEARCH_E2E") == "1"
 
 @unittest.skipUnless(RUN_REAL_SEARCH_E2E, "set RUN_REAL_SEARCH_E2E=1 to run real network search e2e tests")
 class SourceSearchE2ETests(unittest.TestCase):
-    def test_real_search_source_requests_include_expected_media_for_dungeon_no_naka_no_hito(self):
+    def test_real_search_source_requests_include_expected_media_for_representative_titles(self):
         client = RequestsHttpClient()
 
         comic_action_results = search_source("comic-action", "ダンジョンの中のひと", http_client=client)
         nicovideo_results = search_source("nicovideo-manga", "ダンジョンの中のひと", http_client=client)
         gaugau_results = search_source("gaugau", "ダンジョンの中のひと", http_client=client)
+        sunday_webry_results = search_source("sunday-webry", "尾守つみきと奇日常。", http_client=client)
 
         self.assertTrue(
             any(
@@ -34,6 +35,18 @@ class SourceSearchE2ETests(unittest.TestCase):
                 result.seed_url == "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000"
                 for result in gaugau_results
             )
+        )
+        self.assertTrue(
+            any(
+                result.title == "尾守つみきと奇日常。"
+                and result.seed_url == "https://www.sunday-webry.com/episode/14079602755299850599"
+                for result in sunday_webry_results
+            ),
+            msg=str(sunday_webry_results),
+        )
+        self.assertFalse(
+            any(result.title in {"1話を読む", "最新話を読む"} for result in sunday_webry_results),
+            msg=str(sunday_webry_results),
         )
 
     def test_real_supertwins_search_handler_includes_three_target_media(self):

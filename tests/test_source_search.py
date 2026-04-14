@@ -1,6 +1,11 @@
+from pathlib import Path
+from urllib.parse import quote_plus
+
 import unittest
 
 from manga_watch.source_search import SearchResult, search_source, supported_search_sources
+
+FIXTURES_ROOT = Path(__file__).parent / "fixtures"
 
 
 class StaticHttpClient:
@@ -335,6 +340,28 @@ class SourceSearchTests(unittest.TestCase):
                     seed_url="https://comic-walker.com/detail/KC_999999_S",
                     subtitle="comic-walker",
                 ),
+            ],
+            results,
+        )
+
+    def test_search_source_parses_sunday_webry_results_via_q_parameter(self):
+        html = (FIXTURES_ROOT / "sunday-webry" / "search_title.html").read_text(encoding="utf-8")
+        request_url = "https://www.sunday-webry.com/search?q=" + quote_plus("尾守つみきと奇日常。")
+
+        results = search_source(
+            "sunday-webry",
+            "尾守つみきと奇日常。",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="sunday-webry",
+                    title="尾守つみきと奇日常。",
+                    seed_url="https://www.sunday-webry.com/episode/14079602755299850599",
+                    subtitle="sunday-webry",
+                )
             ],
             results,
         )
