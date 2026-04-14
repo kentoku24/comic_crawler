@@ -51,7 +51,7 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "allowed_domains": ("championcross.jp", "www.championcross.jp"),
     },
     "magapoke": {
-        "search_url": "https://pocket.shonenmagazine.com/search?query={query}",
+        "search_url": "https://pocket.shonenmagazine.com/search/{query}",
         "allowed_domains": ("pocket.shonenmagazine.com",),
     },
     "firecross": {

@@ -9,12 +9,18 @@ from tests.test_discord_supertwins import write_json
 
 RUN_REAL_SEARCH_E2E = os.environ.get("RUN_REAL_SEARCH_E2E") == "1"
 
-COMIC_ACTION_REPRESENTATIVE_SEARCH_CASES = (
+REPRESENTATIVE_SEARCH_CASES = (
     {
         "source": "comic-action",
         "query": "ダンジョンの中のひと",
         "expected_title": "ダンジョンの中のひと",
         "expected_seed_url": "https://comic-action.com/rss/series/13933686331663374228",
+    },
+    {
+        "source": "magapoke",
+        "query": "薫る花は凛と咲く",
+        "expected_title": "薫る花は凛と咲く",
+        "expected_seed_url": "https://pocket.shonenmagazine.com/title/01524",
     },
 )
 
@@ -24,16 +30,16 @@ class SourceSearchE2ETests(unittest.TestCase):
     def test_real_search_source_requests_include_expected_media_for_dungeon_no_naka_no_hito(self):
         client = RequestsHttpClient()
 
-        for case in COMIC_ACTION_REPRESENTATIVE_SEARCH_CASES:
+        for case in REPRESENTATIVE_SEARCH_CASES:
             with self.subTest(source=case["source"], query=case["query"]):
-                comic_action_results = search_source(case["source"], case["query"], http_client=client)
+                results = search_source(case["source"], case["query"], http_client=client)
                 self.assertTrue(
                     any(
                         result.title == case["expected_title"]
                         and result.seed_url == case["expected_seed_url"]
-                        for result in comic_action_results
+                        for result in results
                     ),
-                    msg=str(comic_action_results),
+                    msg=str(results),
                 )
 
         nicovideo_results = search_source("nicovideo-manga", "ダンジョンの中のひと", http_client=client)
@@ -100,7 +106,7 @@ class SourceSearchE2ETests(unittest.TestCase):
 
         options = payload["components"][0]["components"][0]["options"]
         option_sources = {option["description"] for option in options}
-        self.assertTrue({"comic-action", "nicovideo-manga", "gaugau"}.issubset(option_sources), msg=str(options))
+        self.assertTrue({"comic-action", "magapoke", "nicovideo-manga"}.issubset(option_sources), msg=str(options))
 
 
 if __name__ == "__main__":
