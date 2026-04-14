@@ -1,31 +1,31 @@
 {
-  "seedUrl": "https://comic-walker.com/detail/KC_003913_S/episodes/KC_0039130000100011_E",
+  "seedUrl": "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456001_E",
   "expectedWork": {
     "source": "comic-walker",
     "kind": "comic-walker",
-    "workId": "KC_003913_S",
-    "seedUrl": "https://comic-walker.com/detail/KC_003913_S",
-    "series": "KC_003913_S",
-    "seriesCode": "KC_003913_S"
+    "workId": "KC_123456_S",
+    "seedUrl": "https://comic-walker.com/detail/KC_123456_S",
+    "series": "KC_123456_S",
+    "seriesCode": "KC_123456_S"
   },
   "steps": [
     {
-      "url": "https://comic-walker.com/detail/KC_003913_S",
+      "url": "https://comic-walker.com/detail/KC_123456_S",
       "response": "01-series.html"
     },
     {
-      "url": "https://comic-walker.com/detail/KC_003913_S/episodes/KC_0039130006500011_E?episodeType=latest",
+      "url": "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456099_E?episodeType=latest",
       "response": "02-latest.html"
     }
   ],
   "expectedLatest": {
     "source": "comic-walker",
-    "workId": "KC_003913_S",
-    "latestKey": "KC_0039130006500011_E",
-    "url": "https://comic-walker.com/detail/KC_003913_S/episodes/KC_0039130006500011_E?episodeType=latest",
-    "series": "KC_003913_S",
-    "seriesTitle": "蜘蛛ですが、なにか？",
-    "episodeCode": "KC_0039130006500011_E",
+    "workId": "KC_123456_S",
+    "latestKey": "KC_123456099_E",
+    "url": "https://comic-walker.com/detail/KC_123456_S/episodes/KC_123456099_E?episodeType=latest",
+    "series": "KC_123456_S",
+    "seriesTitle": "作品A",
+    "episodeCode": "KC_123456099_E",
     "episodeTitle": "番外編"
   }
 }

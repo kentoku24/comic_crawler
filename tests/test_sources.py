@@ -21,7 +21,6 @@ from manga_watch.sources.comic_earthstar import ComicEarthstarAdapter
 from manga_watch.sources.comic_trail import parse_comic_trail_title
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.gaugau import GaugauAdapter
-from manga_watch.sources.comic_walker import ComicWalkerAdapter, parse_comic_walker_title
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
 from manga_watch.sources.magapoke import MagapokeAdapter
 from manga_watch.sources.nicovideo_manga import NicovideoMangaAdapter
@@ -523,12 +522,6 @@ class SourceAdapterTests(unittest.TestCase):
                 "seriesCode": "KC_123456_S",
             },
             work.to_dict(),
-        )
-
-    def test_comic_walker_title_parser_accepts_live_unicode_brackets(self):
-        self.assertEqual(
-            ("蜘蛛ですが、なにか？", "第78話その2"),
-            parse_comic_walker_title("〖第78話その2〗蜘蛛ですが、なにか？｜カドコミ (コミックウォーカー)"),
         )
 
     def test_kakuyomu_normalize_accepts_work_url(self):

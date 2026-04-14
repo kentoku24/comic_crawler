@@ -712,14 +712,12 @@ class SourceSearchTests(unittest.TestCase):
         </html>
         """
 
+        request_url = "https://firecross.jp/search?q=" + quote_plus("灰原くん") + "&t=1"
+
         results = search_source(
             "firecross",
             "灰原くん",
-            http_client=StaticHttpClient(
-                {
-                    "https://firecross.jp/search?q=%E7%81%B0%E5%8E%9F%E3%81%8F%E3%82%93&t=1": html
-                }
-            ),
+            http_client=StaticHttpClient({request_url: html}),
         )
 
         self.assertEqual(
@@ -733,7 +731,6 @@ class SourceSearchTests(unittest.TestCase):
             ],
             results,
         )
-
     def test_search_source_parses_comic_walker_results_via_keyword_parameter(self):
         html = """
         <html>
@@ -772,7 +769,7 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
-    def test_search_source_parses_sunday_webry_results_via_q_parameter(self):
+    def test_search_source_parses_sunday_webry_results_via_query_parameter(self):
         html = (FIXTURES_ROOT / "sunday-webry" / "search_title.html").read_text(encoding="utf-8")
         request_url = "https://www.sunday-webry.com/search?q=" + quote_plus("尾守つみきと奇日常。")
 

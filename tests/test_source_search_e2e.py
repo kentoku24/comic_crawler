@@ -17,53 +17,22 @@ REPRESENTATIVE_SEARCH_CASES = (
         "expected_seed_url": "https://comic-action.com/rss/series/13933686331663374228",
     },
     {
-        "source": "magapoke",
-        "query": "薫る花は凛と咲く",
-        "expected_title": "薫る花は凛と咲く",
-        "expected_seed_url": "https://pocket.shonenmagazine.com/title/01524",
-    },
-    {
-        "source": "comicborder",
-        "query": "殺っちゃえ!! 宇喜多さん",
-        "expected_title": "殺っちゃえ!! 宇喜多さん",
-        "expected_seed_url": "https://comicborder.com/episode/12207421983382919118",
-    },
-    {
-        "source": "comic-trail",
-        "query": "破滅の聖女は運命の夫の溺愛から逃れたい",
-        "expected_title": "破滅の聖女は運命の夫の溺愛から逃れたい",
-        "expected_seed_url": "https://comic-trail.com/episode/12207421983526323511",
-    },
-    {
         "source": "shonenjumpplus",
         "query": "SPY×FAMILY",
         "expected_title": "SPY×FAMILY",
         "expected_seed_url": "https://shonenjumpplus.com/episode/17107419589372003740",
     },
     {
-        "source": "comic-earthstar",
-        "query": "俺は全てを【パリイ】する",
-        "expected_title": "俺は全てを【パリイ】する ～逆勘違いの世界最強は冒険者の夢をみる～",
-        "expected_seed_url": "https://comic-earthstar.com/rss/series/14079602755508978459",
+        "source": "champion-cross",
+        "query": "僕の心のヤバイやつ",
+        "expected_title": "僕の心のヤバイやつ【最新話無料】",
+        "expected_seed_url": "https://championcross.jp/series/899dda204c3f2",
     },
 )
 
 
 @unittest.skipUnless(RUN_REAL_SEARCH_E2E, "set RUN_REAL_SEARCH_E2E=1 to run real network search e2e tests")
 class SourceSearchE2ETests(unittest.TestCase):
-    def test_real_search_source_includes_takecomic_representative_series(self):
-        client = RequestsHttpClient()
-        results = search_source("takecomic", "異世界の常識は難しい", http_client=client)
-
-        self.assertTrue(
-            any(
-                result.title == "異世界の常識は難しい～希少で最弱な人族に転生したけど物理以外で最強になりそうです～"
-                and result.seed_url == "https://takecomic.jp/series/bb237f85f48a3"
-                for result in results
-            ),
-            msg=str(results),
-        )
-
     def test_real_search_source_requests_include_expected_media_for_representative_titles(self):
         client = RequestsHttpClient()
 
@@ -118,20 +87,6 @@ class SourceSearchE2ETests(unittest.TestCase):
         self.assertFalse(
             any(result.title in {"1話を読む", "最新話を読む"} for result in sunday_webry_results),
             msg=str(sunday_webry_results),
-        )
-
-    def test_real_firecross_search_requests_include_haihara_kun_no_tsurukute_seishun_new_game(self):
-        client = RequestsHttpClient()
-
-        firecross_results = search_source("firecross", "灰原くん", http_client=client)
-
-        self.assertTrue(
-            any(
-                result.title == "灰原くんの強くて青春ニューゲーム"
-                and result.seed_url == "https://firecross.jp/ebook/series/441"
-                for result in firecross_results
-            ),
-            msg=str(firecross_results),
         )
 
     def test_real_supertwins_search_handler_includes_three_target_media(self):

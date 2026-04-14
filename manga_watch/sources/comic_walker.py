@@ -9,7 +9,7 @@ def parse_comic_walker_title(page_title: str) -> Tuple[Optional[str], Optional[s
     if not page_title:
         return None, None
     left = page_title.split("｜")[0].strip()
-    match = re.match(r"^[【〖]\s*([^】〗]+?)\s*[】〗]\s*(.+)$", left)
+    match = re.match(r"^【([^】]+)】\s*(.+)$", left)
     if match:
         return match.group(2).strip() or None, match.group(1).strip() or None
     return left or None, None
