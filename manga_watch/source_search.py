@@ -44,7 +44,7 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "allowed_domains": ("shonenjumpplus.com", "www.shonenjumpplus.com"),
     },
     "sunday-webry": {
-        "search_url": "https://www.sunday-webry.com/search?query={query}",
+        "search_url": "https://www.sunday-webry.com/search?q={query}",
         "allowed_domains": ("sunday-webry.com", "www.sunday-webry.com"),
     },
     "champion-cross": {
@@ -208,6 +208,64 @@ def _search_comic_action(
                 title=title,
                 seed_url=canonical_seed_url,
                 subtitle="comic-action",
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+def _search_sunday_webry(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    search_url = str(_SOURCE_SEARCH_CONFIG["sunday-webry"]["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for match in re.finditer(r'<li\b[^>]*>(.*?)</li>', html_text, re.I | re.S):
+        block = match.group(0)
+        data_title_match = re.search(r'data-title="([^"]*)"', block, re.I | re.S)
+        title = _normalize_anchor_text(data_title_match.group(1) if data_title_match else "")
+        if not title:
+            title_match = re.search(r'<p\b[^>]*class="[^"]*\bseries-title\b[^"]*"[^>]*>(.*?)</p>', block, re.I | re.S)
+            title = _normalize_anchor_text(title_match.group(1) if title_match else "")
+        if not title:
+            continue
+
+        candidate_url = ""
+        for pattern in (
+            r'<a\b[^>]*class="[^"]*\bmain-link\b[^"]*"[^>]*href="([^"]+)"',
+            r'<a\b[^>]*href="([^"]+)"[^>]*class="[^"]*\bmain-link\b[^"]*"',
+            r'<div\b[^>]*class="[^"]*\bthmb-container\b[^"]*"[^>]*>.*?<a\b[^>]*href="([^"]+)"',
+        ):
+            match = re.search(pattern, block, re.I | re.S)
+            if match:
+                candidate_url = match.group(1)
+                break
+
+        if not candidate_url:
+            continue
+
+        resolved_url = _resolve_result_url(candidate_url, search_url=search_url)
+        if not resolved_url:
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source("sunday-webry", resolved_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source="sunday-webry",
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle="sunday-webry",
             )
         )
         if len(results) >= limit:
@@ -563,4 +621,5 @@ _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
 _SEARCHERS["comic-action"] = _search_comic_action
 _SEARCHERS["firecross"] = _search_firecross
 _SEARCHERS["champion-cross"] = _search_champion_cross
+_SEARCHERS["sunday-webry"] = _search_sunday_webry
 _SEARCHERS["gaugau"] = _search_gaugau
