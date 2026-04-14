@@ -1,6 +1,6 @@
+import unittest
 from pathlib import Path
 from urllib.parse import quote_plus
-import unittest
 
 from manga_watch.source_search import SearchResult, search_source, supported_search_sources
 
@@ -374,6 +374,28 @@ class SourceSearchTests(unittest.TestCase):
                     title="俺は全てを【パリイ】する ～逆勘違いの世界最強は冒険者の夢をみる～",
                     seed_url="https://comic-earthstar.com/rss/series/14079602755508978459",
                     subtitle="comic-earthstar",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_parses_kuragebunch_results_via_q_parameter(self):
+        html = (FIXTURES_ROOT / "kuragebunch" / "01-search.html").read_text(encoding="utf-8")
+        request_url = f"https://kuragebunch.com/search?q={quote_plus('今日から始める幼なじみ')}"
+
+        results = search_source(
+            "kuragebunch",
+            "今日から始める幼なじみ",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="kuragebunch",
+                    title="今日から始める幼なじみ",
+                    seed_url="https://kuragebunch.com/episode/3269632237305143755",
+                    subtitle="kuragebunch",
                 )
             ],
             results,

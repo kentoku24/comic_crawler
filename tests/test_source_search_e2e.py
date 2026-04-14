@@ -63,6 +63,7 @@ class SourceSearchE2ETests(unittest.TestCase):
 
         nicovideo_results = search_source("nicovideo-manga", "ダンジョンの中のひと", http_client=client)
         gaugau_results = search_source("gaugau", "ダンジョンの中のひと", http_client=client)
+        kuragebunch_results = search_source("kuragebunch", "今日から始める幼なじみ", http_client=client)
         sunday_webry_results = search_source("sunday-webry", "尾守つみきと奇日常。", http_client=client)
         self.assertTrue(
             any(result.seed_url == "https://manga.nicovideo.jp/comic/53764" for result in nicovideo_results),
@@ -73,6 +74,18 @@ class SourceSearchE2ETests(unittest.TestCase):
                 result.seed_url == "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000"
                 for result in gaugau_results
             )
+        )
+        self.assertTrue(
+            any(
+                result.title == "今日から始める幼なじみ"
+                and result.seed_url == "https://kuragebunch.com/episode/3269632237305143755"
+                for result in kuragebunch_results
+            ),
+            msg=str(kuragebunch_results),
+        )
+        self.assertFalse(
+            any(result.title == "最新話を読む" for result in kuragebunch_results),
+            msg=str(kuragebunch_results),
         )
         self.assertTrue(
             any(
