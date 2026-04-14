@@ -277,6 +277,7 @@ def _search_champion_cross(
         limit=limit,
     )
 
+
 def _champion_cross_title(anchor_markup: str, anchor_html: str) -> str:
     title_match = re.search(r'<h2\b[^>]*class="[^"]*\bmanga-title\b[^"]*"[^>]*>(.*?)</h2>', anchor_html, re.I | re.S)
     if title_match:
