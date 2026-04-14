@@ -22,6 +22,24 @@ REPRESENTATIVE_SEARCH_CASES = (
         "expected_title": "薫る花は凛と咲く",
         "expected_seed_url": "https://pocket.shonenmagazine.com/title/01524",
     },
+    {
+        "source": "comicborder",
+        "query": "殺っちゃえ!! 宇喜多さん",
+        "expected_title": "殺っちゃえ!! 宇喜多さん",
+        "expected_seed_url": "https://comicborder.com/episode/12207421983382919118",
+    },
+    {
+        "source": "comic-trail",
+        "query": "破滅の聖女は運命の夫の溺愛から逃れたい",
+        "expected_title": "破滅の聖女は運命の夫の溺愛から逃れたい",
+        "expected_seed_url": "https://comic-trail.com/episode/12207421983526323511",
+    },
+    {
+        "source": "shonenjumpplus",
+        "query": "SPY×FAMILY",
+        "expected_title": "SPY×FAMILY",
+        "expected_seed_url": "https://shonenjumpplus.com/episode/17107419589372003740",
+    },
 )
 
 
@@ -66,9 +84,11 @@ class SourceSearchE2ETests(unittest.TestCase):
         )
         self.assertTrue(
             any(
-                result.seed_url == "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000"
+                result.title == "ダンジョンの中のひと"
+                and result.seed_url == "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000"
                 for result in gaugau_results
-            )
+            ),
+            msg=str(gaugau_results),
         )
         self.assertTrue(
             any(

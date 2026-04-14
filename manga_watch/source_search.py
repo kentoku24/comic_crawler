@@ -145,15 +145,24 @@ def _search_via_public_site(
 
     search_url = str(config["search_url"]).format(query=_encode_search_query(source, query))
     allowed_domains = tuple(str(domain).lower() for domain in config["allowed_domains"])
-    html_text = http_client.get_text(search_url)
+    fallback_searcher = _FALLBACK_SEARCHERS.get(source)
+    try:
+        html_text = http_client.get_text(search_url)
+    except Exception:
+        if fallback_searcher is None:
+            raise
+        return fallback_searcher(query, http_client, limit=limit)
 
-    return _extract_anchor_results(
+    results = _extract_anchor_results(
         html_text,
         source=source,
         search_url=search_url,
         allowed_domains=allowed_domains,
         limit=limit,
     )
+    if results or fallback_searcher is None:
+        return results
+    return fallback_searcher(query, http_client, limit=limit)
 
 
 def _search_comic_action(
@@ -443,8 +452,16 @@ def _search_gaugau(
     config = _SOURCE_SEARCH_CONFIG["gaugau"]
     search_url = str(config["search_url"]).format(query=quote_plus(query))
     html_text = http_client.get_text(search_url)
-    return _extract_work_results(
-        html_text,
+    section = html_text
+    section_start = html_text.find('<div class="works__list">')
+    if section_start >= 0:
+        section = html_text[section_start:]
+        section_end = section.find('<div class="ranking">')
+        if section_end > 0:
+            section = section[:section_end]
+
+    return _extract_gaugau_results(
+        section,
         source="gaugau",
         search_url=search_url,
         allowed_domains=("gaugau.futabanet.jp",),
@@ -622,6 +639,155 @@ def _extract_work_results(
     return results
 
 
+def _extract_gaugau_results(
+    html_text: str,
+    *,
+    source: str,
+    search_url: str,
+    allowed_domains: tuple[str, ...],
+    limit: int,
+) -> List[SearchResult]:
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for title_match in re.finditer(r'<h4>\s*<a\b[^>]*href="([^"]+)"[^>]*>(.*?)</a>\s*</h4>', html_text, re.I | re.S):
+        resolved_url = _resolve_result_url(title_match.group(1), search_url=search_url)
+        if not resolved_url or "/episodes/" in resolved_url:
+            continue
+        if not _is_allowed_domain(resolved_url, allowed_domains):
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source(source, resolved_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        title = _normalize_anchor_text(title_match.group(2))
+        if not title:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source=source,
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle=source,
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+def _search_from_homepage(
+    source: str,
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    homepage_url = _HOMEPAGE_URLS[source]
+    extractor = _HOMEPAGE_EXTRACTORS[source]
+    html_text = http_client.get_text(homepage_url)
+    return extractor(query, html_text, homepage_url=homepage_url, limit=limit)
+
+
+def _extract_comicborder_homepage_results(
+    query: str,
+    html_text: str,
+    *,
+    homepage_url: str,
+    limit: int,
+) -> List[SearchResult]:
+    return _filter_results_by_query(
+        query,
+        _extract_anchor_results(
+            html_text,
+            source="comicborder",
+            search_url=homepage_url,
+            allowed_domains=("comicborder.com", "www.comicborder.com"),
+            limit=SEARCH_RESULT_LIMIT,
+        ),
+        limit=limit,
+    )
+
+
+def _extract_comic_trail_homepage_results(
+    query: str,
+    html_text: str,
+    *,
+    homepage_url: str,
+    limit: int,
+) -> List[SearchResult]:
+    return _extract_title_block_results(
+        query,
+        html_text,
+        source="comic-trail",
+        homepage_url=homepage_url,
+        limit=limit,
+        block_pattern=r'<a\b[^>]*href="([^"]*?/episode/[^"]+)"[^>]*>(.*?)</a>',
+        title_patterns=(r'alt="([^"|]+)(?:\||｜)[^"]*"', r'<h4[^>]*>(.*?)</h4>'),
+    )
+
+
+def _extract_shonenjumpplus_homepage_results(
+    query: str,
+    html_text: str,
+    *,
+    homepage_url: str,
+    limit: int,
+) -> List[SearchResult]:
+    return _extract_title_block_results(
+        query,
+        html_text,
+        source="shonenjumpplus",
+        homepage_url=homepage_url,
+        limit=limit,
+        block_pattern=r'<a\b[^>]*href="([^"]*?/episode/[^"]+)"[^>]*>(.*?)</a>',
+        title_patterns=(r'daily-series-title[^>]*>(.*?)</h2>', r'gtm-daily-series-thumb-horizontal-([^"\s]+)'),
+    )
+
+
+def _extract_title_block_results(
+    query: str,
+    html_text: str,
+    *,
+    source: str,
+    homepage_url: str,
+    limit: int,
+    block_pattern: str,
+    title_patterns: tuple[str, ...],
+) -> List[SearchResult]:
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+    for match in re.finditer(block_pattern, html_text, re.I | re.S):
+        title = ""
+        for title_pattern in title_patterns:
+            title_match = re.search(title_pattern, match.group(2), re.I | re.S)
+            title = _normalize_anchor_text(title_match.group(1) if title_match else "")
+            if title:
+                title = re.split(r"[|｜]", title, maxsplit=1)[0].strip()
+                break
+        if not _query_matches_title(query, title):
+            continue
+
+        resolved_url = _resolve_result_url(match.group(1), search_url=homepage_url)
+        if not resolved_url:
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source(source, resolved_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(SearchResult(source, title, canonical_seed_url, source))
+        if len(results) >= limit:
+            break
+
+    return results
+
+
 def _extract_anchor_title(anchor_markup: str, anchor_html: str) -> str:
     title_attr_match = re.search(r'title\s*=\s*(["\'])(.*?)\1', anchor_markup, re.I | re.S)
     if title_attr_match:
@@ -677,12 +843,47 @@ def _canonical_seed_url_for_source(source: str, candidate_url: str) -> Optional[
 def _normalize_anchor_text(text: str) -> str:
     normalized = re.sub(r"<[^>]+>", "", text or "")
     normalized = unescape(re.sub(r"\s+", " ", normalized)).strip()
-    normalized = re.sub(r"^最新UP!?\s*", "", normalized)
+    normalized = re.sub(r"^(?:最新UP!?|NEW!)\s*", "", normalized)
     return normalized
 
 
 def _normalize_takecomic_search_title(title: str) -> str:
     return re.sub(r"^更新\s*", "", title or "").strip()
+
+
+def _query_matches_title(query: str, title: str) -> bool:
+    normalized_query = re.sub(r"\s+", "", query or "").casefold()
+    normalized_title = re.sub(r"\s+", "", title or "").casefold()
+    if not normalized_query or not normalized_title:
+        return False
+    return normalized_query == normalized_title or normalized_query in normalized_title or normalized_title in normalized_query
+
+
+def _filter_results_by_query(query: str, results: List[SearchResult], *, limit: int) -> List[SearchResult]:
+    filtered = [result for result in results if _query_matches_title(query, result.title)]
+    return filtered[:limit]
+
+
+_HOMEPAGE_URLS: Dict[str, str] = {
+    "comicborder": "https://comicborder.com/",
+    "comic-trail": "https://comic-trail.com/",
+    "shonenjumpplus": "https://shonenjumpplus.com/",
+}
+
+_HOMEPAGE_EXTRACTORS: Dict[str, Callable[..., List[SearchResult]]] = {
+    "comicborder": _extract_comicborder_homepage_results,
+    "comic-trail": _extract_comic_trail_homepage_results,
+    "shonenjumpplus": _extract_shonenjumpplus_homepage_results,
+}
+
+_FALLBACK_SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
+    source: (
+        lambda query, http_client, *, limit, _source=source: _search_from_homepage(
+            _source, query, http_client, limit=limit
+        )
+    )
+    for source in _HOMEPAGE_EXTRACTORS
+}
 
 
 _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
