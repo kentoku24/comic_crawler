@@ -16,6 +16,7 @@ class SourceSearchE2ETests(unittest.TestCase):
         client = RequestsHttpClient()
 
         comic_action_results = search_source("comic-action", "ダンジョンの中のひと", http_client=client)
+        comic_earthstar_results = search_source("comic-earthstar", "俺は全てを【パリイ】する", http_client=client)
         nicovideo_results = search_source("nicovideo-manga", "ダンジョンの中のひと", http_client=client)
         gaugau_results = search_source("gaugau", "ダンジョンの中のひと", http_client=client)
 
@@ -24,6 +25,15 @@ class SourceSearchE2ETests(unittest.TestCase):
                 result.seed_url == "https://comic-action.com/rss/series/13933686331663374228"
                 for result in comic_action_results
             )
+        )
+        self.assertTrue(
+            any(
+                result.title
+                == "俺は全てを【パリイ】する ～逆勘違いの世界最強は冒険者の夢をみる～"
+                and result.seed_url == "https://comic-earthstar.com/rss/series/14079602755508978459"
+                for result in comic_earthstar_results
+            ),
+            msg=str(comic_earthstar_results),
         )
         self.assertTrue(
             any(result.seed_url == "https://manga.nicovideo.jp/comic/53764" for result in nicovideo_results),
