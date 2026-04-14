@@ -34,6 +34,9 @@ def handle_title_query(
 
     sources = tuple(supported_sources_fn())
     for source in sources:
-        search_source_fn(source, query, limit=1)
+        try:
+            search_source_fn(source, query, limit=1)
+        except Exception:
+            continue
 
     return f"`{query}` の title 検索を開始しました。対象媒体数: {len(sources)}"
