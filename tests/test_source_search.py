@@ -14,7 +14,10 @@ class StaticHttpClient:
     def get_text(self, url: str) -> str:
         if url not in self.responses:
             raise AssertionError(f"unexpected request: {url!r}")
-        return self.responses[url]
+        response = self.responses[url]
+        if isinstance(response, Exception):
+            raise response
+        return response
 
 
 class SourceSearchTests(unittest.TestCase):
@@ -528,6 +531,155 @@ class SourceSearchTests(unittest.TestCase):
                     title="ダンジョンの中のひと",
                     seed_url="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
                     subtitle="gaugau",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_prefers_gaugau_series_heading_over_badge_inside_thumbnail_anchor(self):
+        html = """
+        <html>
+          <body>
+            <div class="works__list">
+              <div class="works__grid">
+                <div class="list__box -free">
+                  <a class="thumbnail -youth" href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000">
+                    <div class="img"><img alt="" /></div>
+                    <p class="thumbnail__badge">無料コミック 3/27 更新</p>
+                  </a>
+                  <div class="list__text">
+                    <h4>
+                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000">ダンジョンの中のひと</a>
+                    </h4>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "gaugau",
+            "ダンジョンの中のひと",
+            http_client=StaticHttpClient(
+                {
+                    "https://gaugau.futabanet.jp/list/search-result?word=%E3%83%80%E3%83%B3%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E4%B8%AD%E3%81%AE%E3%81%B2%E3%81%A8": html
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="gaugau",
+                    title="ダンジョンの中のひと",
+                    seed_url="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+                    subtitle="gaugau",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_falls_back_to_comicborder_homepage_results_when_search_errors(self):
+        homepage_html = """
+        <html><body>
+          <a href="/episode/12207421983382919118">NEW! 殺っちゃえ!! 宇喜多さん</a>
+        </body></html>
+        """
+
+        results = search_source(
+            "comicborder",
+            "殺っちゃえ!! 宇喜多さん",
+            http_client=StaticHttpClient(
+                {
+                    "https://comicborder.com/search?keyword=%E6%AE%BA%E3%81%A3%E3%81%A1%E3%82%83%E3%81%88%21%21+%E5%AE%87%E5%96%9C%E5%A4%9A%E3%81%95%E3%82%93": RuntimeError(
+                        "400"
+                    ),
+                    "https://comicborder.com/": homepage_html,
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="comicborder",
+                    title="殺っちゃえ!! 宇喜多さん",
+                    seed_url="https://comicborder.com/episode/12207421983382919118",
+                    subtitle="comicborder",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_falls_back_to_comic_trail_homepage_results_when_search_is_empty(self):
+        homepage_html = """
+        <html>
+          <body>
+            <a href="/episode/2551460910065898017">
+              <img alt="破滅の聖女は運命の夫の溺愛から逃れたい｜コミックトレイル" />
+            </a>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "comic-trail",
+            "破滅の聖女は運命の夫の溺愛から逃れたい",
+            http_client=StaticHttpClient(
+                {
+                    "https://comic-trail.com/search?keyword=%E7%A0%B4%E6%BB%85%E3%81%AE%E8%81%96%E5%A5%B3%E3%81%AF%E9%81%8B%E5%91%BD%E3%81%AE%E5%A4%AB%E3%81%AE%E6%BA%BA%E6%84%9B%E3%81%8B%E3%82%89%E9%80%83%E3%82%8C%E3%81%9F%E3%81%84": "<html></html>",
+                    "https://comic-trail.com/": homepage_html,
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="comic-trail",
+                    title="破滅の聖女は運命の夫の溺愛から逃れたい",
+                    seed_url="https://comic-trail.com/episode/2551460910065898017",
+                    subtitle="comic-trail",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_falls_back_to_shonenjumpplus_homepage_results_when_search_is_empty(self):
+        homepage_html = """
+        <html>
+          <body>
+            <li class="daily-series-item">
+              <a href="/episode/17107419589372003740">
+                <div class="daily-series-info">
+                  <h2 class="daily-series-title">SPY×FAMILY</h2>
+                </div>
+              </a>
+            </li>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "shonenjumpplus",
+            "SPY×FAMILY",
+            http_client=StaticHttpClient(
+                {
+                    "https://shonenjumpplus.com/search?query=SPY%C3%97FAMILY": "<html></html>",
+                    "https://shonenjumpplus.com/": homepage_html,
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="shonenjumpplus",
+                    title="SPY×FAMILY",
+                    seed_url="https://shonenjumpplus.com/episode/17107419589372003740",
+                    subtitle="shonenjumpplus",
                 )
             ],
             results,
