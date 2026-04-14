@@ -3,11 +3,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 
+from manga_watch.secret_redaction import redact_secret_text
+from manga_watch.secret_resolver import resolve_env_value
+from manga_watch.storage import state_daily_notification_delivery
 from manga_watch.discord_text import (
     episode_label_for_snapshot,
     series_label_for_snapshot,
@@ -51,10 +54,14 @@ class DiscordOutboundConfig:
     timeout: int = DEFAULT_DISCORD_TIMEOUT
 
     @classmethod
-    def from_env(cls) -> "DiscordOutboundConfig":
-        bot_token = _coerce_text(os.environ.get("DISCORD_BOT_TOKEN"))
+    def from_env(
+        cls,
+        *,
+        secret_resolver: Callable[[str], Optional[str]] = resolve_env_value,
+    ) -> "DiscordOutboundConfig":
+        bot_token = secret_resolver("DISCORD_BOT_TOKEN")
         if not bot_token:
-            raise ValueError("DISCORD_BOT_TOKEN is required")
+            raise ValueError("DISCORD_BOT_TOKEN or DISCORD_BOT_TOKEN_SECRET_VERSION is required")
 
         main_channel_id = _coerce_text(os.environ.get("DISCORD_MAIN_CHANNEL_ID"))
         if not main_channel_id:
@@ -101,12 +108,17 @@ class DiscordChannelClient:
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise RuntimeError(f"Discord delivery failed: {exc}") from exc
+            raise RuntimeError(
+                f"Discord delivery failed: {redact_secret_text(exc, secrets=(self.config.bot_token,))}"
+            ) from exc
 
         if 200 <= response.status_code < 300:
             return
 
-        detail = response.text.strip().replace("\n", " ")
+        detail = redact_secret_text(
+            response.text.strip().replace("\n", " "),
+            secrets=(self.config.bot_token,),
+        )
         raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
 
     def get_current_user_id(self) -> str:
@@ -120,7 +132,10 @@ class DiscordChannelClient:
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise RuntimeError(f"Discord current-user lookup failed: {exc}") from exc
+            raise RuntimeError(
+                "Discord current-user lookup failed: "
+                f"{redact_secret_text(exc, secrets=(self.config.bot_token,))}"
+            ) from exc
 
         if 200 <= response.status_code < 300:
             payload = response.json()
@@ -129,7 +144,10 @@ class DiscordChannelClient:
                 return user_id
             raise RuntimeError("Discord current-user lookup returned no id")
 
-        detail = response.text.strip().replace("\n", " ")
+        detail = redact_secret_text(
+            response.text.strip().replace("\n", " "),
+            secrets=(self.config.bot_token,),
+        )
         raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
 
     def list_channel_messages(
@@ -159,7 +177,9 @@ class DiscordChannelClient:
                 allow_redirects=False,
             )
         except requests.RequestException as exc:
-            raise RuntimeError(f"Discord channel read failed: {exc}") from exc
+            raise RuntimeError(
+                f"Discord channel read failed: {redact_secret_text(exc, secrets=(self.config.bot_token,))}"
+            ) from exc
 
         if 200 <= response.status_code < 300:
             payload = response.json()
@@ -167,30 +187,15 @@ class DiscordChannelClient:
                 raise RuntimeError("Discord channel read returned an invalid payload")
             return [dict(message) for message in payload if isinstance(message, Mapping)]
 
-        detail = response.text.strip().replace("\n", " ")
+        detail = redact_secret_text(
+            response.text.strip().replace("\n", " "),
+            secrets=(self.config.bot_token,),
+        )
         raise RuntimeError(f"Discord returned HTTP {response.status_code}: {detail[:300]}")
 
 
 def _daily_notification_state(state: Dict[str, object]) -> Dict[str, object]:
-    discord_delivery = state.setdefault(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, dict):
-        discord_delivery = {}
-        state[DISCORD_DELIVERY_STATE_KEY] = discord_delivery
-
-    daily_notification = discord_delivery.setdefault(
-        DAILY_NOTIFICATION_STATE_KEY,
-        {
-            "delivered_latest_keys": {},
-            "pending_messages": [],
-        },
-    )
-    if not isinstance(daily_notification, dict):
-        daily_notification = {
-            "delivered_latest_keys": {},
-            "pending_messages": [],
-        }
-        discord_delivery[DAILY_NOTIFICATION_STATE_KEY] = daily_notification
-    return daily_notification
+    return state_daily_notification_delivery(state)
 
 
 def daily_notification_key(update: Mapping[str, object]) -> Optional[Tuple[str, str]]:
@@ -198,39 +203,21 @@ def daily_notification_key(update: Mapping[str, object]) -> Optional[Tuple[str, 
     latest = update.get("to", {}) or {}
     if not isinstance(latest, Mapping):
         latest = {}
-    latest_key = _coerce_text(
-        latest.get("latest_key")
-        or latest.get("latestKey")
-        or latest.get("episode_code")
-        or latest.get("episodeCode")
-        or latest.get("url")
-    )
+    latest_key = _coerce_text(latest.get("latest_key") or latest.get("latestKey"))
     if not work_id or not latest_key:
         return None
     return work_id, latest_key
 
 
 def _pending_daily_notification_keys(state: Mapping[str, object]) -> set[Tuple[str, str]]:
-    discord_delivery = state.get(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, Mapping):
+    if not isinstance(state, dict):
         return set()
-    daily_notification = discord_delivery.get(DAILY_NOTIFICATION_STATE_KEY, {})
-    if not isinstance(daily_notification, Mapping):
-        return set()
-    pending_messages = daily_notification.get("pending_messages", [])
-    if not isinstance(pending_messages, list):
-        return set()
+    pending_messages = _daily_notification_state(state).get("pending_messages", [])
 
     keys: set[Tuple[str, str]] = set()
     for entry in pending_messages:
-        if not isinstance(entry, Mapping):
-            continue
         message_keys = entry.get("message_keys", [])
-        if not isinstance(message_keys, list):
-            continue
         for message_key in message_keys:
-            if not isinstance(message_key, Mapping):
-                continue
             work_id = _coerce_text(message_key.get("work_id"))
             latest_key = _coerce_text(message_key.get("latest_key"))
             if work_id and latest_key:
@@ -239,34 +226,19 @@ def _pending_daily_notification_keys(state: Mapping[str, object]) -> set[Tuple[s
 
 
 def pending_daily_notification_count(state: Mapping[str, object]) -> int:
-    discord_delivery = state.get(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, Mapping):
+    if not isinstance(state, dict):
         return 0
-    daily_notification = discord_delivery.get(DAILY_NOTIFICATION_STATE_KEY, {})
-    if not isinstance(daily_notification, Mapping):
-        return 0
-    pending_messages = daily_notification.get("pending_messages", [])
-    return len(pending_messages) if isinstance(pending_messages, list) else 0
+    return len(_daily_notification_state(state).get("pending_messages", []))
 
 
 def _delivered_latest_keys(state: Mapping[str, object]) -> Dict[str, str]:
-    discord_delivery = state.get(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, Mapping):
+    if not isinstance(state, dict):
         return {}
-    daily_notification = discord_delivery.get(DAILY_NOTIFICATION_STATE_KEY, {})
-    if not isinstance(daily_notification, Mapping):
-        return {}
-    delivered = daily_notification.get("delivered_latest_keys", {})
-    if not isinstance(delivered, Mapping):
-        return {}
+    delivered = _daily_notification_state(state).get("delivered_latest_keys", {})
 
     normalized: Dict[str, str] = {}
     for work_id, entry in delivered.items():
-        latest_key = None
-        if isinstance(entry, Mapping):
-            latest_key = _coerce_text(entry.get("latest_key"))
-        else:
-            latest_key = _coerce_text(entry)
+        latest_key = _coerce_text(entry.get("latest_key")) if isinstance(entry, Mapping) else _coerce_text(entry)
         if latest_key:
             normalized[str(work_id)] = latest_key
     return normalized
@@ -304,6 +276,31 @@ def build_daily_notification_message(
     lines = [f"新着エピソードを検知しました（{local_date}）"]
     lines.extend(format_daily_notification_line(update) for update in updates)
     return "\n".join(lines)
+
+
+def filter_updates_for_daily_notifications(
+    updates: Sequence[Mapping[str, object]],
+    watchlist: Mapping[str, object],
+) -> List[Mapping[str, object]]:
+    works = watchlist.get("works", [])
+    if not isinstance(works, list):
+        raise ValueError("watchlist.works must be a list")
+
+    hidden_work_ids = {
+        str(entry.get("id") or "").strip()
+        for entry in works
+        if isinstance(entry, Mapping) and bool(entry.get("hidden"))
+    }
+    if not hidden_work_ids:
+        return list(updates)
+
+    filtered_updates: List[Mapping[str, object]] = []
+    for update in updates:
+        work_id = _coerce_text(update.get("id") or update.get("work_id"))
+        if work_id in hidden_work_ids:
+            continue
+        filtered_updates.append(update)
+    return filtered_updates
 
 
 def enqueue_daily_notification(
@@ -367,6 +364,7 @@ def deliver_daily_notifications(
     *,
     client: DiscordTransport,
     attempted_at: str,
+    redaction_secrets: Sequence[object] = (),
 ) -> Dict[str, object]:
     daily_notification = _daily_notification_state(state)
     pending_messages = list(daily_notification.get("pending_messages", []) or [])
@@ -402,9 +400,12 @@ def deliver_daily_notifications(
             blocked = True
             entry["attempt_count"] = int(entry.get("attempt_count", 0) or 0) + 1
             entry["last_attempted_at"] = attempted_at
-            entry["last_error"] = str(exc)
+            entry["last_error"] = redact_secret_text(exc, secrets=redaction_secrets)
             remaining_messages.append(entry)
-            errors.append(f"daily_notification: {exc}")
+            errors.append(
+                "daily_notification: "
+                f"{redact_secret_text(exc, secrets=redaction_secrets)}"
+            )
 
     daily_notification["pending_messages"] = remaining_messages
     return {
@@ -447,6 +448,7 @@ def build_run_report_message(
     errors: Mapping[str, Sequence[Mapping[str, object]]],
     delivery_failures: Sequence[str],
     state_lines: Sequence[str],
+    redaction_secrets: Sequence[object] = (),
 ) -> str:
     source_failures = len(errors.get("sources", []))
     run_failures = len(errors.get("run", []))
@@ -472,13 +474,20 @@ def build_run_report_message(
         f"delivery failure: {delivery_failure_count}件",
     ]
     checker_error_lines = _format_checker_error_lines(errors)
+    if redaction_secrets:
+        checker_error_lines = [
+            redact_secret_text(line, secrets=redaction_secrets) for line in checker_error_lines
+        ]
     if checker_error_lines:
         lines.append("failure details:")
         lines.extend(checker_error_lines)
     if delivery_failures:
         if not checker_error_lines:
             lines.append("failure details:")
-        lines.extend(f"- delivery: {failure}" for failure in delivery_failures)
+        lines.extend(
+            f"- delivery: {redact_secret_text(failure, secrets=redaction_secrets)}"
+            for failure in delivery_failures
+        )
     lines.append("現在のリスト:")
     lines.extend(state_lines)
     return "\n".join(lines)
@@ -489,11 +498,13 @@ def format_run_report_delivery_failure(
     timestamp: str,
     trigger_source: str,
     exc: Exception,
+    redaction_secrets: Sequence[object] = (),
 ) -> str:
     return "\n".join(
         [
             f"{RUN_REPORT_FAILURE_HEADLINE} ({timestamp})",
             f"トリガー: {trigger_source}",
-            f"エラー: {exc.__class__.__name__}: {exc}",
+            "エラー: "
+            f"{exc.__class__.__name__}: {redact_secret_text(exc, secrets=redaction_secrets)}",
         ]
     )

@@ -1,5 +1,11 @@
 # SPEC.md
 
+> Canonical document note:
+> この仕様書の Git 上の実ファイル名は `spec.md` だが、repo 内の canonical
+> document name は `SPEC.md` とする。case-insensitive filesystem では
+> `SPEC.md` と legacy `spec.md` の path が衝突しうるため、canonical docs
+> と current issues で `SPEC.md` と書かれている場合は、このファイルを指す。
+
 ## 1. Purpose
 
 本仕様書は `comic_crawler` の受け入れ仕様を定義する。
@@ -39,9 +45,6 @@
 
 本仕様の対象外は以下とする。
 
-- migration / rollback
-- v1 互換性
-- v1 / v2 混在運用
 - Status CLI の受け入れ仕様
 - Backlog CLI の受け入れ仕様
 - retry / backoff の具体アルゴリズム
@@ -488,5 +491,4 @@ run report は少なくとも以下を含まなければならない。
 - 実装の分割方法そのもの
 - retry/backoff の数式や細部
 - CLI 出力の細かな文言
-- migration / rollback 手順
 - Status CLI / Backlog CLI の詳細契約

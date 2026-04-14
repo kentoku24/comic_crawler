@@ -1,0 +1,207 @@
+name: Deploy Production
+
+on:
+  push:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  GCP_PROJECT_ID: star-light-breaker
+  GCP_REGION: asia-northeast1
+  ARTIFACT_REGISTRY_HOST: asia-northeast1-docker.pkg.dev
+  ARTIFACT_REGISTRY_REPOSITORY: comic-crawler
+  ARTIFACT_IMAGE_NAME: comic-crawler
+  CLOUD_RUN_JOB_NAME: comic-crawler-job
+  CLOUD_RUN_SERVICE_NAME: comic-crawler-service
+  DISCORD_BOT_TOKEN_SECRET_VERSION: projects/star-light-breaker/secrets/comic-crawler-discord-bot-token/versions/latest
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: requirements.txt
+
+      - name: Install dependencies
+        run: python -m pip install -r requirements.txt
+
+      - name: Run unit tests
+        env:
+          TZ: Asia/Tokyo
+        run: python -m unittest discover -s tests -p 'test_*.py'
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      image_repository: ${{ steps.image.outputs.image_repository }}
+      image_digest: ${{ steps.image_ref.outputs.image_digest }}
+      image_ref: ${{ steps.image_ref.outputs.image_ref }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          create_credentials_file: true
+          token_format: access_token
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+        with:
+          driver: docker-container
+
+      - id: image
+        name: Compute image repository
+        run: |
+          image_repository="${ARTIFACT_REGISTRY_HOST}/${GCP_PROJECT_ID}/${ARTIFACT_REGISTRY_REPOSITORY}/${ARTIFACT_IMAGE_NAME}"
+          echo "image_repository=${image_repository}" >> "${GITHUB_OUTPUT}"
+
+      - name: Log in to Artifact Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.ARTIFACT_REGISTRY_HOST }}
+          username: oauth2accesstoken
+          password: ${{ steps.auth.outputs.access_token }}
+
+      - id: build
+        name: Build and push production image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ${{ steps.image.outputs.image_repository }}:${{ github.sha }}
+          labels: |
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      - id: image_ref
+        name: Capture pushed digest
+        run: |
+          echo "image_digest=${{ steps.build.outputs.digest }}" >> "${GITHUB_OUTPUT}"
+          echo "image_ref=${{ steps.image.outputs.image_repository }}@${{ steps.build.outputs.digest }}" >> "${GITHUB_OUTPUT}"
+
+      - name: Summarize build output
+        run: |
+          {
+            echo "## Build output"
+            echo ""
+            echo "- Commit SHA: \`${GITHUB_SHA}\`"
+            echo "- Image repository: \`${{ steps.image.outputs.image_repository }}\`"
+            echo "- Image digest: \`${{ steps.build.outputs.digest }}\`"
+            echo "- Image ref: \`${{ steps.image_ref.outputs.image_ref }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: production
+    env:
+      IMAGE_REF: ${{ needs.build.outputs.image_ref }}
+      IMAGE_DIGEST: ${{ needs.build.outputs.image_digest }}
+      DISCORD_MAIN_CHANNEL_ID: ${{ vars.DISCORD_MAIN_CHANNEL_ID }}
+      DISCORD_RUN_REPORT_CHANNEL_ID: ${{ vars.DISCORD_RUN_REPORT_CHANNEL_ID }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - id: auth
+        name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v3
+        with:
+          create_credentials_file: true
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_SERVICE_ACCOUNT_EMAIL }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v3
+        with:
+          project_id: ${{ env.GCP_PROJECT_ID }}
+
+      - name: Update Cloud Run Job
+        run: |
+          gcloud run jobs update comic-crawler-job \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_REF}" \
+            --command=python \
+            --args=-m,manga_watch.run_job \
+            --tasks=1 \
+            --max-retries=0 \
+            --update-env-vars="TZ=Asia/Tokyo,MANGA_WATCH_STORAGE_BACKEND=firestore,MANGA_WATCH_FIRESTORE_PROJECT=${GCP_PROJECT_ID},MANGA_WATCH_NOTIFIER_BACKENDS=stdout,DISCORD_MAIN_CHANNEL_ID=${DISCORD_MAIN_CHANNEL_ID},DISCORD_RUN_REPORT_CHANNEL_ID=${DISCORD_RUN_REPORT_CHANNEL_ID},DISCORD_BOT_TOKEN_SECRET_VERSION=${DISCORD_BOT_TOKEN_SECRET_VERSION}"
+
+      - name: Deploy Cloud Run Service
+        run: |
+          gcloud run deploy comic-crawler-service \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --image="${IMAGE_REF}" \
+            --command=python \
+            --args=-m,manga_watch.run_service \
+            --allow-unauthenticated \
+            --set-env-vars="TZ=Asia/Tokyo,MANGA_WATCH_STORAGE_BACKEND=firestore,MANGA_WATCH_FIRESTORE_PROJECT=${GCP_PROJECT_ID},MANGA_WATCH_FETCH_BACKEND=cloud-run-job,MANGA_WATCH_GCP_PROJECT=${GCP_PROJECT_ID},MANGA_WATCH_CLOUD_RUN_REGION=${GCP_REGION},MANGA_WATCH_CLOUD_RUN_JOB_NAME=${CLOUD_RUN_JOB_NAME},DISCORD_BOT_TOKEN_SECRET_VERSION=${DISCORD_BOT_TOKEN_SECRET_VERSION}" \
+            --set-secrets="DISCORD_APPLICATION_PUBLIC_KEY=comic-crawler-discord-application-public-key:latest"
+
+      - id: verify
+        name: Capture deployed revision
+        run: |
+          latest_ready_revision="$(gcloud run services describe comic-crawler-service \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --format='value(status.latestReadyRevisionName)')"
+          service_image_ref="$(gcloud run services describe comic-crawler-service \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --format='value(spec.template.spec.containers[0].image)')"
+          job_image_ref="$(gcloud run jobs describe comic-crawler-job \
+            --project="${GCP_PROJECT_ID}" \
+            --region="${GCP_REGION}" \
+            --format='value(spec.template.spec.template.spec.containers[0].image)')"
+          if [[ "${service_image_ref}" != "${IMAGE_REF}" ]]; then
+            echo "service image ref mismatch: expected ${IMAGE_REF}, got ${service_image_ref}" >&2
+            exit 1
+          fi
+          if [[ "${job_image_ref}" != "${IMAGE_REF}" ]]; then
+            echo "job image ref mismatch: expected ${IMAGE_REF}, got ${job_image_ref}" >&2
+            exit 1
+          fi
+          echo "latest_ready_revision=${latest_ready_revision}" >> "${GITHUB_OUTPUT}"
+          echo "service_image_ref=${service_image_ref}" >> "${GITHUB_OUTPUT}"
+          echo "job_image_ref=${job_image_ref}" >> "${GITHUB_OUTPUT}"
+
+      - name: Summarize deploy output
+        run: |
+          {
+            echo "## Deploy output"
+            echo ""
+            echo "- Commit SHA: \`${GITHUB_SHA}\`"
+            echo "- Image digest: \`${IMAGE_DIGEST}\`"
+            echo "- Image ref: \`${IMAGE_REF}\`"
+            echo "- Latest ready revision: \`${{ steps.verify.outputs.latest_ready_revision }}\`"
+            echo "- Service image ref: \`${{ steps.verify.outputs.service_image_ref }}\`"
+            echo "- Job image ref: \`${{ steps.verify.outputs.job_image_ref }}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"

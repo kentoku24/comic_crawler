@@ -6,26 +6,27 @@ from typing import Optional, Tuple
 from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, WorkDescriptor
 
 
+_HOST = "championcross.jp"
 _EPISODE_URL = re.compile(
-    r"^https?://(?:www\.)?championcross\.jp/episodes/([0-9A-Za-z]+)(?:/)?(?:\?.*)?$"
+    rf"^https?://(?:www\.)?{_HOST}/episodes/([0-9A-Za-z]+)(?:/)?(?:\?.*)?$"
 )
 _SERIES_URL = re.compile(
-    r"^https?://(?:www\.)?championcross\.jp/series/([0-9A-Za-z]+)(?:/)?(?:\?.*)?$"
+    rf"^https?://(?:www\.)?{_HOST}/series/([0-9A-Za-z]+)(?:/)?(?:\?.*)?$"
 )
 _SERIES_RSS_URL = re.compile(
-    r"^https?://(?:www\.)?championcross\.jp/series/([0-9A-Za-z]+)/rss(?:/)?(?:\?.*)?$"
+    rf"^https?://(?:www\.)?{_HOST}/series/([0-9A-Za-z]+)/rss(?:/)?(?:\?.*)?$"
 )
 _SERIES_HASH_IN_HTML = re.compile(
-    r"https?://(?:www\.)?championcross\.jp/series/([0-9A-Za-z]+)(?:/rss)?(?:[/?\"'])"
+    rf"https?://(?:www\.)?{_HOST}/series/([0-9A-Za-z]+)(?:/rss)?(?:[/?\"'])"
 )
 
 
 def canonical_champion_cross_episode_url(episode_hash: str) -> str:
-    return f"https://championcross.jp/episodes/{episode_hash}"
+    return f"https://{_HOST}/episodes/{episode_hash}"
 
 
 def canonical_champion_cross_series_url(series_hash: str) -> str:
-    return f"https://championcross.jp/series/{series_hash}"
+    return f"https://{_HOST}/series/{series_hash}"
 
 
 def canonical_champion_cross_series_rss_url(series_hash: str) -> str:

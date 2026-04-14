@@ -22,6 +22,20 @@
     "https://kakuyomu.jp/works/16818093092974667738",
     "https://kakuyomu.jp/works/16818093092974667738/episodes/2912051597531055166"
   ],
+  "expectedObservations": [
+    {
+      "name": "work_page_signal",
+      "value": "__NEXT_DATA__"
+    },
+    {
+      "name": "latest_episode_id",
+      "value": "2912051597531055166"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第75話 「ちょっと奥さん、米屋です。洗濯屋です（意味不明）」"
+    }
+  ],
   "expectedLatest": {
     "source": "kakuyomu",
     "workId": "kakuyomu:16818093092974667738",

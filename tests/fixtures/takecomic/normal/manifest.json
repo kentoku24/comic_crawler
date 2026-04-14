@@ -1,0 +1,53 @@
+{
+  "seedUrl": "https://takecomic.jp/series/3f846451aff2d",
+  "expectedWork": {
+    "source": "takecomic",
+    "kind": "takecomic",
+    "workId": "takecomic:3f846451aff2d",
+    "seedUrl": "https://takecomic.jp/series/3f846451aff2d",
+    "series": "takecomic:3f846451aff2d",
+    "seriesHash": "3f846451aff2d"
+  },
+  "steps": [
+    {
+      "url": "https://takecomic.jp/series/3f846451aff2d/rss",
+      "response": "01-rss.xml"
+    },
+    {
+      "url": "https://takecomic.jp/episodes/abc12345",
+      "response": "02-episode.html"
+    }
+  ],
+  "expectedCheckedUrls": [
+    "https://takecomic.jp/series/3f846451aff2d",
+    "https://takecomic.jp/series/3f846451aff2d/rss"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_hash",
+      "value": "3f846451aff2d"
+    },
+    {
+      "name": "series_title",
+      "value": "作品D"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://takecomic.jp/episodes/abc12345"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第10話"
+    }
+  ],
+  "expectedLatest": {
+    "source": "takecomic",
+    "workId": "takecomic:3f846451aff2d",
+    "latestKey": "https://takecomic.jp/episodes/abc12345",
+    "url": "https://takecomic.jp/episodes/abc12345",
+    "series": "takecomic:3f846451aff2d",
+    "seriesTitle": "作品D",
+    "episodeTitle": "第10話",
+    "nextUpdateLabel": "火曜更新"
+  }
+}

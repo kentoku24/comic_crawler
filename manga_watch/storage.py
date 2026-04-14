@@ -1,12 +1,23 @@
 import json
 import os
 import re
-from typing import Dict, List, Mapping, Optional, Sequence, Tuple
+import tempfile
+from contextlib import contextmanager
+from typing import Dict, Iterator, List, Mapping, Optional, Sequence, Tuple
 
+import fcntl
+
+from manga_watch.firestore_storage import FirestoreStorageConfig, FirestoreStorageRepository
 from manga_watch.update_classification import DEFAULT_NOTIFY_UPDATE_TYPES, SUPPORTED_UPDATE_TYPES
 
 DEFAULT_WATCHLIST_PATH = os.path.join(os.path.dirname(__file__), "watchlist.json")
 DEFAULT_STATE_PATH = os.path.join(os.path.dirname(__file__), "state.json")
+STORAGE_BACKEND_JSON = "json"
+STORAGE_BACKEND_FIRESTORE = "firestore"
+SUPPORTED_STORAGE_BACKENDS = {
+    STORAGE_BACKEND_JSON,
+    STORAGE_BACKEND_FIRESTORE,
+}
 
 WATCHLIST_VERSION = 2
 STATE_VERSION = 2
@@ -47,6 +58,18 @@ def get_state_path() -> str:
     return os.environ.get("MANGA_WATCH_STATE", DEFAULT_STATE_PATH)
 
 
+def storage_backend_from_env() -> str:
+    return _resolve_storage_backend(os.environ.get("MANGA_WATCH_STORAGE_BACKEND"))
+
+
+def _default_firestore_repository(config: FirestoreStorageConfig) -> FirestoreStorageRepository:
+    return FirestoreStorageRepository(config=config)
+
+
+def get_firestore_repository() -> FirestoreStorageRepository:
+    return _default_firestore_repository(FirestoreStorageConfig.from_env())
+
+
 def default_watchlist() -> Dict[str, object]:
     return {"version": WATCHLIST_VERSION, "works": []}
 
@@ -66,14 +89,54 @@ def default_state() -> Dict[str, object]:
     }
 
 
-def load_watchlist(path: Optional[str] = None) -> Dict[str, object]:
+def state_notification_outbox(state: Dict[str, object]) -> List[Dict[str, object]]:
+    normalized_outbox = normalize_notification_outbox(state.get("notification_outbox"))
+    state["notification_outbox"] = normalized_outbox
+    return normalized_outbox
+
+
+def state_discord_delivery(state: Dict[str, object]) -> Dict[str, object]:
+    normalized_discord_delivery = normalize_discord_delivery(
+        state.get("discord_delivery", state.get("discordDelivery"))
+    )
+    state.pop("discordDelivery", None)
+    state["discord_delivery"] = normalized_discord_delivery
+    return normalized_discord_delivery
+
+
+def state_daily_notification_delivery(state: Dict[str, object]) -> Dict[str, object]:
+    return state_discord_delivery(state)["daily_notification"]
+
+
+def load_watchlist(
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> Dict[str, object]:
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        payload = get_firestore_repository().load_watchlist()
+        return validate_watchlist(payload)
+
     watchlist_path = path or get_watchlist_path()
     with open(watchlist_path, "r", encoding="utf-8") as f:
         payload = json.load(f)
     return validate_watchlist(payload)
 
 
-def load_state(path: Optional[str] = None) -> Dict[str, object]:
+def load_state(
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> Dict[str, object]:
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        try:
+            payload = get_firestore_repository().load_state()
+        except FileNotFoundError:
+            return default_state()
+        return validate_state(payload)
+
     state_path = path or get_state_path()
     if not os.path.exists(state_path):
         return default_state()
@@ -82,28 +145,173 @@ def load_state(path: Optional[str] = None) -> Dict[str, object]:
     return validate_state(payload)
 
 
-def save_state(state: Mapping[str, object], path: Optional[str] = None) -> None:
-    atomic_write_json(path or get_state_path(), validate_state(state))
+def save_state(
+    state: Mapping[str, object],
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> None:
+    validated_state = validate_state(state)
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        get_firestore_repository().save_state(validated_state)
+        return
+    atomic_write_json(path or get_state_path(), validated_state)
 
 
-def save_watchlist(watchlist: Mapping[str, object], path: Optional[str] = None) -> None:
-    atomic_write_json(path or get_watchlist_path(), validate_watchlist(watchlist))
+def save_watchlist(
+    watchlist: Mapping[str, object],
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> None:
+    validated_watchlist = validate_watchlist(watchlist)
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        get_firestore_repository().save_watchlist(validated_watchlist)
+        return
+    atomic_write_json(path or get_watchlist_path(), validated_watchlist)
+
+
+def load_supertwins_search_session(
+    token: str,
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> Dict[str, object]:
+    normalized_token = _normalize_supertwins_search_session_token(token)
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        return get_firestore_repository().load_supertwins_search_session(normalized_token)
+
+    session_path = _supertwins_search_session_path(path or get_state_path(), normalized_token)
+    if not os.path.exists(session_path):
+        raise FileNotFoundError(f"missing supertwins search session: {normalized_token}")
+    with open(session_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, Mapping):
+        raise ValueError("supertwins search session payload must be an object")
+    return dict(payload)
+
+
+def save_supertwins_search_session(
+    token: str,
+    payload: Mapping[str, object],
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> None:
+    normalized_token = _normalize_supertwins_search_session_token(token)
+    normalized_payload = dict(payload)
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        get_firestore_repository().save_supertwins_search_session(normalized_token, normalized_payload)
+        return
+
+    atomic_write_json(
+        _supertwins_search_session_path(path or get_state_path(), normalized_token),
+        normalized_payload,
+    )
+
+
+def delete_supertwins_search_session(
+    token: str,
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> None:
+    normalized_token = _normalize_supertwins_search_session_token(token)
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        get_firestore_repository().delete_supertwins_search_session(normalized_token)
+        return
+
+    session_path = _supertwins_search_session_path(path or get_state_path(), normalized_token)
+    with advisory_file_lock(session_path):
+        try:
+            os.unlink(session_path)
+        except FileNotFoundError:
+            pass
+
+
+def record_run_summary(
+    summary: Mapping[str, object],
+    *,
+    backend: Optional[str] = None,
+) -> Optional[str]:
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend != STORAGE_BACKEND_FIRESTORE:
+        return None
+    return get_firestore_repository().record_run_summary(dict(summary))
+
+
+def load_run_summaries(
+    *,
+    limit: int = 20,
+    backend: Optional[str] = None,
+) -> Optional[List[Dict[str, object]]]:
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend != STORAGE_BACKEND_FIRESTORE:
+        return None
+    return get_firestore_repository().list_run_summaries(limit=limit)
+
+
+@contextmanager
+def advisory_file_lock(path: str) -> Iterator[None]:
+    directory = os.path.dirname(path) or "."
+    os.makedirs(directory, exist_ok=True)
+    lock_path = f"{path}.lock"
+    lock_fd = os.open(lock_path, os.O_RDWR | os.O_CREAT, 0o600)
+    try:
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        yield
+    finally:
+        fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        os.close(lock_fd)
 
 
 def atomic_write_json(path: str, payload: Mapping[str, object]) -> None:
     directory = os.path.dirname(path) or "."
     os.makedirs(directory, exist_ok=True)
-    tmp_path = f"{path}.tmp"
-    with open(tmp_path, "w", encoding="utf-8") as f:
-        json.dump(payload, f, ensure_ascii=False, indent=2)
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp_path, path)
-    dir_fd = os.open(directory, os.O_RDONLY)
-    try:
-        os.fsync(dir_fd)
-    finally:
-        os.close(dir_fd)
+    prefix = f".{os.path.basename(path) or 'state'}."
+    with advisory_file_lock(path):
+        fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=prefix, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(payload, f, ensure_ascii=False, indent=2)
+                f.flush()
+                os.fsync(f.fileno())
+            os.replace(tmp_path, path)
+            dir_fd = os.open(directory, os.O_RDONLY)
+            try:
+                os.fsync(dir_fd)
+            finally:
+                os.close(dir_fd)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except FileNotFoundError:
+                pass
+            raise
+
+
+def _normalize_supertwins_search_session_token(token: object) -> str:
+    normalized = str(token or "").strip()
+    if not normalized:
+        raise ValueError("supertwins search session token must be a non-empty string")
+    if not re.fullmatch(r"[A-Za-z0-9:_-]+", normalized):
+        raise ValueError("supertwins search session token contains unsupported characters")
+    return normalized
+
+
+def _supertwins_search_session_dir(state_path: str) -> str:
+    directory = os.path.dirname(state_path) or "."
+    basename = os.path.basename(state_path) or "state.json"
+    return os.path.join(directory, f".{basename}.supertwins_search_sessions")
+
+
+def _supertwins_search_session_path(state_path: str, token: str) -> str:
+    return os.path.join(_supertwins_search_session_dir(state_path), f"{token}.json")
 
 
 def validate_watchlist(payload: Mapping[str, object]) -> Dict[str, object]:
@@ -142,6 +350,9 @@ def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
     enabled = entry.get("enabled")
     if not isinstance(enabled, bool):
         raise ValueError(f"watchlist entry {work_id} enabled must be boolean")
+    hidden = entry.get("hidden", False)
+    if not isinstance(hidden, bool):
+        raise ValueError(f"watchlist entry {work_id} hidden must be boolean")
     policy = normalize_notification_policy(entry.get("notification_policy"), work_id)
     history_retention = normalize_optional_history_retention(
         entry.get("history_retention"),
@@ -153,6 +364,7 @@ def normalize_watchlist_entry(entry: Mapping[str, object]) -> Dict[str, object]:
         "source": source,
         "seed_url": seed_url,
         "enabled": enabled,
+        "hidden": hidden,
         "notification_policy": policy,
     }
     if history_retention is not None:
@@ -787,6 +999,20 @@ def _latest_storage_key(key: str) -> str:
 
 def _latest_runtime_key(key: str) -> str:
     return _LATEST_STORAGE_TO_RUNTIME.get(key, snake_to_camel(key))
+
+
+def _resolve_storage_backend(value: Optional[object]) -> str:
+    text = str(value or STORAGE_BACKEND_JSON).strip().lower()
+    if text not in SUPPORTED_STORAGE_BACKENDS:
+        supported = ", ".join(sorted(SUPPORTED_STORAGE_BACKENDS))
+        raise ValueError(f"MANGA_WATCH_STORAGE_BACKEND must be one of: {supported}")
+    return text
+
+
+def _effective_storage_backend(value: Optional[object]) -> str:
+    if value is None:
+        return storage_backend_from_env()
+    return _resolve_storage_backend(value)
 
 
 def camel_to_snake(value: str) -> str:

@@ -10,6 +10,8 @@ This repository has Codex project-local skills under `./.agents/skills`. Treat t
 
 ### Available skills
 
+- issue-maker: 曖昧な要求を、実行可能で判断可能な要件定義や Issue のたたき台に整理する壁打ちスキル。最初に理解を短く要約し、重要度順に 3〜7 個の確認質問を出して、背景・目的、対象、課題、成功条件、スコープ、制約、例外、非機能要件などを詰める。Use when: 「要件整理したい」「issue にしたい」「壁打ちして」「仕様のたたき台を作りたい」とき。 (file: ./.agents/skills/issue-maker/SKILL.md)
+- gh-issue-approval-loop: 親Issueと紐づく子Issue群を implementation-ready に整え、各Issueごとに `$gh-issue-reviewer` review を並列で回し、全Issueで `APPROVE` が揃うまで Issue 本文を修正し続ける workflow。Use when: 親Issueと子Issue群をまとめて review-ready / implementation-ready にしたいとき、issue decomposition 後に scope・constraints・non-goals・next action を各 Issue へ揃えたいとき、実装着手前に parent + children 全件へ `$gh-issue-reviewer` gate を残したいとき。 (file: ./.agents/skills/gh-issue-approval-loop/SKILL.md)
 - gh-issue-resolver: GitHub Issue を起点に、accepted scope と制約を抽出し、`maker` 実装、PR 更新、`$gh-pr-reviewer` による review gate、`$merger` による final gate までを標準ループで進める。Use when: Issue URL/番号だけで作業を開始したいとき、Issue に既存の `$gh-issue-reviewer` または legacy `$spacex-chief-engineer` review があるとき。 (file: ./.agents/skills/gh-issue-resolver/SKILL.md)
 - gh-issue-reviewer: GitHub Issue の implementation readiness を判定し、accepted scope, constraints, non-goals, blocking concerns を整理して `APPROVE` / `NG` を返す。Use when: 実装開始前に Issue の scope と制約を固めたいとき、`$gh-issue-resolver` の入口条件を満たす issue review を残したいとき、旧 `spacex-chief-engineer` が担っていた issue review を明示的に使いたいとき。 (file: ./.agents/skills/gh-issue-reviewer/SKILL.md)
 - merger: `gh-pr-reviewer` の承認コメント、review thread 解決状況、GitHub 上の merge-ready 性を確認して `APPROVE` / `NG` を返す final gate。`merge:true` が明示されたときだけ、自身の `APPROVE` 後に PR を merge する。Use when: `gh-pr-reviewer` 承認後に「今この PR をマージしてよいか」を判定したいとき、または self-merge まで委譲したいとき。 (file: ./.agents/skills/merger/SKILL.md)

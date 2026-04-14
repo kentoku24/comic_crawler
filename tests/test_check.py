@@ -53,6 +53,26 @@ class FakeAdapter(SourceAdapter):
         )
 
 
+class CanonicalizingFakeAdapter(FakeAdapter):
+    def can_handle(self, seed_url: str) -> bool:
+        return seed_url == "https://example.com/canonicalize"
+
+    def normalize(self, seed_url: str) -> WorkDescriptor:
+        return WorkDescriptor(
+            source=self.source,
+            work_id="https://example.com/canonicalize",
+            seed_url=seed_url,
+        )
+
+    def canonicalize_item(self, item, http_client) -> WorkDescriptor:
+        return WorkDescriptor(
+            source=self.source,
+            work_id="fake:series-1",
+            seed_url="https://example.com/series/1",
+            metadata={"series": "fake:series-1"},
+        )
+
+
 def watchlist_entry(
     *,
     work_id="work-1",
@@ -267,6 +287,7 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("kakuyomu:123", entry["id"])
         self.assertEqual("kakuyomu", entry["source"])
         self.assertTrue(entry["enabled"])
+        self.assertFalse(entry["hidden"])
         self.assertEqual(
             {"mode": "all", "allowed_update_types": None},
             entry["notification_policy"],
@@ -283,6 +304,16 @@ class CheckTests(unittest.TestCase):
 
         self.assertEqual("kakuyomu:123", entry["id"])
         self.assertEqual("https://kakuyomu.jp/works/123/", entry["seed_url"])
+
+    def test_build_watchlist_entry_prefers_adapter_canonicalization_contract(self):
+        entry = check.build_watchlist_entry(
+            "https://example.com/canonicalize",
+            adapters=[CanonicalizingFakeAdapter([])],
+        )
+
+        self.assertEqual("fake:series-1", entry["id"])
+        self.assertEqual("fake", entry["source"])
+        self.assertEqual("https://example.com/series/1", entry["seed_url"])
 
     def test_build_watchlist_entry_uses_stable_comic_action_work_id(self):
         fake_client = mock.Mock()
@@ -305,6 +336,123 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("comic-action:13933686331663374228", entry["id"])
         self.assertEqual("comic-action", entry["source"])
 
+    def test_build_watchlist_entry_canonicalizes_comicborder_episode_seed_to_rss(self):
+        fake_client = mock.Mock()
+        fake_client.get_text.return_value = """
+        <html>
+          <head>
+            <link rel="alternate" type="application/rss+xml" href="https://comicborder.com/rss/series/12207421983437805229">
+          </head>
+          <body>
+            <div data-gtm-data-layer="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;12207421983437805229&quot;}}"></div>
+          </body>
+        </html>
+        """
+        with mock.patch(
+            "manga_watch.check.normalize_item",
+            return_value={
+                "source": "comicborder",
+                "workId": "https://comicborder.com/episode/12207421983437812169",
+                "seedUrl": "https://comicborder.com/episode/12207421983437812169",
+            },
+        ):
+            entry = check.build_watchlist_entry(
+                "https://comicborder.com/episode/12207421983437812169",
+                http_client=fake_client,
+            )
+
+        self.assertEqual("comicborder:12207421983437805229", entry["id"])
+        self.assertEqual("https://comicborder.com/rss/series/12207421983437805229", entry["seed_url"])
+        self.assertEqual("comicborder", entry["source"])
+
+    def test_build_watchlist_entry_canonicalizes_comic_earthstar_episode_seed_to_rss(self):
+        fake_client = mock.Mock()
+        fake_client.get_text.return_value = """
+        <html>
+          <head>
+            <link rel="alternate" type="application/rss+xml" href="https://comic-earthstar.com/rss/series/12207421983526538413">
+          </head>
+          <body>
+            <div data-gtm-data-layer="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;12207421983526538413&quot;}}"></div>
+          </body>
+        </html>
+        """
+        with mock.patch(
+            "manga_watch.check.normalize_item",
+            return_value={
+                "source": "comic-earthstar",
+                "workId": "https://comic-earthstar.com/episode/12207421983526541742",
+                "seedUrl": "https://comic-earthstar.com/episode/12207421983526541742",
+            },
+        ):
+            entry = check.build_watchlist_entry(
+                "https://comic-earthstar.com/episode/12207421983526541742",
+                http_client=fake_client,
+            )
+
+        self.assertEqual("comic-earthstar:12207421983526538413", entry["id"])
+        self.assertEqual("https://comic-earthstar.com/rss/series/12207421983526538413", entry["seed_url"])
+        self.assertEqual("comic-earthstar", entry["source"])
+
+    def test_build_watchlist_entry_canonicalizes_comic_trail_episode_seed_to_rss(self):
+        fake_client = mock.Mock()
+        fake_client.get_text.return_value = """
+        <html>
+          <head>
+            <link rel="alternate" type="application/rss+xml" href="https://comic-trail.com/rss/series/14079602755560047206">
+          </head>
+          <body>
+            <script>
+              window.__DATA__ = {"series_id":"14079602755560047206"};
+            </script>
+          </body>
+        </html>
+        """
+        with mock.patch(
+            "manga_watch.check.normalize_item",
+            return_value={
+                "source": "comic-trail",
+                "workId": "https://comic-trail.com/episode/2550689798402927313",
+                "seedUrl": "https://comic-trail.com/episode/2550689798402927313",
+            },
+        ):
+            entry = check.build_watchlist_entry(
+                "https://comic-trail.com/episode/2550689798402927313",
+                http_client=fake_client,
+            )
+
+        self.assertEqual("comic-trail:14079602755560047206", entry["id"])
+        self.assertEqual("https://comic-trail.com/rss/series/14079602755560047206", entry["seed_url"])
+        self.assertEqual("comic-trail", entry["source"])
+
+    def test_build_watchlist_entry_canonicalizes_kuragebunch_episode_seed_to_rss(self):
+        fake_client = mock.Mock()
+        fake_client.get_text.return_value = """
+        <html>
+          <head>
+            <link rel="alternate" type="application/rss+xml" href="https://kuragebunch.com/rss/series/2550912964856487532">
+          </head>
+          <body>
+            <div data-gtm-data-layer="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;2550912964856487532&quot;}}"></div>
+          </body>
+        </html>
+        """
+        with mock.patch(
+            "manga_watch.check.normalize_item",
+            return_value={
+                "source": "kuragebunch",
+                "workId": "https://kuragebunch.com/episode/2550912964856491139",
+                "seedUrl": "https://kuragebunch.com/episode/2550912964856491139",
+            },
+        ):
+            entry = check.build_watchlist_entry(
+                "https://kuragebunch.com/episode/2550912964856491139",
+                http_client=fake_client,
+            )
+
+        self.assertEqual("kuragebunch:2550912964856487532", entry["id"])
+        self.assertEqual("https://kuragebunch.com/rss/series/2550912964856487532", entry["seed_url"])
+        self.assertEqual("kuragebunch", entry["source"])
     def test_build_watchlist_entry_uses_stable_champion_cross_work_id(self):
         fake_client = mock.Mock()
         fake_client.get_text.return_value = """
@@ -658,6 +806,225 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(latest_storage_to_runtime(previous["latest"]), update["from"])
         self.assertEqual(latest, update["to"])
 
+    def test_apply_item_transition_preserves_series_title_when_latest_key_changes_without_title(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-1",
+                "series_title": "作品A",
+                "series": "series-a",
+                "episode_title": "第1話",
+                "url": "https://example.com/work/1",
+            },
+            "history": [],
+            "unread": {"event_ids": []},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-2",
+            "episodeTitle": "第2話",
+            "url": "https://example.com/work/2",
+        }
+
+        next_entry, _ = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertEqual("ep-2", next_entry["latest"]["latest_key"])
+        self.assertEqual("作品A", next_entry["latest"]["series_title"])
+        self.assertEqual("series-a", next_entry["latest"]["series"])
+        self.assertEqual(["ep-2"], next_entry["unread"]["event_ids"])
+
+    def test_apply_item_transition_recovers_series_title_from_history_when_latest_is_already_missing_it(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-2",
+                "episode_title": "第2話",
+                "url": "https://example.com/work/2",
+            },
+            "history": [
+                {
+                    "event_id": "ep-2",
+                    "seen_at": 10,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-2",
+                        "episode_title": "第2話",
+                        "url": "https://example.com/work/2",
+                    },
+                    "gap": {
+                        "from_latest": {
+                            "source": "fake",
+                            "work_id": "work-1",
+                            "latest_key": "ep-1",
+                            "series_title": "作品A",
+                            "series": "series-a",
+                            "episode_title": "第1話",
+                            "url": "https://example.com/work/1",
+                        },
+                        "multiple_updates": None,
+                        "estimation_basis": "previous_latest_only",
+                    },
+                }
+            ],
+            "unread": {"event_ids": ["ep-2"]},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-3",
+            "episodeTitle": "第3話",
+            "url": "https://example.com/work/3",
+        }
+
+        next_entry, _ = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertEqual("ep-3", next_entry["latest"]["latest_key"])
+        self.assertEqual("作品A", next_entry["latest"]["series_title"])
+        self.assertEqual("series-a", next_entry["latest"]["series"])
+        self.assertEqual(["ep-2", "ep-3"], next_entry["unread"]["event_ids"])
+
+    def test_apply_item_transition_same_latest_key_recovers_series_title_from_history(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-2",
+                "episode_title": "第2話",
+                "url": "https://example.com/work/2",
+            },
+            "history": [
+                {
+                    "event_id": "ep-2",
+                    "seen_at": 10,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-2",
+                        "episode_title": "第2話",
+                        "url": "https://example.com/work/2",
+                    },
+                    "gap": {
+                        "from_latest": {
+                            "source": "fake",
+                            "work_id": "work-1",
+                            "latest_key": "ep-1",
+                            "series_title": "作品A",
+                            "series": "series-a",
+                            "episode_title": "第1話",
+                            "url": "https://example.com/work/1",
+                        },
+                        "multiple_updates": None,
+                        "estimation_basis": "previous_latest_only",
+                    },
+                }
+            ],
+            "unread": {"event_ids": ["ep-2"]},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
+        latest = {
+            "source": "fake",
+            "workId": "work-1",
+            "latestKey": "ep-2",
+            "url": "https://example.com/work/2",
+        }
+
+        next_entry, update = check.apply_item_transition(
+            "work-1",
+            previous,
+            latest,
+            seen_at=20,
+            history_retention=5,
+        )
+
+        self.assertIsNone(update)
+        self.assertEqual("ep-2", next_entry["latest"]["latest_key"])
+        self.assertEqual("作品A", next_entry["latest"]["series_title"])
+        self.assertEqual("series-a", next_entry["latest"]["series"])
+
+    def test_previous_series_metadata_searches_past_recent_history_without_title(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-3",
+                "series": "series-a",
+            },
+            "history": [
+                {
+                    "event_id": "ep-2",
+                    "seen_at": 10,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-2",
+                        "series": "series-a",
+                    },
+                    "gap": {
+                        "from_latest": {
+                            "source": "fake",
+                            "work_id": "work-1",
+                            "latest_key": "ep-1",
+                            "series_title": "作品A",
+                            "series": "series-a",
+                        }
+                    },
+                },
+                {
+                    "event_id": "ep-3",
+                    "seen_at": 20,
+                    "latest": {
+                        "source": "fake",
+                        "work_id": "work-1",
+                        "latest_key": "ep-3",
+                        "series": "series-a",
+                    },
+                    "gap": {
+                        "from_latest": {
+                            "source": "fake",
+                            "work_id": "work-1",
+                            "latest_key": "ep-2",
+                            "series": "series-a",
+                        }
+                    },
+                },
+            ],
+        }
+
+        self.assertEqual(
+            {"seriesTitle": "作品A", "series": "series-a"},
+            check.previous_series_metadata(previous),
+        )
+
     def test_apply_item_transition_evaluates_notification_policy_truth_table(self):
         previous = {
             "latest": {
@@ -908,6 +1275,63 @@ class CheckTests(unittest.TestCase):
         self.assertTrue(runtime_latest["default_notify"])
         self.assertEqual(20, next_entry["health"]["last_checked_at"])
         self.assertEqual([], next_entry["history"])
+
+    def test_run_check_silently_merges_metadata_without_emitting_update(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            state_path = Path(tmpdir) / "state.json"
+            write_watchlist(watchlist_path, [watchlist_entry()])
+
+            initial_latest = {
+                "source": "fake",
+                "workId": "work-1",
+                "latestKey": "ep-1",
+                "seriesTitle": "旧タイトル",
+                "episodeTitle": "旧サブタイトル",
+                "url": "https://example.com/work/1",
+            }
+            improved_latest = {
+                "source": "fake",
+                "workId": "work-1",
+                "latestKey": "ep-1",
+                "seriesTitle": "新タイトル",
+                "episodeTitle": "新サブタイトル",
+                "pageTitle": "作品A 第1話",
+                "nextUpdateLabel": "次回更新予定 3/15",
+                "summary": "補足",
+                "url": "https://example.com/work/1",
+                "update_type": "main_story",
+                "classification_reason": "episode_title matched main-story numbering",
+                "default_notify": True,
+            }
+
+            with mock.patch.dict(os.environ, {"MANGA_WATCH_STATE": str(state_path)}, clear=False):
+                with mock.patch(
+                    "manga_watch.check.normalize_item",
+                    return_value={
+                        "source": "fake",
+                        "workId": "work-1",
+                        "seedUrl": "https://example.com/work",
+                    },
+                ):
+                    with mock.patch(
+                        "manga_watch.check.compute_latest",
+                        side_effect=[initial_latest, improved_latest],
+                    ):
+                        first_result = check.run_check(str(watchlist_path))
+                        second_result = check.run_check(str(watchlist_path))
+                        state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual([], first_result["updates"])
+        self.assertEqual([], second_result["updates"])
+        self.assertEqual({"sources": [], "run": []}, second_result["errors"])
+        self.assertEqual("ep-1", state["works"]["work-1"]["latest"]["latest_key"])
+        self.assertEqual("新タイトル", state["works"]["work-1"]["latest"]["series_title"])
+        self.assertEqual("新サブタイトル", state["works"]["work-1"]["latest"]["episode_title"])
+        self.assertEqual("作品A 第1話", state["works"]["work-1"]["latest"]["page_title"])
+        self.assertEqual("次回更新予定 3/15", state["works"]["work-1"]["latest"]["next_update_label"])
+        self.assertEqual([], state["works"]["work-1"]["history"])
+        self.assertEqual([], state["works"]["work-1"]["unread"]["event_ids"])
 
     def test_validate_state_normalizes_next_update_label_in_latest_snapshot(self):
         state = validate_state(

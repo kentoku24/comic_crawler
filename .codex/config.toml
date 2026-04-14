@@ -2,8 +2,8 @@
 multi_agent = true
 
 [agents]
-max_threads = 20
-max_depth = 2
+max_threads = 40
+max_depth = 5
 
 [agents.explorer]
 description = "Read-only explorer for mapping the smallest relevant code path before implementation."

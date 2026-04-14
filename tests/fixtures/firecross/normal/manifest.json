@@ -1,0 +1,51 @@
+{
+  "seedUrl": "https://firecross.jp/reader/19386",
+  "expectedWork": {
+    "source": "firecross",
+    "kind": "firecross",
+    "workId": "https://firecross.jp/reader/19386",
+    "seedUrl": "https://firecross.jp/reader/19386"
+  },
+  "steps": [
+    {
+      "url": "https://firecross.jp/reader/19386",
+      "response": "01-reader.html"
+    },
+    {
+      "url": "https://firecross.jp/series/series-abc",
+      "response": "02-series.html"
+    },
+    {
+      "url": "https://firecross.jp/reader/19420",
+      "response": "03-latest-reader.html"
+    }
+  ],
+  "expectedCheckedUrls": [
+    "https://firecross.jp/reader/19386",
+    "https://firecross.jp/series/series-abc",
+    "https://firecross.jp/reader/19420"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "series-abc"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://firecross.jp/reader/19420"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第13話"
+    }
+  ],
+  "expectedLatest": {
+    "source": "firecross",
+    "workId": "https://firecross.jp/reader/19386",
+    "latestKey": "https://firecross.jp/reader/19420",
+    "url": "https://firecross.jp/reader/19420",
+    "series": "firecross:series-abc",
+    "seriesTitle": "作品E",
+    "episodeTitle": "第13話"
+  }
+}

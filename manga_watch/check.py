@@ -27,6 +27,7 @@ from manga_watch.sources.comic_action import (
     extract_comic_action_series_id,
     extract_comic_action_series_id_from_seed_url,
 )
+from manga_watch.sources.firecross import extract_firecross_series_id
 from manga_watch.storage import (
     NOTIFICATION_POLICY_MODE_ALL,
     evaluate_notification_policy,
@@ -142,7 +143,7 @@ def item_id_for_state(item: Mapping[str, object]) -> str:
 
 
 def latest_id_for_state(latest: Mapping[str, object]) -> str:
-    return str(latest.get("latestKey") or latest.get("episodeCode") or latest.get("url") or "")
+    return str(latest.get("latestKey") or latest.get("latest_key") or "")
 
 
 def update_type_for_latest(latest: Mapping[str, object]) -> str:
@@ -252,6 +253,56 @@ def unread_state_for_entry(previous_entry: Optional[Mapping[str, object]]) -> Di
         event_ids = []
     unread["event_ids"] = [str(event_id) for event_id in event_ids]
     return unread
+
+
+def previous_series_metadata(previous_entry: Optional[Mapping[str, object]]) -> Dict[str, str]:
+    if not isinstance(previous_entry, Mapping):
+        return {}
+
+    latest = latest_storage_to_runtime(previous_entry.get("latest", {}) or {})
+    series_title = latest.get("seriesTitle") or latest.get("series_title")
+    series = latest.get("series")
+    result: Dict[str, str] = {}
+    if isinstance(series_title, str) and series_title:
+        result["seriesTitle"] = series_title
+    if isinstance(series, str) and series:
+        result["series"] = series
+
+    history = previous_entry.get("history", [])
+    if not isinstance(history, list):
+        return result
+
+    for event in reversed(history):
+        if not isinstance(event, Mapping):
+            continue
+        candidates = [event.get("latest")]
+        gap = event.get("gap")
+        if isinstance(gap, Mapping):
+            candidates.append(gap.get("from_latest"))
+        for candidate in candidates:
+            if not isinstance(candidate, Mapping):
+                continue
+            runtime_candidate = latest_storage_to_runtime(candidate)
+            candidate_series_title = runtime_candidate.get("seriesTitle") or runtime_candidate.get("series_title")
+            candidate_series = runtime_candidate.get("series")
+            if "seriesTitle" not in result and isinstance(candidate_series_title, str) and candidate_series_title:
+                result["seriesTitle"] = candidate_series_title
+            if "series" not in result and isinstance(candidate_series, str) and candidate_series:
+                result["series"] = candidate_series
+            if "seriesTitle" in result and "series" in result:
+                return result
+    return result
+
+
+def backfill_series_metadata(
+    latest: Mapping[str, object],
+    previous_entry: Optional[Mapping[str, object]],
+) -> Dict[str, object]:
+    merged = dict(latest)
+    for key, value in previous_series_metadata(previous_entry).items():
+        if not merged.get(key):
+            merged[key] = value
+    return merged
 
 
 def episode_label_candidates(latest: Mapping[str, object]) -> List[str]:
@@ -368,10 +419,11 @@ def apply_item_transition(
     previous_latest_id = latest_id_for_state(previous_latest)
     latest_id = latest_id_for_state(latest_copy)
     if previous_latest_id != latest_id:
+        merged_latest = backfill_series_metadata(latest_copy, previous_entry)
         next_event = {
             "event_id": latest_id,
             "seen_at": seen_at,
-            "latest": latest_runtime_to_storage(latest_copy),
+            "latest": latest_runtime_to_storage(merged_latest),
             "gap": build_history_gap(previous_latest, latest_copy),
         }
         history, inserted = sync_history_event(
@@ -392,7 +444,7 @@ def apply_item_transition(
         update.update(update_event_metadata(latest_copy))
         return (
             {
-                "latest": latest_runtime_to_storage(latest_copy),
+                "latest": latest_runtime_to_storage(merged_latest),
                 "history": history,
                 "unread": {"event_ids": unread_event_ids},
                 "health": success_health(previous_entry, seen_at=seen_at),
@@ -400,7 +452,10 @@ def apply_item_transition(
             update,
         )
 
-    merged_latest = merge_latest_metadata(previous_latest, latest_copy)
+    merged_latest = backfill_series_metadata(
+        merge_latest_metadata(previous_latest, latest_copy),
+        previous_entry,
+    )
     history, _ = sync_history_event(
         history,
         merged_latest,
@@ -484,6 +539,22 @@ def stable_work_id_for_item(
     http_client: Optional[HttpClient] = None,
 ) -> str:
     source = str(item.get("source") or "")
+    if source == "firecross":
+        stable_series = str(item.get("series") or "")
+        if stable_series.startswith("firecross:"):
+            return stable_series
+
+        seed_url = str(item.get("seedUrl") or "")
+        if not seed_url:
+            raise RuntimeError("firecross: seedUrl is required to derive work_id")
+
+        client = http_client or RequestsHttpClient()
+        html = client.get_text(seed_url)
+        series_id = extract_firecross_series_id(html)
+        if not series_id:
+            raise RuntimeError("firecross: series id not found")
+        return f"firecross:{series_id}"
+
     if source == "champion-cross":
         stable_series = str(item.get("series") or "")
         if stable_series.startswith("champion-cross:"):
@@ -527,17 +598,47 @@ def stable_work_id_for_item(
     return f"comic-action:{series_id}"
 
 
+def _adapter_for_source(
+    source: str,
+    adapters: Optional[Sequence[SourceAdapter]] = None,
+) -> Optional[SourceAdapter]:
+    for adapter in _selected_adapters(adapters):
+        if adapter.source == source:
+            return adapter
+    return None
+
+
+def canonical_descriptor_for_item(
+    item: Mapping[str, object],
+    *,
+    adapters: Optional[Sequence[SourceAdapter]] = None,
+    http_client: Optional[HttpClient] = None,
+) -> WorkDescriptor:
+    source = str(item.get("source") or "")
+    adapter = _adapter_for_source(source, adapters=adapters)
+    client = http_client or RequestsHttpClient()
+
+    if adapter is not None and type(adapter).canonicalize_item is not SourceAdapter.canonicalize_item:
+        return adapter.canonicalize_item(item, client)
+
+    canonical_item = dict(item)
+    canonical_item["workId"] = stable_work_id_for_item(canonical_item, http_client=client)
+    return WorkDescriptor.from_dict(canonical_item)
+
+
 def build_watchlist_entry(
     url: str,
     adapters: Optional[Sequence[SourceAdapter]] = None,
     http_client: Optional[HttpClient] = None,
 ) -> Dict[str, object]:
-    item = normalize_item(url, adapters=adapters)
+    item = dict(normalize_item(url, adapters=adapters))
+    work = canonical_descriptor_for_item(item, adapters=adapters, http_client=http_client)
     return {
-        "id": stable_work_id_for_item(item, http_client=http_client),
-        "source": str(item["source"]),
-        "seed_url": str(item["seedUrl"]),
+        "id": work.work_id,
+        "source": work.source,
+        "seed_url": work.seed_url,
         "enabled": True,
+        "hidden": False,
         "notification_policy": {
             "mode": "all",
             "allowed_update_types": None,
@@ -691,6 +792,7 @@ def run_check(
 
     state["last_run_at"] = now
     try:
+        # Persist source observations before control returns to the runner's delivery phase.
         save_state(state)
     except Exception as exc:
         errors["run"].append(run_error_record("save_state", exc))

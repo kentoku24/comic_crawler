@@ -7,12 +7,28 @@ import unittest
 from pathlib import Path
 
 import manga_watch.sources as source_package
-from manga_watch.sources import REGISTERED_ADAPTERS, REGISTERED_SOURCES, SourceAdapter
-from manga_watch.sources.base import SourceParseError
+from manga_watch.sources import (
+    REGISTERED_ADAPTERS,
+    REGISTERED_SOURCES,
+    SourceAdapter,
+    fetch_latest_for_work,
+    normalize_seed_url,
+)
+from manga_watch.sources.base import SourceParseError, WorkDescriptor
 from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
+from manga_watch.sources.comic_earthstar import ComicEarthstarAdapter
+from manga_watch.sources.comic_trail import parse_comic_trail_title
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
+from manga_watch.sources.gaugau import GaugauAdapter
+from manga_watch.sources.comic_walker import ComicWalkerAdapter, parse_comic_walker_title
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
+from manga_watch.sources.magapoke import MagapokeAdapter
+from manga_watch.sources.nicovideo_manga import NicovideoMangaAdapter
+from manga_watch.sources.shonenjumpplus import ShonenJumpPlusAdapter
+from manga_watch.sources.sunday_webry import SundayWebryAdapter
+from manga_watch.sources.util import html_title
+from manga_watch.sources.takecomic import TakecomicAdapter
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures"
 SOURCE_CASES = {
@@ -35,13 +51,50 @@ SOURCE_CASES = {
         "broken_missing_next",
         "broken_loop",
     ),
-    "champion-cross": (
+    "comic-earthstar": (
         "normal",
-        "episode_seed_missing_next_update",
+        "broken_missing_series_id",
+    ),
+    "comicborder": (
+        "normal",
+        "broken_missing_series_id",
+    ),
+    "comic-trail": (
+        "normal",
+        "broken_missing_series_id",
+    ),
+    "kuragebunch": (
+        "normal",
+        "broken_missing_series_id",
+    ),
+    "shonenjumpplus": (
+        "broken_missing_series_id",
+        "normal",
+    ),
+    "sunday-webry": (
+        "broken_missing_series_id",
+        "normal",
     ),
     "champion-cross": (
         "normal",
         "episode_seed_missing_next_update",
+    ),
+    "magapoke": (
+        "normal",
+    ),
+    "firecross": (
+        "normal",
+    ),
+    "takecomic": (
+        "days_of_week_json_only",
+        "genre_tag_before_update_label",
+        "normal",
+    ),
+    "nicovideo-manga": (
+        "normal",
+    ),
+    "gaugau": (
+        "normal",
     ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
@@ -67,10 +120,44 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "broken_missing_next": "main_story",
         "broken_loop": "main_story",
     },
+    "comic-earthstar": {
+        "normal": "main_story",
+    },
+    "comicborder": {
+        "normal": "main_story",
+    },
+    "comic-trail": {
+        "normal": "main_story",
+    },
+    "kuragebunch": {
+        "normal": "main_story",
+    },
+    "shonenjumpplus": {
+        "normal": "main_story",
+    },
+    "sunday-webry": {
+        "normal": "unknown",
+    },
     "champion-cross": {
         "normal": "main_story",
         "episode_seed_missing_next_update": "main_story",
-        "episode_seed_missing_next_update": "main_story",
+    },
+    "magapoke": {
+        "normal": "main_story",
+    },
+    "firecross": {
+        "normal": "main_story",
+    },
+    "takecomic": {
+        "days_of_week_json_only": "main_story",
+        "genre_tag_before_update_label": "main_story",
+        "normal": "main_story",
+    },
+    "nicovideo-manga": {
+        "normal": "main_story",
+    },
+    "gaugau": {
+        "normal": "main_story",
     },
 }
 
@@ -153,9 +240,30 @@ def discover_concrete_adapter_sources():
 class SourceAdapterTests(unittest.TestCase):
     maxDiff = None
 
+    def test_html_title_accepts_title_tag_with_attributes(self):
+        html = '<html><head><title data-next-head="">作品名｜カドコミ</title></head></html>'
+
+        self.assertEqual("作品名｜カドコミ", html_title(html))
+
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "champion-cross", "kakuyomu"),
+            (
+                "comic-walker",
+                "comic-action",
+                "comic-earthstar",
+                "comicborder",
+                "comic-trail",
+                "kuragebunch",
+                "shonenjumpplus",
+                "sunday-webry",
+                "champion-cross",
+                "magapoke",
+                "firecross",
+                "takecomic",
+                "nicovideo-manga",
+                "kakuyomu",
+                "gaugau",
+            ),
             REGISTERED_SOURCES,
         )
 
@@ -177,11 +285,230 @@ class SourceAdapterTests(unittest.TestCase):
     def test_comic_action_fixtures(self):
         self._assert_fixture_matrix("comic-action")
 
+    def test_shonenjumpplus_fixtures(self):
+        self._assert_fixture_matrix("shonenjumpplus")
+
+    def test_comic_earthstar_fixtures(self):
+        self._assert_fixture_matrix("comic-earthstar")
+
+    def test_comicborder_fixtures(self):
+        self._assert_fixture_matrix("comicborder")
+
+    def test_sunday_webry_fixtures(self):
+        self._assert_fixture_matrix("sunday-webry")
+
+    def test_comic_trail_fixtures(self):
+        self._assert_fixture_matrix("comic-trail")
+    def test_kuragebunch_fixtures(self):
+        self._assert_fixture_matrix("kuragebunch")
+
     def test_kakuyomu_fixtures(self):
         self._assert_fixture_matrix("kakuyomu")
 
     def test_champion_cross_fixtures(self):
         self._assert_fixture_matrix("champion-cross")
+
+    def test_firecross_fixtures(self):
+        self._assert_fixture_matrix("firecross")
+
+    def test_magapoke_fixtures(self):
+        self._assert_fixture_matrix("magapoke")
+
+    def test_takecomic_fixtures(self):
+        self._assert_fixture_matrix("takecomic")
+
+    def test_nicovideo_manga_fixtures(self):
+        self._assert_fixture_matrix("nicovideo-manga")
+
+    def test_gaugau_fixtures(self):
+        self._assert_fixture_matrix("gaugau")
+
+    def test_magapoke_normalize_accepts_episode_url(self):
+        work = MagapokeAdapter().normalize(
+            "https://pocket.shonenmagazine.com/title/03021/episode/427856?utm_source=share"
+        )
+
+        self.assertEqual(
+            {
+                "source": "magapoke",
+                "kind": "magapoke",
+                "workId": "magapoke:3021",
+                "seedUrl": "https://pocket.shonenmagazine.com/title/03021",
+                "series": "magapoke:3021",
+                "titleId": "3021",
+                "titleSlug": "03021",
+            },
+            work.to_dict(),
+        )
+
+    def test_feed_family_canonicalize_item_promotes_episode_seed_to_stable_series_descriptor(self):
+        cases = (
+            (
+                "comic-earthstar",
+                normalize_seed_url(
+                    "https://comic-earthstar.com/episode/12207421983526541742?from=share"
+                ).to_dict(),
+                {
+                    "https://comic-earthstar.com/episode/12207421983526541742": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://comic-earthstar.com/rss/series/12207421983526538413">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://comic-earthstar.com/rss/series/12207421983526538413"
+                ).to_dict(),
+            ),
+            (
+                "comicborder",
+                normalize_seed_url(
+                    "https://comicborder.com/episode/12207421983437812169?from=share"
+                ).to_dict(),
+                {
+                    "https://comicborder.com/episode/12207421983437812169": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://comicborder.com/rss/series/12207421983437805229">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://comicborder.com/rss/series/12207421983437805229"
+                ).to_dict(),
+            ),
+            (
+                "comic-trail",
+                normalize_seed_url(
+                    "https://comic-trail.com/episode/2550689798402927313?from=share"
+                ).to_dict(),
+                {
+                    "https://comic-trail.com/episode/2550689798402927313": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://comic-trail.com/rss/series/14079602755560047206">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://comic-trail.com/rss/series/14079602755560047206"
+                ).to_dict(),
+            ),
+            (
+                "kuragebunch",
+                normalize_seed_url(
+                    "https://kuragebunch.com/episode/2550912964856491139?from=share"
+                ).to_dict(),
+                {
+                    "https://kuragebunch.com/episode/2550912964856491139": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://kuragebunch.com/rss/series/2550912964856487532">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://kuragebunch.com/rss/series/2550912964856487532"
+                ).to_dict(),
+            ),
+            (
+                "shonenjumpplus",
+                normalize_seed_url(
+                    "https://shonenjumpplus.com/episode/17107419589191805801?from=episode"
+                ).to_dict(),
+                {
+                    "https://shonenjumpplus.com/episode/17107419589191805801": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://shonenjumpplus.com/rss/series/3269754496881854342">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://shonenjumpplus.com/rss/series/3269754496881854342"
+                ).to_dict(),
+            ),
+            (
+                "sunday-webry",
+                normalize_seed_url(
+                    "https://www.sunday-webry.com/episode/12207421983581042977?from=episode"
+                ).to_dict(),
+                {
+                    "https://www.sunday-webry.com/episode/12207421983581042977": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://www.sunday-webry.com/rss/series/12207421983580960894">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://www.sunday-webry.com/rss/series/12207421983580960894"
+                ).to_dict(),
+            ),
+        )
+
+        for source, item, responses, expected in cases:
+            with self.subTest(source=source):
+                client = StaticHttpClient(responses)
+                descriptor = ADAPTERS[source]().canonicalize_item(item, client).to_dict()
+
+                self.assertEqual(expected, descriptor)
+                self.assertEqual([item["seedUrl"]], client.calls)
+
+    def test_magapoke_fetch_latest_reads_series_rss_from_title_page(self):
+        adapter = MagapokeAdapter()
+        work = adapter.normalize("https://pocket.shonenmagazine.com/title/03021/episode/427856")
+        client = StaticHttpClient(
+            {
+                "https://pocket.shonenmagazine.com/title/03021": """
+                <html>
+                  <head>
+                    <title>普通の本はありません！ / マガポケ</title>
+                    <link rel="alternate" type="application/rss+xml" href="https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml">
+                  </head>
+                  <body>
+                    <p class="p-episode__update-txt">次回更新は4/20(月曜)予定です。</p>
+                  </body>
+                </html>
+                """,
+                "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml": """
+                <rss>
+                  <channel>
+                    <title>マガポケ（普通の本はありません！）</title>
+                    <item>
+                      <title>【＃17】ハルとギンギン丸</title>
+                      <link>https://pocket.shonenmagazine.com/title/03021/episode/434393</link>
+                      <description>普通の本はありません！</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("magapoke:3021", latest["workId"])
+        self.assertEqual(
+            "https://pocket.shonenmagazine.com/title/03021/episode/434393",
+            latest["latestKey"],
+        )
+        self.assertEqual("普通の本はありません！", latest["seriesTitle"])
+        self.assertEqual("【＃17】ハルとギンギン丸", latest["episodeTitle"])
+        self.assertEqual("次回更新は4/20(月曜)予定です。", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://pocket.shonenmagazine.com/title/03021",
+                "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml",
+            ],
+            client.calls,
+        )
 
     def test_comic_walker_normalize_accepts_canonical_series_url(self):
         work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")
@@ -196,6 +523,12 @@ class SourceAdapterTests(unittest.TestCase):
                 "seriesCode": "KC_123456_S",
             },
             work.to_dict(),
+        )
+
+    def test_comic_walker_title_parser_accepts_live_unicode_brackets(self):
+        self.assertEqual(
+            ("蜘蛛ですが、なにか？", "第78話その2"),
+            parse_comic_walker_title("〖第78話その2〗蜘蛛ですが、なにか？｜カドコミ (コミックウォーカー)"),
         )
 
     def test_kakuyomu_normalize_accepts_work_url(self):
@@ -224,6 +557,197 @@ class SourceAdapterTests(unittest.TestCase):
                 "seedUrl": "https://championcross.jp/series/abc123",
                 "series": "champion-cross:abc123",
                 "seriesHash": "abc123",
+            },
+            work.to_dict(),
+        )
+
+    def test_comic_trail_normalize_accepts_episode_and_feed_urls(self):
+        episode_work = normalize_seed_url("https://comic-trail.com/episode/2550689798402927313?from=share").to_dict()
+        rss_work = normalize_seed_url("https://comic-trail.com/rss/series/14079602755560047206?from=share").to_dict()
+        atom_work = normalize_seed_url("https://comic-trail.com/atom/series/14079602755560047206?from=share").to_dict()
+
+        self.assertEqual(
+            {
+                "source": "comic-trail",
+                "kind": "comic-trail",
+                "workId": "https://comic-trail.com/episode/2550689798402927313",
+                "seedUrl": "https://comic-trail.com/episode/2550689798402927313",
+            },
+            episode_work,
+        )
+        expected_feed = {
+            "source": "comic-trail",
+            "kind": "comic-trail",
+            "workId": "comic-trail:14079602755560047206",
+            "seedUrl": "https://comic-trail.com/rss/series/14079602755560047206",
+            "series": "comic-trail:14079602755560047206",
+            "seriesId": "14079602755560047206",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected_feed, rss_work)
+        self.assertEqual(expected_feed, atom_work)
+
+    def test_comic_trail_fetch_latest_accepts_canonical_feed_seed(self):
+        work = WorkDescriptor(
+            source="comic-trail",
+            work_id="comic-trail:14079602755560047206",
+            seed_url="https://comic-trail.com/rss/series/14079602755560047206",
+            metadata={
+                "series": "comic-trail:14079602755560047206",
+                "seriesId": "14079602755560047206",
+                "feedKind": "rss",
+            },
+        )
+        client = StaticHttpClient(
+            {
+                "https://comic-trail.com/rss/series/14079602755560047206": """
+                <rss version="2.0">
+                  <channel>
+                    <title>コミックトレイル（作品E）</title>
+                    <item>
+                      <title>第3話 新章</title>
+                      <link>https://comic-trail.com/episode/2550912965721039352?from=rss</link>
+                      <description>作品E</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-trail.com/episode/2550912965721039352": """
+                <html>
+                  <head>
+                    <title>第3話 新章 / 作品E | コミックトレイル</title>
+                  </head>
+                  <body>
+                    <span class="schedule-label">次回更新：毎月第2金曜</span>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = fetch_latest_for_work(work, http_client=client).to_dict()
+
+        self.assertEqual("comic-trail:14079602755560047206", latest["workId"])
+        self.assertEqual("comic-trail:14079602755560047206", latest["series"])
+        self.assertEqual("https://comic-trail.com/episode/2550912965721039352", latest["latestKey"])
+        self.assertEqual("作品E", latest["seriesTitle"])
+        self.assertEqual("第3話 新章", latest["episodeTitle"])
+        self.assertEqual("次回更新：毎月第2金曜", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://comic-trail.com/rss/series/14079602755560047206",
+                "https://comic-trail.com/episode/2550912965721039352",
+            ],
+            client.calls,
+        )
+
+    def test_parse_comic_trail_title_strips_author_suffix_from_live_title_shape(self):
+        page_title = (
+            "Pain.1 僕の好きな人 / 僕の彼女は春を売る - 後藤ねぎ | "
+            "コミックトレイル｜漫画とつながるフェス空間！"
+        )
+
+        self.assertEqual(
+            ("Pain.1 僕の好きな人", "僕の彼女は春を売る"),
+            parse_comic_trail_title(page_title),
+        )
+
+    def test_shonenjumpplus_fetch_latest_backfills_series_title_from_page_title(self):
+        work = WorkDescriptor(
+            source="shonenjumpplus",
+            work_id="shonenjumpplus:3269754496881854342",
+            seed_url="https://shonenjumpplus.com/rss/series/3269754496881854342",
+            metadata={
+                "series": "shonenjumpplus:3269754496881854342",
+                "seriesId": "3269754496881854342",
+                "feedKind": "rss",
+            },
+        )
+        client = StaticHttpClient(
+            {
+                "https://shonenjumpplus.com/rss/series/3269754496881854342": """
+                <rss version="2.0">
+                  <channel>
+                    <title>少年ジャンプ＋</title>
+                    <item>
+                      <title>[159話]マリッジトキシン</title>
+                      <link>https://shonenjumpplus.com/episode/17107419589191805801</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://shonenjumpplus.com/episode/17107419589191805801": """
+                <html>
+                  <head>
+                    <title>[159話]マリッジトキシン - 静脈/依田瑞稀 | 少年ジャンプ＋</title>
+                  </head>
+                </html>
+                """,
+            }
+        )
+
+        latest = ShonenJumpPlusAdapter().fetch_latest(work, client).to_dict()
+
+        self.assertEqual("マリッジトキシン", latest["seriesTitle"])
+        self.assertEqual("[159話]マリッジトキシン", latest["episodeTitle"])
+
+    def test_takecomic_normalize_accepts_series_url(self):
+        work = TakecomicAdapter().normalize("https://takecomic.jp/series/3f846451aff2d/?ref=top")
+
+        self.assertEqual(
+            {
+                "source": "takecomic",
+                "kind": "takecomic",
+                "workId": "takecomic:3f846451aff2d",
+                "seedUrl": "https://takecomic.jp/series/3f846451aff2d",
+                "series": "takecomic:3f846451aff2d",
+                "seriesHash": "3f846451aff2d",
+            },
+            work.to_dict(),
+        )
+
+    def test_firecross_normalize_accepts_reader_url(self):
+        adapter = ADAPTERS["firecross"]()
+        work = adapter.normalize("https://firecross.jp/reader/19386?trial=0&token=temp&vertical=0")
+
+        self.assertEqual(
+            {
+                "source": "firecross",
+                "kind": "firecross",
+                "workId": "https://firecross.jp/reader/19386",
+                "seedUrl": "https://firecross.jp/reader/19386",
+            },
+            work.to_dict(),
+        )
+
+    def test_firecross_normalize_accepts_ebook_series_url(self):
+        adapter = ADAPTERS["firecross"]()
+        work = adapter.normalize("https://firecross.jp/ebook/series/358?sort=latest")
+
+        self.assertEqual(
+            {
+                "source": "firecross",
+                "kind": "firecross",
+                "workId": "firecross:358",
+                "seedUrl": "https://firecross.jp/ebook/series/358",
+                "series": "firecross:358",
+                "seriesId": "358",
+                "seriesUrl": "https://firecross.jp/ebook/series/358",
+            },
+            work.to_dict(),
+        )
+
+    def test_nicovideo_manga_normalize_accepts_sp_comic_url(self):
+        work = NicovideoMangaAdapter().normalize("https://sp.manga.nicovideo.jp/comic/53764?track=share")
+
+        self.assertEqual(
+            {
+                "source": "nicovideo-manga",
+                "kind": "nicovideo-manga",
+                "workId": "nicovideo-manga:53764",
+                "seedUrl": "https://manga.nicovideo.jp/comic/53764",
+                "series": "nicovideo-manga:53764",
+                "comicId": "53764",
             },
             work.to_dict(),
         )
@@ -342,6 +866,181 @@ class SourceAdapterTests(unittest.TestCase):
         latest = adapter.fetch_latest(work, client).to_dict()
 
         self.assertEqual("4月3日", latest["nextUpdateLabel"])
+
+    def test_comic_action_fetch_latest_uses_series_rss_for_episode_seed_when_readable_chain_stops(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/episode/2550689798784879524")
+        client = StaticHttpClient(
+            {
+                "https://comic-action.com/episode/2550689798784879524": """
+                <html>
+                  <head><title>第39話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script>{"series_id":"13933686331663374228","episode_title":"第39話"}</script>
+                    <script id='episode-json' type='text/json' data-value='{
+                      "readableProduct":{
+                        "series":{"id":"13933686331663374228","title":"ダンジョンの中のひと"},
+                        "title":"第39話",
+                        "number":50,
+                        "nextReadableProductUri":null
+                      }
+                    }'></script>
+                  </body>
+                </html>
+                """,
+                "https://comic-action.com/rss/series/13933686331663374228": """
+                <rss>
+                  <channel>
+                    <item>
+                      <title>第51話</title>
+                      <link>https://comic-action.com/episode/2551460910007760899</link>
+                    </item>
+                    <item>
+                      <title>第50話</title>
+                      <link>https://comic-action.com/episode/2551460909780695609</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-action.com/episode/2551460910007760899": """
+                <html>
+                  <head><title>第51話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script id='episode-json' type='text/json' data-value='{"readableProduct":{"title":"第51話","number":51}}'></script>
+                    <div class="viewer-colophon-update-container">
+                      <p class="viewer-colophon-next-update">次回更新： 4月4日</p>
+                    </div>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual(
+            "https://comic-action.com/episode/2551460910007760899",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第51話", latest["episodeTitle"])
+        self.assertEqual("4月4日", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/episode/2550689798784879524",
+                "https://comic-action.com/rss/series/13933686331663374228",
+                "https://comic-action.com/episode/2551460910007760899",
+            ],
+            client.calls,
+        )
+
+    def test_comic_action_fetch_latest_falls_back_to_entry_episode_when_series_rss_fetch_fails(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/episode/2550689798784879524")
+
+        class Client:
+            def __init__(self):
+                self.calls = []
+
+            def get_text(self, url: str) -> str:
+                self.calls.append(url)
+                if url == "https://comic-action.com/episode/2550689798784879524":
+                    return """
+                    <html>
+                      <head><title>第39話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                      <body>
+                        <script>{"series_id":"13933686331663374228","episode_title":"第39話"}</script>
+                        <script id='episode-json' type='text/json' data-value='{
+                          "readableProduct":{
+                            "series":{"id":"13933686331663374228","title":"ダンジョンの中のひと"},
+                            "title":"第39話",
+                            "number":50,
+                            "nextReadableProductUri":null
+                          }
+                        }'></script>
+                      </body>
+                    </html>
+                    """
+                if url == "https://comic-action.com/rss/series/13933686331663374228":
+                    raise RuntimeError("temporary feed outage")
+                raise AssertionError(f"unexpected request: {url!r}")
+
+        client = Client()
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual(
+            "https://comic-action.com/episode/2550689798784879524",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第39話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/episode/2550689798784879524",
+                "https://comic-action.com/rss/series/13933686331663374228",
+            ],
+            client.calls,
+        )
+
+    def test_comic_action_fetch_latest_keeps_entry_episode_when_series_rss_is_stale(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/episode/2550689798784879524")
+        client = StaticHttpClient(
+            {
+                "https://comic-action.com/episode/2550689798784879524": """
+                <html>
+                  <head><title>第39話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script>{"series_id":"13933686331663374228","episode_title":"第39話"}</script>
+                    <script id='episode-json' type='text/json' data-value='{
+                      "readableProduct":{
+                        "series":{"id":"13933686331663374228","title":"ダンジョンの中のひと"},
+                        "title":"第39話",
+                        "number":51,
+                        "nextReadableProductUri":null
+                      }
+                    }'></script>
+                  </body>
+                </html>
+                """,
+                "https://comic-action.com/rss/series/13933686331663374228": """
+                <rss>
+                  <channel>
+                    <item>
+                      <title>第50話</title>
+                      <link>https://comic-action.com/episode/2551460909780695609</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-action.com/episode/2551460909780695609": """
+                <html>
+                  <head><title>第50話 / ダンジョンの中のひと - 双見酔 | webアクション</title></head>
+                  <body>
+                    <script id='episode-json' type='text/json' data-value='{"readableProduct":{"title":"第50話","number":50}}'></script>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual(
+            "https://comic-action.com/episode/2550689798784879524",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第39話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/episode/2550689798784879524",
+                "https://comic-action.com/rss/series/13933686331663374228",
+                "https://comic-action.com/episode/2551460909780695609",
+            ],
+            client.calls,
+        )
 
     def test_comic_walker_fetch_latest_extracts_next_update_label(self):
         adapter = ComicWalkerAdapter()
@@ -464,6 +1163,493 @@ class SourceAdapterTests(unittest.TestCase):
             client.calls,
         )
 
+    def test_shonenjumpplus_normalize_accepts_series_feed_urls(self):
+        adapter = ShonenJumpPlusAdapter()
+
+        rss_work = adapter.normalize("https://shonenjumpplus.com/rss/series/3269754496881854342?from=share")
+        atom_work = adapter.normalize("https://shonenjumpplus.com/atom/series/3269754496881854342")
+
+        expected = {
+            "source": "shonenjumpplus",
+            "kind": "shonenjumpplus",
+            "workId": "shonenjumpplus:3269754496881854342",
+            "seedUrl": "https://shonenjumpplus.com/rss/series/3269754496881854342",
+            "series": "shonenjumpplus:3269754496881854342",
+            "seriesId": "3269754496881854342",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected, rss_work.to_dict())
+        self.assertEqual(expected, atom_work.to_dict())
+
+    def test_shonenjumpplus_fetch_latest_accepts_episode_seed(self):
+        adapter = ShonenJumpPlusAdapter()
+        work = adapter.normalize("https://shonenjumpplus.com/episode/17107419589191805801?from=episode")
+        client = StaticHttpClient(
+            {
+                "https://shonenjumpplus.com/episode/17107419589191805801": """
+                <html>
+                  <head>
+                    <title>[159話]マリッジトキシン - 静脈/依田瑞稀 | 少年ジャンプ＋</title>
+                    <link rel="alternate" type="application/rss+xml" title="RSS2.0" href="https://shonenjumpplus.com/rss/series/3269754496881854342">
+                  </head>
+                  <body>
+                    <script id='episode-json' type='text/json' data-value='{"readableProduct":{"nextReadableProductUri":null}}'></script>
+                  </body>
+                </html>
+                """,
+                "https://shonenjumpplus.com/rss/series/3269754496881854342": """
+                <rss>
+                  <channel>
+                    <title>少年ジャンプ＋（マリッジトキシン）</title>
+                    <item>
+                      <title>[159話]マリッジトキシン</title>
+                      <link>https://shonenjumpplus.com/episode/17107419589191805801</link>
+                      <description>マリッジトキシン</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://shonenjumpplus.com/episode/17107419589191805801", latest["latestKey"])
+        self.assertEqual("マリッジトキシン", latest["seriesTitle"])
+        self.assertEqual("[159話]マリッジトキシン", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://shonenjumpplus.com/episode/17107419589191805801",
+                "https://shonenjumpplus.com/rss/series/3269754496881854342",
+                "https://shonenjumpplus.com/episode/17107419589191805801",
+            ],
+            client.calls,
+        )
+
+    def test_comicborder_normalize_accepts_episode_and_feed_urls(self):
+        episode_work = normalize_seed_url("https://comicborder.com/episode/12207421983437812169?from=share").to_dict()
+        rss_work = normalize_seed_url("https://comicborder.com/rss/series/12207421983437805229?from=share").to_dict()
+        atom_work = normalize_seed_url("https://comicborder.com/atom/series/12207421983437805229").to_dict()
+
+        self.assertEqual(
+            {
+                "source": "comicborder",
+                "kind": "comicborder",
+                "workId": "https://comicborder.com/episode/12207421983437812169",
+                "seedUrl": "https://comicborder.com/episode/12207421983437812169",
+            },
+            episode_work,
+        )
+
+        expected_feed = {
+            "source": "comicborder",
+            "kind": "comicborder",
+            "workId": "comicborder:12207421983437805229",
+            "seedUrl": "https://comicborder.com/rss/series/12207421983437805229",
+            "series": "comicborder:12207421983437805229",
+            "seriesId": "12207421983437805229",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected_feed, rss_work)
+        self.assertEqual(expected_feed, atom_work)
+
+    def test_comic_earthstar_normalize_accepts_episode_and_feed_urls(self):
+        episode_work = normalize_seed_url(
+            "https://comic-earthstar.com/episode/12207421983526541742?from=share"
+        ).to_dict()
+        rss_work = normalize_seed_url(
+            "https://comic-earthstar.com/rss/series/12207421983526538413?from=share"
+        ).to_dict()
+        atom_work = normalize_seed_url(
+            "https://comic-earthstar.com/atom/series/12207421983526538413"
+        ).to_dict()
+
+        self.assertEqual(
+            {
+                "source": "comic-earthstar",
+                "kind": "comic-earthstar",
+                "workId": "https://comic-earthstar.com/episode/12207421983526541742",
+                "seedUrl": "https://comic-earthstar.com/episode/12207421983526541742",
+            },
+            episode_work,
+        )
+
+        expected_feed = {
+            "source": "comic-earthstar",
+            "kind": "comic-earthstar",
+            "workId": "comic-earthstar:12207421983526538413",
+            "seedUrl": "https://comic-earthstar.com/rss/series/12207421983526538413",
+            "series": "comic-earthstar:12207421983526538413",
+            "seriesId": "12207421983526538413",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected_feed, rss_work)
+        self.assertEqual(expected_feed, atom_work)
+
+    def test_comic_earthstar_fetch_latest_accepts_canonical_feed_seed(self):
+        work = WorkDescriptor(
+            source="comic-earthstar",
+            work_id="comic-earthstar:12207421983526538413",
+            seed_url="https://comic-earthstar.com/rss/series/12207421983526538413",
+            metadata={
+                "series": "comic-earthstar:12207421983526538413",
+                "seriesId": "12207421983526538413",
+                "feedKind": "rss",
+            },
+        )
+        client = StaticHttpClient(
+            {
+                "https://comic-earthstar.com/rss/series/12207421983526538413": """
+                <rss version="2.0">
+                  <channel>
+                    <title>コミック アース・スター｜毎週木曜・最新話更新！無料で漫画が読めるWEBコミック誌（魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～）</title>
+                    <item>
+                      <title>第2話②</title>
+                      <link>https://comic-earthstar.com/episode/12207421983562435589</link>
+                      <description>魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-earthstar.com/episode/12207421983562435589": """
+                <html>
+                  <head>
+                    <title>第2話② / 魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～ - 漫画：大林ポチ子/原作：Mikura/キャラクター原案：中西達哉 | コミック アース・スター</title>
+                  </head>
+                </html>
+                """,
+            }
+        )
+
+        latest = fetch_latest_for_work(work, http_client=client).to_dict()
+
+        self.assertEqual("comic-earthstar:12207421983526538413", latest["workId"])
+        self.assertEqual("comic-earthstar:12207421983526538413", latest["series"])
+        self.assertEqual("https://comic-earthstar.com/episode/12207421983562435589", latest["latestKey"])
+        self.assertEqual(
+            "魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～",
+            latest["seriesTitle"],
+        )
+        self.assertEqual("第2話②", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comic-earthstar.com/rss/series/12207421983526538413",
+                "https://comic-earthstar.com/episode/12207421983562435589",
+            ],
+            client.calls,
+        )
+
+    def test_comic_earthstar_feed_parser_keeps_nested_parentheses_in_series_title_fallback(self):
+        latest = ComicEarthstarAdapter().fetch_latest(
+            WorkDescriptor(
+                source="comic-earthstar",
+                work_id="comic-earthstar:12207421983526538413",
+                seed_url="https://comic-earthstar.com/rss/series/12207421983526538413",
+                metadata={
+                    "series": "comic-earthstar:12207421983526538413",
+                    "seriesId": "12207421983526538413",
+                    "feedKind": "rss",
+                },
+            ),
+            StaticHttpClient(
+                {
+                    "https://comic-earthstar.com/rss/series/12207421983526538413": """
+                    <rss version="2.0">
+                      <channel>
+                        <title>コミック アース・スター｜毎週木曜・最新話更新！無料で漫画が読めるWEBコミック誌（魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～）</title>
+                        <item>
+                          <title>第2話②</title>
+                          <link>https://comic-earthstar.com/episode/12207421983562435589</link>
+                        </item>
+                      </channel>
+                    </rss>
+                    """,
+                    "https://comic-earthstar.com/episode/12207421983562435589": """
+                    <html>
+                      <head>
+                        <title>第2話② / 魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～ - 漫画：大林ポチ子/原作：Mikura/キャラクター原案：中西達哉 | コミック アース・スター</title>
+                      </head>
+                    </html>
+                    """,
+                }
+            ),
+        ).to_dict()
+
+        self.assertEqual("https://comic-earthstar.com/episode/12207421983562435589", latest["latestKey"])
+        self.assertEqual("第2話②", latest["episodeTitle"])
+        self.assertEqual(
+            "魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～",
+            latest["seriesTitle"],
+        )
+
+    def test_comicborder_fetch_latest_accepts_canonical_feed_seed(self):
+        work = WorkDescriptor(
+            source="comicborder",
+            work_id="comicborder:12207421983437805229",
+            seed_url="https://comicborder.com/rss/series/12207421983437805229",
+            metadata={
+                "series": "comicborder:12207421983437805229",
+                "seriesId": "12207421983437805229",
+                "feedKind": "rss",
+            },
+        )
+        client = StaticHttpClient(
+            {
+                "https://comicborder.com/rss/series/12207421983437805229": """
+                <rss version="2.0">
+                  <channel>
+                    <title>コミックボーダー（マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道）</title>
+                    <item>
+                      <title>第01話 死んでサイタマ　～異世界全方位成り上がりRTA開始（※望んでない）～</title>
+                      <link>https://comicborder.com/episode/12207421983437812169</link>
+                      <description>マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comicborder.com/episode/12207421983437812169": """
+                <html>
+                  <head>
+                    <title>マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道 - 神影龍之介/馬路まんじ / 第01話 死んでサイタマ　～異世界全方位成り上がりRTA開始（※望んでない）～ | コミックボーダー</title>
+                  </head>
+                </html>
+                """,
+            }
+        )
+
+        latest = fetch_latest_for_work(work, http_client=client).to_dict()
+
+        self.assertEqual("comicborder:12207421983437805229", latest["workId"])
+        self.assertEqual("comicborder:12207421983437805229", latest["series"])
+        self.assertEqual("https://comicborder.com/episode/12207421983437812169", latest["latestKey"])
+        self.assertEqual("マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道", latest["seriesTitle"])
+        self.assertEqual("第01話 死んでサイタマ　～異世界全方位成り上がりRTA開始（※望んでない）～", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://comicborder.com/rss/series/12207421983437805229",
+                "https://comicborder.com/episode/12207421983437812169",
+            ],
+            client.calls,
+        )
+
+    def test_sunday_webry_normalize_accepts_episode_and_feed_urls(self):
+        episode_work = normalize_seed_url(
+            "https://www.sunday-webry.com/episode/12207421983581042977?from=share"
+        ).to_dict()
+        rss_work = normalize_seed_url(
+            "https://www.sunday-webry.com/rss/series/12207421983580960894?from=share"
+        ).to_dict()
+        atom_work = normalize_seed_url(
+            "https://www.sunday-webry.com/atom/series/12207421983580960894"
+        ).to_dict()
+
+        self.assertEqual(
+            {
+                "source": "sunday-webry",
+                "kind": "sunday-webry",
+                "workId": "https://www.sunday-webry.com/episode/12207421983581042977",
+                "seedUrl": "https://www.sunday-webry.com/episode/12207421983581042977",
+            },
+            episode_work,
+        )
+
+        expected_feed = {
+            "source": "sunday-webry",
+            "kind": "sunday-webry",
+            "workId": "sunday-webry:12207421983580960894",
+            "seedUrl": "https://www.sunday-webry.com/rss/series/12207421983580960894",
+            "series": "sunday-webry:12207421983580960894",
+            "seriesId": "12207421983580960894",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected_feed, rss_work)
+        self.assertEqual(expected_feed, atom_work)
+
+    def test_kuragebunch_normalize_accepts_episode_and_feed_urls(self):
+        episode_work = normalize_seed_url("https://kuragebunch.com/episode/2550912964856491139?from=share").to_dict()
+        rss_work = normalize_seed_url("https://kuragebunch.com/rss/series/2550912964856487532?from=share").to_dict()
+        atom_work = normalize_seed_url("https://kuragebunch.com/atom/series/2550912964856487532").to_dict()
+
+        self.assertEqual(
+            {
+                "source": "kuragebunch",
+                "kind": "kuragebunch",
+                "workId": "https://kuragebunch.com/episode/2550912964856491139",
+                "seedUrl": "https://kuragebunch.com/episode/2550912964856491139",
+            },
+            episode_work,
+        )
+
+        expected_feed = {
+            "source": "kuragebunch",
+            "kind": "kuragebunch",
+            "workId": "kuragebunch:2550912964856487532",
+            "seedUrl": "https://kuragebunch.com/rss/series/2550912964856487532",
+            "series": "kuragebunch:2550912964856487532",
+            "seriesId": "2550912964856487532",
+            "feedKind": "rss",
+        }
+        self.assertEqual(expected_feed, rss_work)
+        self.assertEqual(expected_feed, atom_work)
+
+    def test_sunday_webry_fetch_latest_accepts_episode_seed(self):
+        adapter = SundayWebryAdapter()
+        work = adapter.normalize("https://www.sunday-webry.com/episode/12207421983581042977?from=episode")
+        client = StaticHttpClient(
+            {
+                "https://www.sunday-webry.com/episode/12207421983581042977": """
+                <html>
+                  <head>
+                    <title>diary1 つきこと先生 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり</title>
+                    <link rel="alternate" type="application/atom+xml" title="Atom" href="https://www.sunday-webry.com/atom/series/12207421983580960894">
+                    <link rel="alternate" type="application/rss+xml" title="RSS2.0" href="https://www.sunday-webry.com/rss/series/12207421983580960894">
+                  </head>
+                  <body>
+                    <script id="episode-json" type="text/json" data-value='{&quot;readableProduct&quot;:{&quot;series&quot;:{&quot;id&quot;:&quot;12207421983580960894&quot;},&quot;nextReadableProductUri&quot;:null}}'></script>
+                  </body>
+                </html>
+                """,
+                "https://www.sunday-webry.com/rss/series/12207421983580960894": """
+                <rss version="2.0">
+                  <channel>
+                    <title>サンデーうぇぶり（しっぽと逆鱗）</title>
+                    <item>
+                      <title>diary1 つきこと先生</title>
+                      <link>https://www.sunday-webry.com/episode/12207421983581042977</link>
+                      <description>しっぽと逆鱗</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("sunday-webry:12207421983580960894", latest["workId"])
+        self.assertEqual("sunday-webry:12207421983580960894", latest["series"])
+        self.assertEqual("https://www.sunday-webry.com/episode/12207421983581042977", latest["latestKey"])
+        self.assertEqual("しっぽと逆鱗", latest["seriesTitle"])
+        self.assertEqual("diary1 つきこと先生", latest["episodeTitle"])
+        self.assertEqual(
+            "diary1 つきこと先生 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり",
+            latest["pageTitle"],
+        )
+        self.assertEqual(
+            [
+                "https://www.sunday-webry.com/episode/12207421983581042977",
+                "https://www.sunday-webry.com/rss/series/12207421983580960894",
+            ],
+            client.calls,
+        )
+
+    def test_sunday_webry_fetch_latest_uses_latest_page_title_when_episode_seed_is_stale(self):
+        adapter = SundayWebryAdapter()
+        work = adapter.normalize("https://www.sunday-webry.com/episode/12207421983581042977?from=episode")
+        client = StaticHttpClient(
+            {
+                "https://www.sunday-webry.com/episode/12207421983581042977": """
+                <html>
+                  <head>
+                    <title>diary1 つきこと先生 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり</title>
+                    <link rel="alternate" type="application/rss+xml" title="RSS2.0" href="https://www.sunday-webry.com/rss/series/12207421983580960894">
+                  </head>
+                  <body>
+                    <script id="episode-json" type="text/json" data-value='{&quot;readableProduct&quot;:{&quot;series&quot;:{&quot;id&quot;:&quot;12207421983580960894&quot;}}}'></script>
+                  </body>
+                </html>
+                """,
+                "https://www.sunday-webry.com/rss/series/12207421983580960894": """
+                <rss version="2.0">
+                  <channel>
+                    <title>サンデーうぇぶり（しっぽと逆鱗）</title>
+                    <item>
+                      <title></title>
+                      <link>https://www.sunday-webry.com/episode/12207421983581043001</link>
+                      <description></description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://www.sunday-webry.com/episode/12207421983581043001": """
+                <html>
+                  <head>
+                    <title>diary2 新しい話 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり</title>
+                  </head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://www.sunday-webry.com/episode/12207421983581043001", latest["latestKey"])
+        self.assertEqual("diary2 新しい話", latest["episodeTitle"])
+        self.assertEqual("しっぽと逆鱗", latest["seriesTitle"])
+        self.assertEqual(
+            "diary2 新しい話 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり",
+            latest["pageTitle"],
+        )
+        self.assertEqual(
+            [
+                "https://www.sunday-webry.com/episode/12207421983581042977",
+                "https://www.sunday-webry.com/rss/series/12207421983580960894",
+                "https://www.sunday-webry.com/episode/12207421983581043001",
+            ],
+            client.calls,
+        )
+
+    def test_kuragebunch_fetch_latest_accepts_canonical_feed_seed(self):
+        work = WorkDescriptor(
+            source="kuragebunch",
+            work_id="kuragebunch:2550912964856487532",
+            seed_url="https://kuragebunch.com/rss/series/2550912964856487532",
+            metadata={
+                "series": "kuragebunch:2550912964856487532",
+                "seriesId": "2550912964856487532",
+                "feedKind": "rss",
+            },
+        )
+        client = StaticHttpClient(
+            {
+                "https://kuragebunch.com/rss/series/2550912964856487532": """
+                <rss version="2.0">
+                  <channel>
+                    <title>くらげバンチ（赤と青のガウン）</title>
+                    <item>
+                      <title>第15話</title>
+                      <link>https://kuragebunch.com/episode/12207421983430264919</link>
+                      <description>赤と青のガウン</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://kuragebunch.com/episode/12207421983430264919": """
+                <html>
+                  <head>
+                    <title>赤と青のガウン - 彬子女王/池辺葵 / 第15話 | くらげバンチ</title>
+                  </head>
+                </html>
+                """,
+            }
+        )
+
+        latest = fetch_latest_for_work(work, http_client=client).to_dict()
+
+        self.assertEqual("kuragebunch:2550912964856487532", latest["workId"])
+        self.assertEqual("kuragebunch:2550912964856487532", latest["series"])
+        self.assertEqual("https://kuragebunch.com/episode/12207421983430264919", latest["latestKey"])
+        self.assertEqual("赤と青のガウン", latest["seriesTitle"])
+        self.assertEqual("第15話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://kuragebunch.com/rss/series/2550912964856487532",
+                "https://kuragebunch.com/episode/12207421983430264919",
+            ],
+            client.calls,
+        )
+
     def test_champion_cross_normalize_accepts_series_rss_url(self):
         work = ChampionCrossAdapter().normalize("https://championcross.jp/series/4756324e1c1b1/rss?from=share")
 
@@ -520,6 +1706,262 @@ class SourceAdapterTests(unittest.TestCase):
             [
                 "https://championcross.jp/series/4756324e1c1b1/rss",
                 "https://championcross.jp/episodes/f35108c56e75d",
+            ],
+            client.calls,
+        )
+
+    def test_takecomic_fetch_latest_accepts_series_url(self):
+        adapter = TakecomicAdapter()
+        work = adapter.normalize("https://takecomic.jp/series/3f846451aff2d/")
+        client = StaticHttpClient(
+            {
+                "https://takecomic.jp/series/3f846451aff2d/rss": """
+                <rss>
+                  <channel>
+                    <title>作品D</title>
+                    <item>
+                      <title><![CDATA[第10話]]></title>
+                      <link>https://takecomic.jp/episodes/abc12345?from=rss</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://takecomic.jp/episodes/abc12345": """
+                <html>
+                  <body>
+                    <a href="/category/manga?type=連載中&amp;day=火" class="series-h-day-of-week-link">
+                      <span class="series-h-tag-label">火曜更新</span>
+                    </a>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("takecomic:3f846451aff2d", latest["workId"])
+        self.assertEqual("https://takecomic.jp/episodes/abc12345", latest["latestKey"])
+        self.assertEqual("作品D", latest["seriesTitle"])
+        self.assertEqual("第10話", latest["episodeTitle"])
+        self.assertEqual("火曜更新", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://takecomic.jp/series/3f846451aff2d/rss",
+                "https://takecomic.jp/episodes/abc12345",
+            ],
+            client.calls,
+        )
+
+    def test_firecross_fetch_latest_accepts_reader_url(self):
+        adapter = ADAPTERS["firecross"]()
+        work = adapter.normalize("https://firecross.jp/reader/19386?trial=0&token=temp")
+        client = StaticHttpClient(
+            {
+                "https://firecross.jp/reader/19386": """
+                <html>
+                  <head><title>第12話 / 作品E | ファイアCROSS</title></head>
+                  <body>
+                    <a href="https://firecross.jp/series/series-abc">作品詳細</a>
+                  </body>
+                </html>
+                """,
+                "https://firecross.jp/series/series-abc": """
+                <html>
+                  <head><title>作品E | ファイアCROSS</title></head>
+                  <body>
+                    <a class="latest-episode" href="https://firecross.jp/reader/19420?from=series">最新話</a>
+                  </body>
+                </html>
+                """,
+                "https://firecross.jp/reader/19420": """
+                <html>
+                  <head><title>第13話 / 作品E | ファイアCROSS</title></head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://firecross.jp/reader/19420", latest["latestKey"])
+        self.assertEqual("https://firecross.jp/reader/19420", latest["url"])
+        self.assertEqual("firecross:series-abc", latest["series"])
+        self.assertEqual("作品E", latest["seriesTitle"])
+        self.assertEqual("第13話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://firecross.jp/reader/19386",
+                "https://firecross.jp/series/series-abc",
+                "https://firecross.jp/reader/19420",
+            ],
+            client.calls,
+        )
+
+    def test_firecross_fetch_latest_requires_explicit_latest_signal(self):
+        adapter = ADAPTERS["firecross"]()
+        work = adapter.normalize("https://firecross.jp/reader/19386?trial=0&token=temp")
+        client = StaticHttpClient(
+            {
+                "https://firecross.jp/reader/19386": """
+                <html>
+                  <head><title>第12話 / 作品E | ファイアCROSS</title></head>
+                  <body>
+                    <a href="https://firecross.jp/series/series-abc">作品詳細</a>
+                  </body>
+                </html>
+                """,
+                "https://firecross.jp/series/series-abc": """
+                <html>
+                  <head><title>作品E | ファイアCROSS</title></head>
+                  <body>
+                    <a href="https://firecross.jp/reader/19000">第10話</a>
+                    <a href="https://firecross.jp/reader/19420">第13話</a>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        with self.assertRaisesRegex(SourceParseError, "firecross: latest reader URL not found"):
+            adapter.fetch_latest(work, client)
+
+    def test_firecross_fetch_latest_accepts_ebook_series_url(self):
+        adapter = ADAPTERS["firecross"]()
+        work = adapter.normalize("https://firecross.jp/ebook/series/358?sort=latest")
+        client = StaticHttpClient(
+            {
+                "https://firecross.jp/ebook/series/358?sort=latest": """
+                <html>
+                  <head><title>作品E | ファイアCROSS</title></head>
+                  <body>
+                    <a href="https://firecross.jp/reader/19420?from=series">第13話</a>
+                    <a href="https://firecross.jp/reader/19000">第10話</a>
+                  </body>
+                </html>
+                """,
+                "https://firecross.jp/reader/19420": """
+                <html>
+                  <head><title>第13話 / 作品E | ファイアCROSS</title></head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://firecross.jp/reader/19420", latest["latestKey"])
+        self.assertEqual("https://firecross.jp/reader/19420", latest["url"])
+        self.assertEqual("firecross:358", latest["series"])
+        self.assertEqual("作品E", latest["seriesTitle"])
+        self.assertEqual("第13話", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://firecross.jp/ebook/series/358?sort=latest",
+                "https://firecross.jp/reader/19420",
+            ],
+            client.calls,
+        )
+
+    def test_nicovideo_manga_fetch_latest_accepts_comic_url(self):
+        adapter = NicovideoMangaAdapter()
+        work = adapter.normalize("https://sp.manga.nicovideo.jp/comic/53764")
+        client = StaticHttpClient(
+            {
+                "https://manga.nicovideo.jp/comic/53764/new": """
+                <html>
+                  <head>
+                    <meta property="og:url" content="https://manga.nicovideo.jp/watch/mg1007626" />
+                    <title>ダンジョンの中のひと 第51話 / 双見酔 - ニコニコ漫画</title>
+                  </head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("nicovideo-manga:53764", latest["workId"])
+        self.assertEqual("https://manga.nicovideo.jp/watch/mg1007626", latest["latestKey"])
+        self.assertEqual("https://manga.nicovideo.jp/watch/mg1007626", latest["url"])
+        self.assertEqual("nicovideo-manga:53764", latest["series"])
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第51話", latest["episodeTitle"])
+        self.assertEqual(
+            ["https://manga.nicovideo.jp/comic/53764/new"],
+            client.calls,
+        )
+
+    def test_gaugau_normalize_accepts_work_url(self):
+        work = GaugauAdapter().normalize("https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000?from=search")
+
+        self.assertEqual(
+            {
+                "source": "gaugau",
+                "kind": "gaugau",
+                "workId": "gaugau:600a5fd37765610d30010000",
+                "seedUrl": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+                "series": "gaugau:600a5fd37765610d30010000",
+                "workToken": "600a5fd37765610d30010000",
+            },
+            work.to_dict(),
+        )
+
+    def test_gaugau_fetch_latest_prefers_first_episode_grid_entry_over_earlier_misc_link(self):
+        adapter = GaugauAdapter()
+        work = adapter.normalize("https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000")
+        client = StaticHttpClient(
+            {
+                "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000": """
+                <html>
+                  <head><title>公式-ダンジョンの中のひと | 作品詳細 | がうがうモンスター＋</title></head>
+                  <body>
+                    <h1>ダンジョンの中のひと</h1>
+                    <div class="hero">
+                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/1">
+                        古い導線
+                      </a>
+                    </div>
+                    <div class="episode__grid">
+                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99">
+                        <div class="episode__num">第51話(2)</div>
+                      </a>
+                    </div>
+                    <div class="episode__grid">
+                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/5">
+                        <div class="episode__num">第5話</div>
+                      </a>
+                    </div>
+                  </body>
+                </html>
+                """,
+                "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99": """
+                <html>
+                  <head>
+                    <title>公式-ダンジョンの中のひと 第51話(2) | 無料・試し読み豊富、Web漫画・コミックサイト がうがうモンスター＋</title>
+                  </head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("gaugau:600a5fd37765610d30010000", latest["workId"])
+        self.assertEqual(
+            "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99",
+            latest["latestKey"],
+        )
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual("第51話(2)", latest["episodeTitle"])
+        self.assertEqual(
+            [
+                "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+                "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000/episodes/99",
             ],
             client.calls,
         )

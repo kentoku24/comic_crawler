@@ -145,13 +145,14 @@ def build_status_report(
     *,
     watchlist_path: Optional[str] = None,
     state_path: Optional[str] = None,
+    backend: Optional[str] = None,
     now: Optional[int] = None,
     timezone_name: Optional[str] = None,
 ) -> Dict[str, object]:
     current_time = int(time.time()) if now is None else int(now)
     timezone_name = validated_timezone_name(timezone_name or status_timezone_name())
-    watchlist = load_watchlist(watchlist_path)
-    state = load_state(state_path)
+    watchlist = load_watchlist(watchlist_path, backend=backend)
+    state = load_state(state_path, backend=backend)
     works_state = state.get("works", {})
     if not isinstance(works_state, Mapping):
         raise ValueError("state.works must be an object")

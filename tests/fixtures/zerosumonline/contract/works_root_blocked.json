@@ -1,0 +1,7 @@
+{
+  "inputUrl": "https://zerosumonline.com/works",
+  "observedOgUrl": "https://zerosumonline.com",
+  "pageTitle": "ゼロサムオンライン",
+  "acceptedAsSeriesListing": false,
+  "blocker": "bare /works no longer behaves as the active works listing; use /works/series instead"
+}

@@ -16,8 +16,69 @@ from .sources.champion_cross import (
     parse_champion_cross_rss_latest,
 )
 from .sources.comic_action import ComicActionAdapter, extract_comic_action_series_id, parse_comic_action_title
+from .sources.comic_earthstar import (
+    ComicEarthstarAdapter,
+    extract_comic_earthstar_series_id,
+    parse_comic_earthstar_feed_latest,
+    parse_comic_earthstar_title,
+)
+from .sources.comicborder import (
+    ComicBorderAdapter,
+    extract_comicborder_series_id,
+    parse_comicborder_feed_latest,
+    parse_comicborder_title,
+)
+from .sources.comic_trail import (
+    ComicTrailAdapter,
+    extract_comic_trail_series_id,
+    parse_comic_trail_feed_latest,
+    parse_comic_trail_title,
+)
 from .sources.comic_walker import ComicWalkerAdapter, parse_comic_walker_title
+from .sources.firecross import (
+    FirecrossAdapter,
+    extract_firecross_latest_reader_url,
+    extract_firecross_series_id,
+    parse_firecross_reader_title,
+)
+from .sources.gaugau import GaugauAdapter
 from .sources.kakuyomu import KakuyomuAdapter
+from .sources.kuragebunch import (
+    KuragebunchAdapter,
+    extract_kuragebunch_series_id,
+    parse_kuragebunch_feed_latest,
+    parse_kuragebunch_title,
+)
+from .sources.magapoke import (
+    MagapokeAdapter,
+    canonical_magapoke_rss_url,
+    extract_magapoke_next_update_label,
+    extract_magapoke_rss_url,
+    parse_magapoke_rss_latest,
+)
+from .sources.nicovideo_manga import (
+    NicovideoMangaAdapter,
+    canonical_nicovideo_manga_latest_url,
+)
+from .sources.shonenjumpplus import (
+    ShonenJumpPlusAdapter,
+    extract_shonenjumpplus_series_id,
+    parse_shonenjumpplus_title,
+    parse_shonenjumpplus_feed_latest,
+)
+from .sources.sunday_webry import (
+    SundayWebryAdapter,
+    canonical_sunday_webry_series_feed_url,
+    extract_sunday_webry_series_id,
+    parse_sunday_webry_feed_latest,
+    parse_sunday_webry_title,
+)
+from .sources.takecomic import (
+    TakecomicAdapter,
+    canonical_takecomic_series_rss_url,
+    extract_takecomic_series_hash,
+    parse_takecomic_rss_latest,
+)
 from .sources.util import html_title
 
 
@@ -90,6 +151,66 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "latest episode page title still parses into series / episode labels",
         ),
     ),
+    "comic-earthstar": SourceCanaryContract(
+        source="comic-earthstar",
+        seed_url="https://comic-earthstar.com/episode/12207421983526541742",
+        fixture_bundle="tests/fixtures/comic-earthstar/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "comicborder": SourceCanaryContract(
+        source="comicborder",
+        seed_url="https://comicborder.com/episode/12207421983437812169",
+        fixture_bundle="tests/fixtures/comicborder/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "comic-trail": SourceCanaryContract(
+        source="comic-trail",
+        seed_url="https://comic-trail.com/episode/2550689798402927313",
+        fixture_bundle="tests/fixtures/comic-trail/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "kuragebunch": SourceCanaryContract(
+        source="kuragebunch",
+        seed_url="https://kuragebunch.com/episode/2550912964856491139",
+        fixture_bundle="tests/fixtures/kuragebunch/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "shonenjumpplus": SourceCanaryContract(
+        source="shonenjumpplus",
+        seed_url="https://shonenjumpplus.com/episode/17107419589191805801",
+        fixture_bundle="tests/fixtures/shonenjumpplus/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "sunday-webry": SourceCanaryContract(
+        source="sunday-webry",
+        seed_url="https://www.sunday-webry.com/episode/12207421983581042977",
+        fixture_bundle="tests/fixtures/sunday-webry/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
     "champion-cross": SourceCanaryContract(
         source="champion-cross",
         seed_url="https://championcross.jp/episodes/f35108c56e75d",
@@ -100,6 +221,26 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "series RSS feed keeps the latest episode title",
         ),
     ),
+    "magapoke": SourceCanaryContract(
+        source="magapoke",
+        seed_url="https://pocket.shonenmagazine.com/title/03021",
+        fixture_bundle="tests/fixtures/magapoke/normal",
+        monitored_signals=(
+            "title page exposes the series RSS feed URL",
+            "title page exposes the next update label",
+            "series RSS feed keeps the latest episode URL and title",
+        ),
+    ),
+    "firecross": SourceCanaryContract(
+        source="firecross",
+        seed_url="https://firecross.jp/reader/19386",
+        fixture_bundle="tests/fixtures/firecross/normal",
+        monitored_signals=(
+            "reader page exposes a stable series id",
+            "series page keeps the latest reader URL",
+            "latest reader page title is still readable",
+        ),
+    ),
     "kakuyomu": SourceCanaryContract(
         source="kakuyomu",
         seed_url="https://kakuyomu.jp/works/16818093092974667738",
@@ -108,6 +249,36 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "work page keeps __NEXT_DATA__",
             "latest episode id / title are discoverable from the work page payload",
             "latest episode page title is still readable",
+        ),
+    ),
+    "nicovideo-manga": SourceCanaryContract(
+        source="nicovideo-manga",
+        seed_url="https://sp.manga.nicovideo.jp/comic/53764",
+        fixture_bundle="tests/fixtures/nicovideo-manga/normal",
+        monitored_signals=(
+            "latest page keeps a watch/mg URL for the newest episode",
+            "latest page title still parses into series / episode labels",
+            "canonical comic URL remains stable for the same comic id",
+        ),
+    ),
+    "gaugau": SourceCanaryContract(
+        source="gaugau",
+        seed_url="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+        fixture_bundle="tests/fixtures/gaugau/normal",
+        monitored_signals=(
+            "canonical work URL remains stable for the same work token",
+            "work page keeps a latest free episode URL",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "takecomic": SourceCanaryContract(
+        source="takecomic",
+        seed_url="https://takecomic.jp/series/3f846451aff2d",
+        fixture_bundle="tests/fixtures/takecomic/normal",
+        monitored_signals=(
+            "series page keeps a stable series hash",
+            "series RSS feed keeps the latest episode URL",
+            "series RSS feed keeps the latest episode title",
         ),
     ),
 }
@@ -198,31 +369,296 @@ def _comic_action_canary(contract: SourceCanaryContract, http_client: HttpClient
     )
 
 
-def _champion_cross_canary(
+def _shonenjumpplus_canary(
     contract: SourceCanaryContract,
     http_client: HttpClient,
 ) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
-    adapter = ChampionCrossAdapter()
+    adapter = ShonenJumpPlusAdapter()
     work = adapter.normalize(contract.seed_url)
 
-    episode_html = http_client.get_text(work.seed_url)
-    series_hash = extract_champion_cross_series_hash(episode_html)
-    if not series_hash:
-        raise SourceParseError("champion-cross: series hash not found")
+    checked_urls = []
+    if work.seed_url.endswith("/rss") or "/rss/series/" in work.seed_url:
+        rss_url = work.seed_url
+        series_id = str(work.metadata.get("seriesId") or "") or rss_url.rstrip("/").rsplit("/", 1)[-1]
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_shonenjumpplus_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+    else:
+        episode_html = http_client.get_text(work.seed_url)
+        checked_urls.append(work.seed_url)
+        series_id = extract_shonenjumpplus_series_id(episode_html)
+        if not series_id:
+            raise SourceParseError("shonenjumpplus: series id not found")
+        rss_url = f"https://shonenjumpplus.com/rss/series/{series_id}"
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_shonenjumpplus_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
 
-    rss_url = canonical_champion_cross_series_rss_url(series_hash)
-    feed_text = http_client.get_text(rss_url)
-    latest_url, latest_title, series_title = parse_champion_cross_rss_latest(feed_text)
+    page_title = html_title(latest_html) or ""
+    if not series_id:
+        raise SourceParseError("shonenjumpplus: series id not found")
     if not latest_title:
-        raise SourceParseError("champion-cross: latest episode title not found")
+        raise SourceParseError("shonenjumpplus: latest episode title not found")
+    if not page_title:
+        raise SourceParseError("shonenjumpplus: latest episode page title not found")
+    parsed_episode_title, parsed_series_title = parse_shonenjumpplus_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("shonenjumpplus: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("shonenjumpplus: series title could not be parsed from page title")
 
     return (
-        (work.seed_url, rss_url),
+        tuple(checked_urls),
         (
-            CanaryObservation("series_hash", series_hash),
-            CanaryObservation("series_title", series_title or ""),
+            CanaryObservation("series_id", series_id),
             CanaryObservation("latest_episode_url", latest_url),
-            CanaryObservation("latest_episode_title", latest_title),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
+        ),
+    )
+
+
+def _comicborder_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = ComicBorderAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    checked_urls = []
+    if work.seed_url.endswith("/rss") or "/rss/series/" in work.seed_url:
+        rss_url = work.seed_url
+        series_id = str(work.metadata.get("seriesId") or "") or rss_url.rstrip("/").rsplit("/", 1)[-1]
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_comicborder_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+    else:
+        episode_html = http_client.get_text(work.seed_url)
+        checked_urls.append(work.seed_url)
+        series_id = extract_comicborder_series_id(episode_html)
+        if not series_id:
+            raise SourceParseError("comicborder: series id not found")
+        rss_url = f"https://comicborder.com/rss/series/{series_id}"
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_comicborder_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+
+    page_title = html_title(latest_html) or ""
+    if not latest_title:
+        raise SourceParseError("comicborder: latest episode title not found")
+    if not page_title:
+        raise SourceParseError("comicborder: latest episode page title not found")
+    parsed_episode_title, parsed_series_title = parse_comicborder_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("comicborder: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("comicborder: series title could not be parsed from page title")
+
+    return (
+        tuple(checked_urls),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
+        ),
+    )
+
+
+def _comic_earthstar_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = ComicEarthstarAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    checked_urls = []
+    if work.seed_url.endswith("/rss") or "/rss/series/" in work.seed_url:
+        rss_url = work.seed_url
+        series_id = str(work.metadata.get("seriesId") or "") or rss_url.rstrip("/").rsplit("/", 1)[-1]
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_comic_earthstar_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+    else:
+        episode_html = http_client.get_text(work.seed_url)
+        checked_urls.append(work.seed_url)
+        series_id = extract_comic_earthstar_series_id(episode_html)
+        if not series_id:
+            raise SourceParseError("comic-earthstar: series id not found")
+        rss_url = f"https://comic-earthstar.com/rss/series/{series_id}"
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_comic_earthstar_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+
+    page_title = html_title(latest_html) or ""
+    if not latest_title:
+        raise SourceParseError("comic-earthstar: latest episode title not found")
+    if not page_title:
+        raise SourceParseError("comic-earthstar: latest episode page title not found")
+    parsed_episode_title, parsed_series_title = parse_comic_earthstar_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("comic-earthstar: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("comic-earthstar: series title could not be parsed from page title")
+
+    return (
+        tuple(checked_urls),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
+        ),
+    )
+
+
+def _sunday_webry_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = SundayWebryAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    checked_urls = []
+    if work.seed_url.endswith("/rss") or "/rss/series/" in work.seed_url:
+        rss_url = work.seed_url
+        series_id = str(work.metadata.get("seriesId") or "") or rss_url.rstrip("/").rsplit("/", 1)[-1]
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_sunday_webry_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+    else:
+        episode_html = http_client.get_text(work.seed_url)
+        checked_urls.append(work.seed_url)
+        series_id = extract_sunday_webry_series_id(episode_html)
+        if not series_id:
+            raise SourceParseError("sunday-webry: series id not found")
+        rss_url = canonical_sunday_webry_series_feed_url(series_id)
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_sunday_webry_feed_latest(feed_text)
+        latest_html = episode_html if latest_url == work.seed_url else http_client.get_text(latest_url)
+        if latest_url != work.seed_url:
+            checked_urls.append(latest_url)
+
+    page_title = html_title(latest_html) or ""
+    if not latest_title:
+        raise SourceParseError("sunday-webry: latest episode title not found")
+    if not page_title:
+        raise SourceParseError("sunday-webry: latest episode page title not found")
+    parsed_episode_title, parsed_series_title = parse_sunday_webry_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("sunday-webry: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("sunday-webry: series title could not be parsed from page title")
+
+    return (
+        tuple(checked_urls),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
+        ),
+    )
+
+
+def _comic_trail_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = ComicTrailAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    episode_html = http_client.get_text(contract.seed_url)
+    series_id = extract_comic_trail_series_id(episode_html)
+    if not series_id:
+        raise SourceParseError("comic-trail: series id not found")
+
+    rss_url = f"https://comic-trail.com/rss/series/{series_id}"
+    feed_text = http_client.get_text(rss_url)
+    latest_url, latest_title, _ = parse_comic_trail_feed_latest(feed_text)
+    latest_html = http_client.get_text(latest_url)
+    page_title = html_title(latest_html) or ""
+    if not latest_title:
+        raise SourceParseError("comic-trail: latest episode title not found")
+    parsed_episode_title, parsed_series_title = parse_comic_trail_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("comic-trail: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("comic-trail: series title could not be parsed from page title")
+
+    return (
+        (work.seed_url, rss_url, latest_url),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
+        ),
+    )
+
+
+def _kuragebunch_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = KuragebunchAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    checked_urls = []
+    if work.seed_url.endswith("/rss") or "/rss/series/" in work.seed_url:
+        rss_url = work.seed_url
+        series_id = str(work.metadata.get("seriesId") or "") or rss_url.rstrip("/").rsplit("/", 1)[-1]
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_kuragebunch_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+    else:
+        episode_html = http_client.get_text(work.seed_url)
+        checked_urls.append(work.seed_url)
+        series_id = extract_kuragebunch_series_id(episode_html)
+        if not series_id:
+            raise SourceParseError("kuragebunch: series id not found")
+        rss_url = f"https://kuragebunch.com/rss/series/{series_id}"
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_kuragebunch_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+
+    page_title = html_title(latest_html) or ""
+    if not latest_title:
+        raise SourceParseError("kuragebunch: latest episode title not found")
+    if not page_title:
+        raise SourceParseError("kuragebunch: latest episode page title not found")
+    parsed_episode_title, parsed_series_title = parse_kuragebunch_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("kuragebunch: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("kuragebunch: series title could not be parsed from page title")
+
+    return (
+        tuple(checked_urls),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
         ),
     )
 
@@ -285,11 +721,164 @@ def _champion_cross_canary(
     )
 
 
+def _magapoke_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = MagapokeAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    title_html = http_client.get_text(work.seed_url)
+    rss_url = extract_magapoke_rss_url(title_html)
+    if not rss_url:
+        title_id = str(work.metadata.get("titleId") or "")
+        if not title_id:
+            raise SourceParseError("magapoke: title id not found")
+        rss_url = canonical_magapoke_rss_url(title_id)
+
+    next_update_label = extract_magapoke_next_update_label(title_html)
+    if not next_update_label:
+        raise SourceParseError("magapoke: next update label not found")
+
+    feed_text = http_client.get_text(rss_url)
+    latest_url, latest_title, series_title = parse_magapoke_rss_latest(feed_text)
+    if not latest_title:
+        raise SourceParseError("magapoke: latest episode title not found")
+
+    return (
+        (work.seed_url, rss_url),
+        (
+            CanaryObservation("rss_url", rss_url),
+            CanaryObservation("next_update_label", next_update_label),
+            CanaryObservation("series_title", series_title or ""),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", latest_title),
+        ),
+    )
+
+
+def _takecomic_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = TakecomicAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    series_hash = str(work.metadata.get("seriesHash") or "")
+    if not series_hash:
+        series_html = http_client.get_text(work.seed_url)
+        series_hash = extract_takecomic_series_hash(series_html) or ""
+    if not series_hash:
+        raise SourceParseError("takecomic: series hash not found")
+
+    rss_url = canonical_takecomic_series_rss_url(series_hash)
+    feed_text = http_client.get_text(rss_url)
+    latest_url, latest_title, series_title = parse_takecomic_rss_latest(feed_text)
+    if not latest_title:
+        raise SourceParseError("takecomic: latest episode title not found")
+
+    return (
+        (work.seed_url, rss_url),
+        (
+            CanaryObservation("series_hash", series_hash),
+            CanaryObservation("series_title", series_title or ""),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", latest_title),
+        ),
+    )
+
+
+def _firecross_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = FirecrossAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    reader_html = http_client.get_text(work.seed_url)
+    series_id = extract_firecross_series_id(reader_html)
+    if not series_id:
+        raise SourceParseError("firecross: series id not found")
+
+    series_url = f"https://firecross.jp/series/{series_id}"
+    series_html = http_client.get_text(series_url)
+    latest_url = extract_firecross_latest_reader_url(series_html)
+    if not latest_url:
+        raise SourceParseError("firecross: latest reader URL not found")
+
+    latest_html = http_client.get_text(latest_url)
+    latest_title, _ = parse_firecross_reader_title(html_title(latest_html) or "")
+    if not latest_title:
+        raise SourceParseError("firecross: latest episode title not found")
+
+    return (
+        (work.seed_url, series_url, latest_url),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", latest_title),
+        ),
+    )
+
+
+def _nicovideo_manga_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = NicovideoMangaAdapter()
+    work = adapter.normalize(contract.seed_url)
+    latest = adapter.fetch_latest(work, http_client)
+    comic_id = str(work.metadata.get("comicId") or "")
+    latest_page_url = canonical_nicovideo_manga_latest_url(comic_id)
+    if not latest.episode_title:
+        raise SourceParseError("nicovideo-manga: latest episode title not found")
+
+    return (
+        (latest_page_url, latest.url),
+        (
+            CanaryObservation("canonical_seed_url", work.seed_url),
+            CanaryObservation("latest_episode_url", latest.url),
+            CanaryObservation("latest_episode_title", latest.episode_title),
+        ),
+    )
+
+
+def _gaugau_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = GaugauAdapter()
+    work = adapter.normalize(contract.seed_url)
+    latest = adapter.fetch_latest(work, http_client)
+    if not latest.episode_title:
+        raise SourceParseError("gaugau: latest episode title not found")
+
+    return (
+        (work.seed_url, latest.url),
+        (
+            CanaryObservation("canonical_seed_url", work.seed_url),
+            CanaryObservation("latest_episode_url", latest.url),
+            CanaryObservation("latest_episode_title", latest.episode_title),
+        ),
+    )
+
+
 CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
+    "comic-earthstar": _comic_earthstar_canary,
+    "comicborder": _comicborder_canary,
+    "comic-trail": _comic_trail_canary,
+    "kuragebunch": _kuragebunch_canary,
+    "shonenjumpplus": _shonenjumpplus_canary,
+    "sunday-webry": _sunday_webry_canary,
     "champion-cross": _champion_cross_canary,
+    "magapoke": _magapoke_canary,
+    "firecross": _firecross_canary,
     "kakuyomu": _kakuyomu_canary,
+    "nicovideo-manga": _nicovideo_manga_canary,
+    "gaugau": _gaugau_canary,
+    "takecomic": _takecomic_canary,
 }
 
 
