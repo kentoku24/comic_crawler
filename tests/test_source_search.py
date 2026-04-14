@@ -1,6 +1,10 @@
+from pathlib import Path
+from urllib.parse import quote_plus
 import unittest
 
 from manga_watch.source_search import SearchResult, search_source, supported_search_sources
+
+FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "source-search"
 
 
 class StaticHttpClient:
@@ -14,6 +18,65 @@ class StaticHttpClient:
 
 
 class SourceSearchTests(unittest.TestCase):
+    def test_search_source_parses_takecomic_results_and_strips_update_label(self):
+        query = "異世界の常識は難しい"
+        request_url = f"https://takecomic.jp/search?keyword={quote_plus(query)}"
+        html = (
+            Path(__file__).parent
+            / "fixtures"
+            / "source_search"
+            / "takecomic_search_update_label.html"
+        ).read_text(encoding="utf-8")
+
+        results = search_source(
+            "takecomic",
+            query,
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="takecomic",
+                    title="異世界の常識は難しい～希少で最弱な人族に転生したけど物理以外で最強になりそうです～",
+                    seed_url="https://takecomic.jp/series/bb237f85f48a3",
+                    subtitle="takecomic",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_falls_back_to_canonical_url_when_takecomic_title_is_only_badge(self):
+        query = "takecomic badge only"
+        request_url = f"https://takecomic.jp/search?keyword={quote_plus(query)}"
+        html = """
+        <html><body>
+          <a class="series-list-item-link" href="/series/bb237f85f48a3">
+            <div class="g-updated-mark-wrap">
+              <div class="g-updated-mark">更新</div>
+            </div>
+          </a>
+        </body></html>
+        """
+
+        results = search_source(
+            "takecomic",
+            query,
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="takecomic",
+                    title="https://takecomic.jp/series/bb237f85f48a3",
+                    seed_url="https://takecomic.jp/series/bb237f85f48a3",
+                    subtitle="takecomic",
+                )
+            ],
+            results,
+        )
+
     def test_supported_search_sources_match_registered_sources(self):
         self.assertEqual(
             (
@@ -109,6 +172,48 @@ class SourceSearchTests(unittest.TestCase):
                     source="champion-cross",
                     title="酒井美羽の少女まんが戦記",
                     seed_url="https://championcross.jp/series/e349a3791821b",
+                    subtitle="champion-cross",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_prefers_champion_cross_series_card_over_noise_links(self):
+        html = """
+        <html>
+          <body>
+            <div class="incremental-suggestion-panel">
+              <a class="incremental-result-item x-incremental-result-anchor" href="/championcross/series/4756324e1c1b1/?keyword=%E7%B9%94%E6%B4%A5%E6%B1%9F%E5%A4%A7%E5%BF%97">
+                火曜更新
+              </a>
+            </div>
+            <div class="series-list">
+              <div class="manga-store-item">
+                <a class="c-ms-clk-article c-ms-mode-series click-link" href="https://championcross.jp/series/4756324e1c1b1">
+                  <div class="manga-title-box">
+                    <h2 class="manga-title">織津江大志の異世界クリ娘サバイバル日誌</h2>
+                  </div>
+                </a>
+              </div>
+            </div>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "champion-cross",
+            "織津江大志",
+            http_client=StaticHttpClient(
+                {"https://championcross.jp/search?keyword=%E7%B9%94%E6%B4%A5%E6%B1%9F%E5%A4%A7%E5%BF%97": html}
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="champion-cross",
+                    title="織津江大志の異世界クリ娘サバイバル日誌",
+                    seed_url="https://championcross.jp/series/4756324e1c1b1",
                     subtitle="champion-cross",
                 )
             ],
@@ -318,6 +423,50 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_parses_magapoke_results_via_query_parameter(self):
+        html = (FIXTURES_ROOT / "magapoke" / "01-search.html").read_text(encoding="utf-8")
+        request_url = "https://pocket.shonenmagazine.com/search/%E8%96%AB%E3%82%8B%E8%8A%B1%E3%81%AF%E5%87%9B%E3%81%A8%E5%92%B2%E3%81%8F"
+
+        results = search_source(
+            "magapoke",
+            "薫る花は凛と咲く",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="magapoke",
+                    title="薫る花は凛と咲く",
+                    seed_url="https://pocket.shonenmagazine.com/title/01524",
+                    subtitle="magapoke",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_percent_encodes_magapoke_queries_with_spaces(self):
+        html = (FIXTURES_ROOT / "magapoke" / "01-search.html").read_text(encoding="utf-8")
+        request_url = "https://pocket.shonenmagazine.com/search/Foo%20Bar"
+
+        results = search_source(
+            "magapoke",
+            "Foo Bar",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="magapoke",
+                    title="薫る花は凛と咲く",
+                    seed_url="https://pocket.shonenmagazine.com/title/01524",
+                    subtitle="magapoke",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_parses_gaugau_results(self):
         html = """
         <html>
@@ -362,6 +511,55 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_parses_firecross_results_via_search_page_web_reading_link(self):
+        html = """
+        <html>
+          <body>
+            <ul class="seriesList" id="search-result">
+              <li class="seriesList_item">
+                <div class="series-list-figure">
+                  <a href="https://firecross.jp/hjbunko/series/441">
+                    <picture>
+                      <img alt="灰原くんの強くて青春ニューゲーム" />
+                    </picture>
+                  </a>
+                </div>
+                <div class="seriesList_itemMeta">
+                  <span class="series-list-label series-list-label--hb">HJ文庫</span>
+                </div>
+                <a class="seriesList_itemTitle border" href="https://firecross.jp/hjbunko/series/441">灰原くんの強くて青春ニューゲーム</a>
+                <div class="seriesList_itemBtnSet">
+                  <a class="btn-search-result" href="https://firecross.jp/hjbunko/series/441">シリーズ紹介</a>
+                  <a class="btn-search-result" href="https://firecross.jp/ebook/series/441">WEB読み</a>
+                </div>
+              </li>
+            </ul>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "firecross",
+            "灰原くん",
+            http_client=StaticHttpClient(
+                {
+                    "https://firecross.jp/search?q=%E7%81%B0%E5%8E%9F%E3%81%8F%E3%82%93&t=1": html
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="firecross",
+                    title="灰原くんの強くて青春ニューゲーム",
+                    seed_url="https://firecross.jp/ebook/series/441",
+                    subtitle="firecross",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_parses_comic_walker_results_via_keyword_parameter(self):
         html = """
         <html>
@@ -396,6 +594,28 @@ class SourceSearchTests(unittest.TestCase):
                     seed_url="https://comic-walker.com/detail/KC_999999_S",
                     subtitle="comic-walker",
                 ),
+            ],
+            results,
+        )
+
+    def test_search_source_parses_sunday_webry_results_via_q_parameter(self):
+        html = (FIXTURES_ROOT / "sunday-webry" / "search_title.html").read_text(encoding="utf-8")
+        request_url = "https://www.sunday-webry.com/search?q=" + quote_plus("尾守つみきと奇日常。")
+
+        results = search_source(
+            "sunday-webry",
+            "尾守つみきと奇日常。",
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="sunday-webry",
+                    title="尾守つみきと奇日常。",
+                    seed_url="https://www.sunday-webry.com/episode/14079602755299850599",
+                    subtitle="sunday-webry",
+                )
             ],
             results,
         )
