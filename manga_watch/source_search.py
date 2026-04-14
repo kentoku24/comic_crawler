@@ -9,6 +9,7 @@ from urllib.parse import quote, quote_plus, urljoin, urlsplit, urlunsplit
 from manga_watch.sources import REGISTERED_SOURCES, normalize_seed_url
 from manga_watch.sources.base import HttpClient, RequestsHttpClient
 from manga_watch.sources.comic_action import canonical_comic_action_series_feed_url
+from manga_watch.sources.comic_earthstar import ComicEarthstarAdapter
 from manga_watch.sources.firecross import canonical_firecross_ebook_series_url
 
 DEFAULT_SEARCH_LIMIT = 10
@@ -24,7 +25,7 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "allowed_domains": ("comic-action.com", "www.comic-action.com"),
     },
     "comic-earthstar": {
-        "search_url": "https://comic-earthstar.com/search?keyword={query}",
+        "search_url": "https://comic-earthstar.com/search?q={query}",
         "allowed_domains": ("comic-earthstar.com", "www.comic-earthstar.com"),
     },
     "comicborder": {
@@ -225,6 +226,70 @@ def _search_comic_action(
     return results
 
 
+def _search_comic_earthstar(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    search_url = str(_SOURCE_SEARCH_CONFIG["comic-earthstar"]["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+    adapter = ComicEarthstarAdapter()
+
+    for match in re.finditer(r'<li\b[^>]*SearchResultItem_li[^>]*>(.*?)</li>', html_text, re.I | re.S):
+        block = match.group(1)
+        title_match = re.search(r'<p\b[^>]*SearchResultItem_series_title[^>]*>(.*?)</p>', block, re.I | re.S)
+        title = _normalize_anchor_text(title_match.group(1) if title_match else "")
+        if not title:
+            image_alt_match = re.search(r'<img\b[^>]*alt\s*=\s*(["\'])(.*?)\1', block, re.I | re.S)
+            title = _normalize_anchor_text(image_alt_match.group(2) if image_alt_match else "")
+        if not title:
+            continue
+
+        candidate_url = ""
+        for anchor_match in re.finditer(r'(<a\b[^>]*>.*?</a>)', block, re.I | re.S):
+            anchor_markup = anchor_match.group(1)
+            if "SearchResultItem_main_link" not in anchor_markup:
+                continue
+            href_match = re.search(r'href="([^"]+)"', anchor_markup, re.I | re.S)
+            if href_match:
+                candidate_url = href_match.group(1)
+                break
+        if not candidate_url:
+            href_match = re.search(r'href="([^"]+/episode/\d+[^"]*)"', block, re.I | re.S)
+            if href_match:
+                candidate_url = href_match.group(1)
+        if not candidate_url:
+            continue
+
+        resolved_url = _resolve_result_url(candidate_url, search_url=search_url)
+        if not resolved_url or not _is_allowed_domain(resolved_url, ("comic-earthstar.com", "www.comic-earthstar.com")):
+            continue
+
+        try:
+            canonical_seed_url = adapter.canonicalize_item({"seedUrl": resolved_url}, http_client).seed_url
+        except Exception:
+            canonical_seed_url = None
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source="comic-earthstar",
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle="comic-earthstar",
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
+
+
 def _search_kuragebunch(
     query: str,
     http_client: HttpClient,
@@ -331,7 +396,6 @@ def _encode_search_query(source: str, query: str) -> str:
     if source == "magapoke":
         return quote(query, safe="")
     return quote_plus(query)
-
 
 def _extract_comic_action_latest_link(block: str) -> str:
     for match in re.finditer(r'(<a\b[^>]*>.*?</a>)', block, re.I | re.S):
@@ -895,6 +959,7 @@ _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
     for source in SUPPORTED_SEARCH_SOURCES
 }
 _SEARCHERS["comic-action"] = _search_comic_action
+_SEARCHERS["comic-earthstar"] = _search_comic_earthstar
 _SEARCHERS["kuragebunch"] = _search_kuragebunch
 _SEARCHERS["firecross"] = _search_firecross
 _SEARCHERS["champion-cross"] = _search_champion_cross

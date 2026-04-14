@@ -40,6 +40,12 @@ REPRESENTATIVE_SEARCH_CASES = (
         "expected_title": "SPY×FAMILY",
         "expected_seed_url": "https://shonenjumpplus.com/episode/17107419589372003740",
     },
+    {
+        "source": "comic-earthstar",
+        "query": "俺は全てを【パリイ】する",
+        "expected_title": "俺は全てを【パリイ】する ～逆勘違いの世界最強は冒険者の夢をみる～",
+        "expected_seed_url": "https://comic-earthstar.com/rss/series/14079602755508978459",
+    },
 )
 
 
@@ -47,7 +53,6 @@ REPRESENTATIVE_SEARCH_CASES = (
 class SourceSearchE2ETests(unittest.TestCase):
     def test_real_search_source_includes_takecomic_representative_series(self):
         client = RequestsHttpClient()
-
         results = search_source("takecomic", "異世界の常識は難しい", http_client=client)
 
         self.assertTrue(
