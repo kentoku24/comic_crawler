@@ -18,6 +18,10 @@
       "response": "02-latest.html"
     }
   ],
+  "expectedCheckedUrls": [
+    "https://kakuyomu.jp/works/16818093092974667738",
+    "https://kakuyomu.jp/works/16818093092974667738/episodes/2912051597531055166"
+  ],
   "expectedLatest": {
     "source": "kakuyomu",
     "workId": "kakuyomu:16818093092974667738",
