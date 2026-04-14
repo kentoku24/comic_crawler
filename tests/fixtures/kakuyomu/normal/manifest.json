@@ -1,27 +1,26 @@
 {
-  "seedUrl": "https://kakuyomu.jp/works/123/episodes/456",
+  "seedUrl": "https://kakuyomu.jp/works/16818093092974667738",
   "expectedWork": {
     "source": "kakuyomu",
     "kind": "kakuyomu",
-    "workId": "kakuyomu:123",
-    "seedUrl": "https://kakuyomu.jp/works/123/episodes/456",
-    "series": "kakuyomu:123",
-    "numericWorkId": "123",
-    "seedEpisodeId": "456"
+    "workId": "kakuyomu:16818093092974667738",
+    "seedUrl": "https://kakuyomu.jp/works/16818093092974667738",
+    "series": "kakuyomu:16818093092974667738",
+    "numericWorkId": "16818093092974667738"
   },
   "steps": [
     {
-      "url": "https://kakuyomu.jp/works/123",
+      "url": "https://kakuyomu.jp/works/16818093092974667738",
       "response": "01-work.html"
     },
     {
-      "url": "https://kakuyomu.jp/works/123/episodes/789",
+      "url": "https://kakuyomu.jp/works/16818093092974667738/episodes/2912051597531055166",
       "response": "02-latest.html"
     }
   ],
   "expectedCheckedUrls": [
-    "https://kakuyomu.jp/works/123",
-    "https://kakuyomu.jp/works/123/episodes/789"
+    "https://kakuyomu.jp/works/16818093092974667738",
+    "https://kakuyomu.jp/works/16818093092974667738/episodes/2912051597531055166"
   ],
   "expectedObservations": [
     {
@@ -30,23 +29,23 @@
     },
     {
       "name": "latest_episode_id",
-      "value": "789"
+      "value": "2912051597531055166"
     },
     {
       "name": "latest_episode_title",
-      "value": "第2話"
+      "value": "第75話 「ちょっと奥さん、米屋です。洗濯屋です（意味不明）」"
     }
   ],
   "expectedLatest": {
     "source": "kakuyomu",
-    "workId": "kakuyomu:123",
-    "latestKey": "789",
-    "url": "https://kakuyomu.jp/works/123/episodes/789",
-    "series": "kakuyomu:123",
-    "seriesTitle": "作品C",
-    "episodeCode": "789",
-    "episodeTitle": "第2話",
-    "pageTitle": "第2話 - 作品C - カクヨム",
+    "workId": "kakuyomu:16818093092974667738",
+    "latestKey": "2912051597531055166",
+    "url": "https://kakuyomu.jp/works/16818093092974667738/episodes/2912051597531055166",
+    "series": "kakuyomu:16818093092974667738",
+    "seriesTitle": "〖書籍化決定〗機動転生〖転生したら機動兵器だった〗（賀東招二）",
+    "episodeCode": "2912051597531055166",
+    "episodeTitle": "第75話 「ちょっと奥さん、米屋です。洗濯屋です（意味不明）」",
+    "pageTitle": "第75話 「ちょっと奥さん、米屋です。洗濯屋です（意味不明）」 - 〖書籍化決定〗機動転生〖転生したら機動兵器だった〗（賀東招二） - カクヨム",
     "nextUpdateLabel": "毎日 12:08"
   }
 }
