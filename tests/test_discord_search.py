@@ -1,6 +1,11 @@
 import unittest
 
-from manga_watch.discord_search import SEARCH_COMMAND, SearchCommandHandler
+from manga_watch.discord_search import (
+    SEARCH_COMMAND,
+    SEARCH_MISSING_SOURCE_MESSAGE,
+    SEARCH_NO_RESULTS_MESSAGE,
+    SearchCommandHandler,
+)
 from manga_watch.source_search import SearchResult
 
 
@@ -143,6 +148,16 @@ class DiscordSearchTests(unittest.TestCase):
             add_subscription.calls,
         )
         self.assertIn(long_url, add_response["content"])
+
+    def test_start_accepts_missing_source_without_old_error(self):
+        search_source = FakeSearchSource([])
+        handler = SearchCommandHandler(search_source=search_source)
+
+        response = handler.start(source=None, query="まんが")
+
+        self.assertEqual({"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}, response)
+        self.assertNotEqual(SEARCH_MISSING_SOURCE_MESSAGE, response["content"])
+        self.assertEqual([], search_source.calls)
 
     def test_handle_component_adds_selected_result_with_hidden_flag(self):
         add_subscription = FakeAddSubscription()

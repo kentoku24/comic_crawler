@@ -30,9 +30,15 @@ class DiscordSearchCommandRegistrationTests(unittest.TestCase):
             [
                 {
                     "type": 3,
+                    "name": "query",
+                    "description": "検索したい文字列",
+                    "required": True,
+                },
+                {
+                    "type": 3,
                     "name": "source",
                     "description": "検索したい媒体",
-                    "required": True,
+                    "required": False,
                     "choices": [
                         {"name": "comic-walker", "value": "comic-walker"},
                         {"name": "comic-action", "value": "comic-action"},
@@ -50,12 +56,6 @@ class DiscordSearchCommandRegistrationTests(unittest.TestCase):
                         {"name": "kakuyomu", "value": "kakuyomu"},
                         {"name": "gaugau", "value": "gaugau"},
                     ],
-                },
-                {
-                    "type": 3,
-                    "name": "query",
-                    "description": "検索したい文字列",
-                    "required": True,
                 },
                 {
                     "type": 3,

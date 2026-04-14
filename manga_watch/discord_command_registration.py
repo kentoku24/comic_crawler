@@ -61,16 +61,16 @@ def default_interaction_commands() -> List[Dict[str, object]]:
             "options": [
                 {
                     "type": 3,
-                    "name": "source",
-                    "description": "検索したい媒体",
-                    "required": True,
-                    "choices": searchable_source_choices(),
-                },
-                {
-                    "type": 3,
                     "name": "query",
                     "description": "検索したい文字列",
                     "required": True,
+                },
+                {
+                    "type": 3,
+                    "name": "source",
+                    "description": "検索したい媒体",
+                    "required": False,
+                    "choices": searchable_source_choices(),
                 },
                 {
                     "type": 3,

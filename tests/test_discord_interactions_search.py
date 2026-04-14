@@ -41,19 +41,44 @@ class RecordingFetchDispatcher:
 
 
 class DiscordInteractionSearchTests(unittest.TestCase):
-    def signed_command_payload(self, command_name):
+    def signed_command_payload(self, command_name, *, query="まんが", source=None):
+        options = [{"name": "query", "type": 3, "value": query}]
+        if source is not None:
+            options.append({"name": "source", "type": 3, "value": source})
         return {
             "type": 2,
             "data": {
                 "name": command_name,
-                "options": [
-                    {"name": "source", "type": 3, "value": "champion-cross"},
-                    {"name": "query", "type": 3, "value": "まんが"},
-                ],
+                "options": options,
             },
         }
 
     def test_search_command_routes_to_search_handler(self):
+        search_handler = RecordingSearchHandler()
+        service = DiscordInteractionService(
+            timezone_name="Asia/Tokyo",
+            fetch_dispatcher=RecordingFetchDispatcher(),
+            verification_disabled=True,
+            search_handler=search_handler,
+        )
+
+        response = service.handle_request(
+            method="POST",
+            path="/",
+            headers={},
+            body=json.dumps(
+                self.signed_command_payload(SEARCH_COMMAND, source="champion-cross")
+            ).encode("utf-8"),
+        )
+
+        payload = json.loads(response.body)
+        self.assertEqual(4, payload["type"])
+        self.assertEqual(64, payload["data"]["flags"])
+        self.assertEqual("検索結果を選んでください。", payload["data"]["content"])
+        self.assertEqual("champion-cross", search_handler.start_calls[0]["source"])
+        self.assertEqual("まんが", search_handler.start_calls[0]["query"])
+
+    def test_search_command_routes_to_search_handler_without_source(self):
         search_handler = RecordingSearchHandler()
         service = DiscordInteractionService(
             timezone_name="Asia/Tokyo",
@@ -71,9 +96,8 @@ class DiscordInteractionSearchTests(unittest.TestCase):
 
         payload = json.loads(response.body)
         self.assertEqual(4, payload["type"])
-        self.assertEqual(64, payload["data"]["flags"])
         self.assertEqual("検索結果を選んでください。", payload["data"]["content"])
-        self.assertEqual("champion-cross", search_handler.start_calls[0]["source"])
+        self.assertIsNone(search_handler.start_calls[0]["source"])
         self.assertEqual("まんが", search_handler.start_calls[0]["query"])
 
     def test_search_component_routes_to_search_handler(self):
