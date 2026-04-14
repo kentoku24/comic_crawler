@@ -123,10 +123,10 @@ class SearchCommandHandler:
         del watchlist_path
         normalized_source = _coerce_text(source)
         normalized_query = _coerce_text(query)
-        if not normalized_source:
-            return {"content": SEARCH_MISSING_SOURCE_MESSAGE}
         if not normalized_query:
             return {"content": SEARCH_MISSING_QUERY_MESSAGE}
+        if not normalized_source:
+            return {"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}
 
         normalized_visibility = _normalize_visibility(visibility)
         try:
