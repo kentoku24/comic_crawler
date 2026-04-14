@@ -26,6 +26,23 @@ class FakeSearchSource:
         return list(self.results)
 
 
+class MultiSourceSearchSource:
+    def __init__(self, results_by_source):
+        self.results_by_source = {key: list(value) for key, value in results_by_source.items()}
+        self.calls = []
+
+    def __call__(self, source, query, *, http_client=None, limit=10):
+        self.calls.append(
+            {
+                "source": source,
+                "query": query,
+                "http_client": http_client,
+                "limit": limit,
+            }
+        )
+        return list(self.results_by_source.get(source, []))
+
+
 class FakeAddSubscription:
     def __init__(self):
         self.calls = []
@@ -151,13 +168,144 @@ class DiscordSearchTests(unittest.TestCase):
 
     def test_start_accepts_missing_source_without_old_error(self):
         search_source = FakeSearchSource([])
-        handler = SearchCommandHandler(search_source=search_source)
+        handler = SearchCommandHandler(search_source=search_source, supported_sources=lambda: ())
 
         response = handler.start(source=None, query="まんが")
 
         self.assertEqual({"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}, response)
         self.assertNotEqual(SEARCH_MISSING_SOURCE_MESSAGE, response["content"])
         self.assertEqual([], search_source.calls)
+
+    def test_start_aggregates_cross_source_results_with_interleaving_and_dedupe(self):
+        search_source = MultiSourceSearchSource(
+            {
+                "comic-walker": [
+                    SearchResult(
+                        source="comic-walker",
+                        title="作品A walker 1",
+                        seed_url="https://comic-walker.com/detail/a",
+                    ),
+                    SearchResult(
+                        source="comic-walker",
+                        title="作品A walker duplicate",
+                        seed_url="https://comic-walker.com/detail/a",
+                    ),
+                    SearchResult(
+                        source="comic-walker",
+                        title="作品A walker 2",
+                        seed_url="https://comic-walker.com/detail/b",
+                    ),
+                ],
+                "champion-cross": [
+                    SearchResult(
+                        source="champion-cross",
+                        title="作品B cross 1",
+                        seed_url="https://championcross.jp/series/a",
+                    ),
+                    SearchResult(
+                        source="champion-cross",
+                        title="作品B cross 2",
+                        seed_url="https://championcross.jp/series/b",
+                    ),
+                ],
+                "takecomic": [
+                    SearchResult(
+                        source="takecomic",
+                        title="作品C take 1",
+                        seed_url="https://takecomic.jp/comics/1",
+                    )
+                ],
+            }
+        )
+        handler = SearchCommandHandler(
+            search_source=search_source,
+            supported_sources=lambda: ("comic-walker", "champion-cross", "takecomic"),
+        )
+
+        response = handler.start(source=None, query="まんが", visibility="visible")
+
+        self.assertEqual(
+            [
+                {
+                    "source": "comic-walker",
+                    "query": "まんが",
+                    "http_client": None,
+                    "limit": 3,
+                },
+                {
+                    "source": "champion-cross",
+                    "query": "まんが",
+                    "http_client": None,
+                    "limit": 3,
+                },
+                {
+                    "source": "takecomic",
+                    "query": "まんが",
+                    "http_client": None,
+                    "limit": 3,
+                },
+            ],
+            search_source.calls,
+        )
+        self.assertEqual("横断検索結果です。1件選んでください。", response["content"])
+        self.assertEqual(
+            [
+                {
+                    "label": "作品A walker 1",
+                    "value": "https://comic-walker.com/detail/a",
+                    "description": "comic-walker",
+                },
+                {
+                    "label": "作品B cross 1",
+                    "value": "https://championcross.jp/series/a",
+                    "description": "champion-cross",
+                },
+                {
+                    "label": "作品C take 1",
+                    "value": "https://takecomic.jp/comics/1",
+                    "description": "takecomic",
+                },
+                {
+                    "label": "作品A walker 2",
+                    "value": "https://comic-walker.com/detail/b",
+                    "description": "comic-walker",
+                },
+                {
+                    "label": "作品B cross 2",
+                    "value": "https://championcross.jp/series/b",
+                    "description": "champion-cross",
+                },
+            ],
+            response["components"][0]["components"][0]["options"],
+        )
+
+    def test_start_caps_cross_source_results_to_select_limit(self):
+        sources = tuple(f"source-{index}" for index in range(9))
+        search_source = MultiSourceSearchSource(
+            {
+                source_name: [
+                    SearchResult(
+                        source=source_name,
+                        title=f"{source_name}-{index}",
+                        seed_url=f"https://example.com/{source_name}/{index}",
+                    )
+                    for index in range(10)
+                ]
+                for source_name in sources
+            }
+        )
+        handler = SearchCommandHandler(
+            search_source=search_source,
+            supported_sources=lambda: sources,
+        )
+
+        response = handler.start(source=None, query="まんが")
+
+        options = response["components"][0]["components"][0]["options"]
+        self.assertEqual(25, len(options))
+        self.assertEqual("source-0-0", options[0]["label"])
+        self.assertEqual("source-1-0", options[1]["label"])
+        self.assertEqual("source-2-0", options[2]["label"])
 
     def test_handle_component_adds_selected_result_with_hidden_flag(self):
         add_subscription = FakeAddSubscription()
