@@ -12,6 +12,20 @@ RUN_REAL_SEARCH_E2E = os.environ.get("RUN_REAL_SEARCH_E2E") == "1"
 
 @unittest.skipUnless(RUN_REAL_SEARCH_E2E, "set RUN_REAL_SEARCH_E2E=1 to run real network search e2e tests")
 class SourceSearchE2ETests(unittest.TestCase):
+    def test_real_search_source_includes_takecomic_representative_series(self):
+        client = RequestsHttpClient()
+
+        results = search_source("takecomic", "異世界の常識は難しい", http_client=client)
+
+        self.assertTrue(
+            any(
+                result.title == "異世界の常識は難しい～希少で最弱な人族に転生したけど物理以外で最強になりそうです～"
+                and result.seed_url == "https://takecomic.jp/series/bb237f85f48a3"
+                for result in results
+            ),
+            msg=str(results),
+        )
+
     def test_real_search_source_requests_include_expected_media_for_dungeon_no_naka_no_hito(self):
         client = RequestsHttpClient()
 

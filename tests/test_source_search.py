@@ -1,3 +1,5 @@
+from pathlib import Path
+from urllib.parse import quote_plus
 import unittest
 
 from manga_watch.source_search import SearchResult, search_source, supported_search_sources
@@ -14,6 +16,35 @@ class StaticHttpClient:
 
 
 class SourceSearchTests(unittest.TestCase):
+    def test_search_source_parses_takecomic_results_and_strips_update_label(self):
+        query = "異世界の常識は難しい"
+        request_url = f"https://takecomic.jp/search?keyword={quote_plus(query)}"
+        html = (
+            Path(__file__).parent
+            / "fixtures"
+            / "takecomic"
+            / "search_update_label"
+            / "01-search.html"
+        ).read_text(encoding="utf-8")
+
+        results = search_source(
+            "takecomic",
+            query,
+            http_client=StaticHttpClient({request_url: html}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="takecomic",
+                    title="異世界の常識は難しい～希少で最弱な人族に転生したけど物理以外で最強になりそうです～",
+                    seed_url="https://takecomic.jp/series/bb237f85f48a3",
+                    subtitle="takecomic",
+                )
+            ],
+            results,
+        )
+
     def test_supported_search_sources_match_registered_sources(self):
         self.assertEqual(
             (

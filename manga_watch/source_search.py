@@ -269,6 +269,8 @@ def _extract_anchor_results(
         title = _extract_anchor_title(match.group(0), match.group(2))
         if not title:
             title = canonical_seed_url
+        elif source == "takecomic":
+            title = _normalize_takecomic_search_title(title)
 
         seen_seed_urls.add(canonical_seed_url)
         results.append(
@@ -383,6 +385,10 @@ def _normalize_anchor_text(text: str) -> str:
     normalized = unescape(re.sub(r"\s+", " ", normalized)).strip()
     normalized = re.sub(r"^最新UP!?\s*", "", normalized)
     return normalized
+
+
+def _normalize_takecomic_search_title(title: str) -> str:
+    return re.sub(r"^更新\s*", "", title or "").strip()
 
 
 _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
