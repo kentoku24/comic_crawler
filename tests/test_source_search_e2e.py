@@ -9,22 +9,35 @@ from tests.test_discord_supertwins import write_json
 
 RUN_REAL_SEARCH_E2E = os.environ.get("RUN_REAL_SEARCH_E2E") == "1"
 
+COMIC_ACTION_REPRESENTATIVE_SEARCH_CASES = (
+    {
+        "source": "comic-action",
+        "query": "ダンジョンの中のひと",
+        "expected_title": "ダンジョンの中のひと",
+        "expected_seed_url": "https://comic-action.com/rss/series/13933686331663374228",
+    },
+)
+
 
 @unittest.skipUnless(RUN_REAL_SEARCH_E2E, "set RUN_REAL_SEARCH_E2E=1 to run real network search e2e tests")
 class SourceSearchE2ETests(unittest.TestCase):
     def test_real_search_source_requests_include_expected_media_for_dungeon_no_naka_no_hito(self):
         client = RequestsHttpClient()
 
-        comic_action_results = search_source("comic-action", "ダンジョンの中のひと", http_client=client)
+        for case in COMIC_ACTION_REPRESENTATIVE_SEARCH_CASES:
+            with self.subTest(source=case["source"], query=case["query"]):
+                comic_action_results = search_source(case["source"], case["query"], http_client=client)
+                self.assertTrue(
+                    any(
+                        result.title == case["expected_title"]
+                        and result.seed_url == case["expected_seed_url"]
+                        for result in comic_action_results
+                    ),
+                    msg=str(comic_action_results),
+                )
+
         nicovideo_results = search_source("nicovideo-manga", "ダンジョンの中のひと", http_client=client)
         gaugau_results = search_source("gaugau", "ダンジョンの中のひと", http_client=client)
-
-        self.assertTrue(
-            any(
-                result.seed_url == "https://comic-action.com/rss/series/13933686331663374228"
-                for result in comic_action_results
-            )
-        )
         self.assertTrue(
             any(result.seed_url == "https://manga.nicovideo.jp/comic/53764" for result in nicovideo_results),
             msg=str(nicovideo_results),
