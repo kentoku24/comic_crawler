@@ -11,6 +11,12 @@ RUN_REAL_SEARCH_E2E = os.environ.get("RUN_REAL_SEARCH_E2E") == "1"
 
 REPRESENTATIVE_SEARCH_CASES = (
     {
+        "source": "comic-walker",
+        "query": "異世界迷宮の迷子ちゃん",
+        "expected_title": "異世界迷宮の迷子ちゃん",
+        "expected_seed_url": "https://comic-walker.com/detail/KC_008280_S",
+    },
+    {
         "source": "comic-action",
         "query": "ダンジョンの中のひと",
         "expected_title": "ダンジョンの中のひと",
@@ -46,24 +52,59 @@ REPRESENTATIVE_SEARCH_CASES = (
         "expected_title": "俺は全てを【パリイ】する ～逆勘違いの世界最強は冒険者の夢をみる～",
         "expected_seed_url": "https://comic-earthstar.com/rss/series/14079602755508978459",
     },
+    {
+        "source": "kuragebunch",
+        "query": "今日から始める幼なじみ",
+        "expected_title": "今日から始める幼なじみ",
+        "expected_seed_url": "https://kuragebunch.com/episode/3269632237305143755",
+    },
+    {
+        "source": "sunday-webry",
+        "query": "尾守つみきと奇日常。",
+        "expected_title": "尾守つみきと奇日常。",
+        "expected_seed_url": "https://www.sunday-webry.com/episode/14079602755299850599",
+    },
+    {
+        "source": "champion-cross",
+        "query": "織津江大志",
+        "expected_title": "織津江大志の異世界クリ娘サバイバル日誌",
+        "expected_seed_url": "https://championcross.jp/series/4756324e1c1b1",
+    },
+    {
+        "source": "firecross",
+        "query": "灰原くん",
+        "expected_title": "灰原くんの強くて青春ニューゲーム",
+        "expected_seed_url": "https://firecross.jp/ebook/series/441",
+    },
+    {
+        "source": "takecomic",
+        "query": "異世界の常識は難しい",
+        "expected_title": "異世界の常識は難しい～希少で最弱な人族に転生したけど物理以外で最強になりそうです～",
+        "expected_seed_url": "https://takecomic.jp/series/bb237f85f48a3",
+    },
+    {
+        "source": "nicovideo-manga",
+        "query": "ダンジョンの中のひと",
+        "expected_title": "ダンジョンの中のひと",
+        "expected_seed_url": "https://manga.nicovideo.jp/comic/53764",
+    },
+    {
+        "source": "kakuyomu",
+        "query": "リビルドワールド",
+        "expected_title": "リビルドワールド",
+        "expected_seed_url": "https://kakuyomu.jp/works/1177354054882530555",
+    },
+    {
+        "source": "gaugau",
+        "query": "ダンジョンの中のひと",
+        "expected_title": "ダンジョンの中のひと",
+        "expected_seed_url": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+    },
 )
 
 
 @unittest.skipUnless(RUN_REAL_SEARCH_E2E, "set RUN_REAL_SEARCH_E2E=1 to run real network search e2e tests")
 class SourceSearchE2ETests(unittest.TestCase):
-    def test_real_search_source_includes_takecomic_representative_series(self):
-        client = RequestsHttpClient()
-        results = search_source("takecomic", "異世界の常識は難しい", http_client=client)
-
-        self.assertTrue(
-            any(
-                result.title == "異世界の常識は難しい～希少で最弱な人族に転生したけど物理以外で最強になりそうです～"
-                and result.seed_url == "https://takecomic.jp/series/bb237f85f48a3"
-                for result in results
-            ),
-            msg=str(results),
-        )
-
     def test_real_search_source_requests_include_expected_media_for_representative_titles(self):
         client = RequestsHttpClient()
 
@@ -78,15 +119,9 @@ class SourceSearchE2ETests(unittest.TestCase):
                     ),
                     msg=str(results),
                 )
-
-        nicovideo_results = search_source("nicovideo-manga", "ダンジョンの中のひと", http_client=client)
         gaugau_results = search_source("gaugau", "ダンジョンの中のひと", http_client=client)
         kuragebunch_results = search_source("kuragebunch", "今日から始める幼なじみ", http_client=client)
         sunday_webry_results = search_source("sunday-webry", "尾守つみきと奇日常。", http_client=client)
-        self.assertTrue(
-            any(result.seed_url == "https://manga.nicovideo.jp/comic/53764" for result in nicovideo_results),
-            msg=str(nicovideo_results),
-        )
         self.assertTrue(
             any(
                 result.title == "ダンジョンの中のひと"
@@ -118,20 +153,6 @@ class SourceSearchE2ETests(unittest.TestCase):
         self.assertFalse(
             any(result.title in {"1話を読む", "最新話を読む"} for result in sunday_webry_results),
             msg=str(sunday_webry_results),
-        )
-
-    def test_real_firecross_search_requests_include_haihara_kun_no_tsurukute_seishun_new_game(self):
-        client = RequestsHttpClient()
-
-        firecross_results = search_source("firecross", "灰原くん", http_client=client)
-
-        self.assertTrue(
-            any(
-                result.title == "灰原くんの強くて青春ニューゲーム"
-                and result.seed_url == "https://firecross.jp/ebook/series/441"
-                for result in firecross_results
-            ),
-            msg=str(firecross_results),
         )
 
     def test_real_supertwins_search_handler_includes_three_target_media(self):
