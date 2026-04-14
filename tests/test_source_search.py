@@ -3,7 +3,7 @@ from pathlib import Path
 
 from manga_watch.source_search import SearchResult, search_source, supported_search_sources
 
-FIXTURES_ROOT = Path(__file__).parent / "fixtures"
+FIXTURES_ROOT = Path(__file__).parent / "fixtures" / "source-search"
 
 
 class StaticHttpClient:
@@ -261,7 +261,7 @@ class SourceSearchTests(unittest.TestCase):
         )
 
     def test_search_source_parses_magapoke_results_via_query_parameter(self):
-        html = (FIXTURES_ROOT / "magapoke" / "search" / "01-search.html").read_text(encoding="utf-8")
+        html = (FIXTURES_ROOT / "magapoke" / "01-search.html").read_text(encoding="utf-8")
         request_url = "https://pocket.shonenmagazine.com/search/%E8%96%AB%E3%82%8B%E8%8A%B1%E3%81%AF%E5%87%9B%E3%81%A8%E5%92%B2%E3%81%8F"
 
         results = search_source(
