@@ -36,6 +36,20 @@ class SourceSearchE2ETests(unittest.TestCase):
             )
         )
 
+    def test_real_firecross_search_requests_include_haihara_kun_no_tsurukute_seishun_new_game(self):
+        client = RequestsHttpClient()
+
+        firecross_results = search_source("firecross", "灰原くん", http_client=client)
+
+        self.assertTrue(
+            any(
+                result.title == "灰原くんの強くて青春ニューゲーム"
+                and result.seed_url == "https://firecross.jp/ebook/series/441"
+                for result in firecross_results
+            ),
+            msg=str(firecross_results),
+        )
+
     def test_real_supertwins_search_handler_includes_three_target_media(self):
         root = Path(os.environ.get("TMPDIR", "/tmp"))
         watchlist_path = root / "issue-268-search-watchlist.json"

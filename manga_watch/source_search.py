@@ -9,6 +9,7 @@ from urllib.parse import quote_plus, urljoin, urlsplit, urlunsplit
 from manga_watch.sources import REGISTERED_SOURCES, normalize_seed_url
 from manga_watch.sources.base import HttpClient, RequestsHttpClient
 from manga_watch.sources.comic_action import canonical_comic_action_series_feed_url
+from manga_watch.sources.firecross import canonical_firecross_ebook_series_url
 
 DEFAULT_SEARCH_LIMIT = 10
 SEARCH_RESULT_LIMIT = 25
@@ -55,7 +56,7 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "allowed_domains": ("pocket.shonenmagazine.com",),
     },
     "firecross": {
-        "search_url": "https://firecross.jp/search?keyword={query}",
+        "search_url": "https://firecross.jp/search?q={query}&t=1",
         "allowed_domains": ("firecross.jp", "www.firecross.jp"),
     },
     "takecomic": {
@@ -244,6 +245,92 @@ def _search_gaugau(
     )
 
 
+def _search_firecross(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    config = _SOURCE_SEARCH_CONFIG["firecross"]
+    search_url = str(config["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for match in re.finditer(r'<li\b[^>]*class="[^"]*\bseriesList_item\b[^"]*"[^>]*>(.*?)</li>', html_text, re.I | re.S):
+        block = match.group(1)
+        title = _extract_firecross_search_title(block)
+        if not title:
+            continue
+
+        candidate_url = _extract_firecross_search_seed_url(block, search_url=search_url)
+        if not candidate_url:
+            continue
+
+        canonical_seed_url = _canonical_seed_url_for_source("firecross", candidate_url)
+        if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
+            continue
+
+        seen_seed_urls.add(canonical_seed_url)
+        results.append(
+            SearchResult(
+                source="firecross",
+                title=title,
+                seed_url=canonical_seed_url,
+                subtitle="firecross",
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+def _extract_firecross_search_title(block: str) -> str:
+    title_match = re.search(r'<a\b[^>]*class="[^"]*\bseriesList_itemTitle\b[^"]*"[^>]*>(.*?)</a>', block, re.I | re.S)
+    if title_match:
+        title = _normalize_anchor_text(title_match.group(1))
+        if title:
+            return title
+
+    image_alt_match = re.search(r'<img\b[^>]*alt\s*=\s*(["\'])(.*?)\1', block, re.I | re.S)
+    if image_alt_match:
+        title = _normalize_anchor_text(image_alt_match.group(2))
+        if title:
+            return title
+
+    return ""
+
+
+def _extract_firecross_search_seed_url(block: str, *, search_url: str) -> Optional[str]:
+    web_read_match = re.search(
+        r'<a\b[^>]*href="([^"]+)"[^>]*>\s*WEB読み\s*</a>',
+        block,
+        re.I | re.S,
+    )
+    if web_read_match:
+        resolved_url = _resolve_result_url(web_read_match.group(1), search_url=search_url)
+        if resolved_url:
+            return resolved_url
+
+    series_page_match = re.search(
+        r'<a\b[^>]*class="[^"]*\bseriesList_itemTitle\b[^"]*"[^>]*href="([^"]+)"',
+        block,
+        re.I | re.S,
+    )
+    if series_page_match:
+        resolved_url = _resolve_result_url(series_page_match.group(1), search_url=search_url)
+        if not resolved_url:
+            return None
+        parsed = urlsplit(resolved_url)
+        match = re.match(r"^/(?:comic|hjbunko|hjnovels)/series/([0-9A-Za-z_-]+)$", parsed.path)
+        if not match:
+            return None
+        return canonical_firecross_ebook_series_url(match.group(1))
+
+    return None
+
+
 def _extract_anchor_results(
     html_text: str,
     *,
@@ -394,4 +481,5 @@ _SEARCHERS: Dict[str, Callable[..., List[SearchResult]]] = {
     for source in SUPPORTED_SEARCH_SOURCES
 }
 _SEARCHERS["comic-action"] = _search_comic_action
+_SEARCHERS["firecross"] = _search_firecross
 _SEARCHERS["gaugau"] = _search_gaugau
