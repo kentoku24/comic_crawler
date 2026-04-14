@@ -451,6 +451,55 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_parses_firecross_results_via_search_page_web_reading_link(self):
+        html = """
+        <html>
+          <body>
+            <ul class="seriesList" id="search-result">
+              <li class="seriesList_item">
+                <div class="series-list-figure">
+                  <a href="https://firecross.jp/hjbunko/series/441">
+                    <picture>
+                      <img alt="灰原くんの強くて青春ニューゲーム" />
+                    </picture>
+                  </a>
+                </div>
+                <div class="seriesList_itemMeta">
+                  <span class="series-list-label series-list-label--hb">HJ文庫</span>
+                </div>
+                <a class="seriesList_itemTitle border" href="https://firecross.jp/hjbunko/series/441">灰原くんの強くて青春ニューゲーム</a>
+                <div class="seriesList_itemBtnSet">
+                  <a class="btn-search-result" href="https://firecross.jp/hjbunko/series/441">シリーズ紹介</a>
+                  <a class="btn-search-result" href="https://firecross.jp/ebook/series/441">WEB読み</a>
+                </div>
+              </li>
+            </ul>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "firecross",
+            "灰原くん",
+            http_client=StaticHttpClient(
+                {
+                    "https://firecross.jp/search?q=%E7%81%B0%E5%8E%9F%E3%81%8F%E3%82%93&t=1": html
+                }
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="firecross",
+                    title="灰原くんの強くて青春ニューゲーム",
+                    seed_url="https://firecross.jp/ebook/series/441",
+                    subtitle="firecross",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_parses_comic_walker_results_via_keyword_parameter(self):
         html = """
         <html>
