@@ -16,6 +16,13 @@ from .sources.champion_cross import (
     parse_champion_cross_rss_latest,
 )
 from .sources.comic_action import ComicActionAdapter, extract_comic_action_series_id, parse_comic_action_title
+from .sources.comicborder import (
+    ComicBorderAdapter,
+    extract_comicborder_next_update_label,
+    extract_comicborder_rss_url,
+    parse_comicborder_rss,
+    parse_comicborder_title,
+)
 from .sources.comic_walker import ComicWalkerAdapter, parse_comic_walker_title
 from .sources.kakuyomu import KakuyomuAdapter
 from .sources.util import html_title
@@ -87,6 +94,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
         monitored_signals=(
             "seed episode page exposes series_id",
             "seed episode page exposes nextReadableProductUri",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "comicborder": SourceCanaryContract(
+        source="comicborder",
+        seed_url="https://comicborder.com/episode/12207421983382919118",
+        fixture_bundle="tests/fixtures/comicborder/normal",
+        monitored_signals=(
+            "seed episode page exposes an RSS feed link",
+            "RSS feed keeps the latest episode URL",
             "latest episode page title still parses into series / episode labels",
         ),
     ),
@@ -198,6 +215,46 @@ def _comic_action_canary(contract: SourceCanaryContract, http_client: HttpClient
     )
 
 
+def _comicborder_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = ComicBorderAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    seed_html = http_client.get_text(work.seed_url)
+    rss_url = extract_comicborder_rss_url(seed_html)
+    if not rss_url:
+        raise SourceParseError("comicborder: RSS feed link not found")
+
+    feed_text = http_client.get_text(rss_url)
+    latest_url, channel_title, item_title = parse_comicborder_rss(feed_text)
+    latest_html = seed_html if latest_url == work.seed_url else http_client.get_text(latest_url)
+    page_title = html_title(latest_html)
+    series_title, episode_title = parse_comicborder_title(page_title or "")
+    next_update_label = extract_comicborder_next_update_label(latest_html)
+    if not series_title:
+        series_title = channel_title or ""
+    if not episode_title:
+        episode_title = item_title or ""
+    if not episode_title:
+        raise SourceParseError("comicborder: latest episode title not found")
+
+    observations = [
+        CanaryObservation("rss_url", rss_url),
+        CanaryObservation("series_title", series_title or ""),
+        CanaryObservation("latest_episode_url", latest_url),
+        CanaryObservation("latest_episode_title", episode_title),
+    ]
+    if next_update_label:
+        observations.append(CanaryObservation("next_update_label", next_update_label))
+
+    return (
+        (work.seed_url, rss_url, latest_url),
+        tuple(observations),
+    )
+
+
 def _champion_cross_canary(
     contract: SourceCanaryContract,
     http_client: HttpClient,
@@ -288,6 +345,7 @@ def _champion_cross_canary(
 CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
+    "comicborder": _comicborder_canary,
     "champion-cross": _champion_cross_canary,
     "kakuyomu": _kakuyomu_canary,
 }

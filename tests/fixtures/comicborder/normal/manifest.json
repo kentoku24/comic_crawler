@@ -1,0 +1,29 @@
+{
+  "seedUrl": "https://comicborder.com/episode/12207421983382919118",
+  "expectedWork": {
+    "source": "comicborder",
+    "kind": "comicborder",
+    "workId": "https://comicborder.com/episode/12207421983382919118",
+    "seedUrl": "https://comicborder.com/episode/12207421983382919118"
+  },
+  "steps": [
+    {
+      "url": "https://comicborder.com/episode/12207421983382919118",
+      "response": "01-episode.html"
+    },
+    {
+      "url": "https://comicborder.com/rss/series/3269754496402020044",
+      "response": "02-rss.xml"
+    }
+  ],
+  "expectedLatest": {
+    "source": "comicborder",
+    "workId": "https://comicborder.com/episode/12207421983382919118",
+    "latestKey": "https://comicborder.com/episode/12207421983382919118",
+    "url": "https://comicborder.com/episode/12207421983382919118",
+    "seriesTitle": "殺っちゃえ!! 宇喜多さん",
+    "episodeTitle": "第53話",
+    "pageTitle": "殺っちゃえ!! 宇喜多さん - 重野なおき / 第53話 | コミックボーダー",
+    "nextUpdateLabel": "05月15日"
+  }
+}

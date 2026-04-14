@@ -212,6 +212,7 @@ runner が backend に送る update event は次の schema です。
 | --- | --- | --- | --- | --- |
 | ComicWalker | canonical series URL, episode URL | `https://comic-walker.com/detail/<series>` | `KC_XXXXXX_S` | `episodeCode` |
 | webアクション | episode URL, RSS/Atom series feed URL | canonical episode URL または canonical series feed URL | `comic-action:<series_id>` | 最終到達 episode URL |
+| ComicBorder | episode URL | canonical episode URL | `https://comicborder.com/episode/<episode_id>` | latest episode URL |
 | Champion Cross | episode URL, series URL, series RSS URL | canonical episode URL / canonical series URL / canonical series RSS URL | `champion-cross:<series_hash>` | 最新 episode URL |
 | Kakuyomu | work URL, episode URL | 入力 URL のまま | `kakuyomu:<numeric_work_id>` | 最新 episode id |
 
@@ -371,6 +372,7 @@ fixture regression だけでは拾えない upstream HTML / embedded JSON drift 
 | --- | --- | --- | --- |
 | ComicWalker | `https://comic-walker.com/detail/KC_003913_S` | canonical series page の `__NEXT_DATA__`、同一 series の最新 `episodeCode`、最新 episode page title parse | `tests/fixtures/comic-walker/normal` |
 | webアクション | `https://comic-action.com/episode/2550689798784879524` | seed episode page の `series_id`、`nextReadableProductUri`、最終到達 episode page title parse | `tests/fixtures/comic-action/normal` |
+| ComicBorder | `https://comicborder.com/episode/12207421983382919118` | seed episode page の RSS link、RSS feed の latest episode URL、latest episode page title parse | `tests/fixtures/comicborder/normal` |
 | Kakuyomu | `https://kakuyomu.jp/works/16818093092974667738/episodes/822139844009936710` | work page の `__NEXT_DATA__`、最新 episode id/title、最新 episode page title | `tests/fixtures/kakuyomu/normal` |
 
 drift を検知したら、次の順で進めます。

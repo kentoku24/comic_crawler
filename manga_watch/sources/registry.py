@@ -1,6 +1,7 @@
 from typing import Optional, Sequence, Tuple
 
 from .base import HttpClient, LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
+from .comicborder import ComicBorderAdapter
 from .champion_cross import ChampionCrossAdapter
 from .comic_action import ComicActionAdapter
 from .comic_walker import ComicWalkerAdapter
@@ -10,6 +11,7 @@ from .kakuyomu import KakuyomuAdapter
 REGISTERED_ADAPTERS = (
     ComicWalkerAdapter(),
     ComicActionAdapter(),
+    ComicBorderAdapter(),
     ChampionCrossAdapter(),
     KakuyomuAdapter(),
 )

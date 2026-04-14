@@ -11,6 +11,7 @@ from manga_watch.sources import REGISTERED_ADAPTERS, REGISTERED_SOURCES, SourceA
 from manga_watch.sources.base import SourceParseError
 from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
+from manga_watch.sources.comicborder import ComicBorderAdapter
 from manga_watch.sources.comic_walker import ComicWalkerAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
 
@@ -34,6 +35,9 @@ SOURCE_CASES = {
         "escaped_next_uri",
         "broken_missing_next",
         "broken_loop",
+    ),
+    "comicborder": (
+        "normal",
     ),
     "champion-cross": (
         "normal",
@@ -66,6 +70,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "escaped_next_uri": "main_story",
         "broken_missing_next": "main_story",
         "broken_loop": "main_story",
+    },
+    "comicborder": {
+        "normal": "main_story",
     },
     "champion-cross": {
         "normal": "main_story",
@@ -155,7 +162,7 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_registry_pins_supported_sources(self):
         self.assertEqual(
-            ("comic-walker", "comic-action", "champion-cross", "kakuyomu"),
+            ("comic-walker", "comic-action", "comicborder", "champion-cross", "kakuyomu"),
             REGISTERED_SOURCES,
         )
 
@@ -176,6 +183,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_comic_action_fixtures(self):
         self._assert_fixture_matrix("comic-action")
+
+    def test_comicborder_fixtures(self):
+        self._assert_fixture_matrix("comicborder")
 
     def test_kakuyomu_fixtures(self):
         self._assert_fixture_matrix("kakuyomu")
@@ -342,6 +352,63 @@ class SourceAdapterTests(unittest.TestCase):
         latest = adapter.fetch_latest(work, client).to_dict()
 
         self.assertEqual("4月3日", latest["nextUpdateLabel"])
+
+    def test_comicborder_normalize_accepts_episode_url(self):
+        work = ComicBorderAdapter().normalize("https://comicborder.com/episode/12207421983382919118?utm_source=share")
+
+        self.assertEqual(
+            {
+                "source": "comicborder",
+                "kind": "comicborder",
+                "workId": "https://comicborder.com/episode/12207421983382919118",
+                "seedUrl": "https://comicborder.com/episode/12207421983382919118",
+            },
+            work.to_dict(),
+        )
+
+    def test_comicborder_fetch_latest_uses_rss_feed_and_parses_title(self):
+        adapter = ComicBorderAdapter()
+        work = adapter.normalize("https://comicborder.com/episode/12207421983382919118")
+        client = StaticHttpClient(
+            {
+                "https://comicborder.com/episode/12207421983382919118": """
+                <html>
+                  <head>
+                    <title>殺っちゃえ!! 宇喜多さん - 重野なおき / 第53話 | コミックボーダー</title>
+                  </head>
+                  <body>
+                    <a href="https://comicborder.com/rss/series/3269754496402020044">RSSフィード</a>
+                    <div>次回更新： 05月15日</div>
+                  </body>
+                </html>
+                """,
+                "https://comicborder.com/rss/series/3269754496402020044": """
+                <rss version="2.0">
+                  <channel>
+                    <title>コミックボーダー（殺っちゃえ!! 宇喜多さん）</title>
+                    <item>
+                      <title>第53話</title>
+                      <link>https://comicborder.com/episode/12207421983382919118</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://comicborder.com/episode/12207421983382919118", latest["latestKey"])
+        self.assertEqual("殺っちゃえ!! 宇喜多さん", latest["seriesTitle"])
+        self.assertEqual("第53話", latest["episodeTitle"])
+        self.assertEqual("05月15日", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://comicborder.com/episode/12207421983382919118",
+                "https://comicborder.com/rss/series/3269754496402020044",
+            ],
+            client.calls,
+        )
 
     def test_comic_walker_fetch_latest_extracts_next_update_label(self):
         adapter = ComicWalkerAdapter()
