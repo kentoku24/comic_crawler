@@ -4,10 +4,15 @@ import base64
 import hashlib
 from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Mapping, Optional
+from typing import Callable, Dict, List, Mapping, Optional, Sequence
 
 from manga_watch.discord_add import WatchlistAddError, format_watchlist_add_error
-from manga_watch.source_search import SearchResult, UnsupportedSourceSearchError, search_source
+from manga_watch.source_search import (
+    SearchResult,
+    UnsupportedSourceSearchError,
+    search_source,
+    supported_search_sources,
+)
 from manga_watch.watchlist import add_watchlist_url
 
 SEARCH_COMMAND = "search"
@@ -16,9 +21,12 @@ SEARCH_MISSING_SOURCE_MESSAGE = "検索したい媒体を `source` で指定し�
 SEARCH_MISSING_QUERY_MESSAGE = "検索したい文字列を `query` で指定してください。"
 SEARCH_FAILURE_MESSAGE = "作品検索に失敗しました。サーバーログを確認してください。"
 SEARCH_NO_RESULTS_MESSAGE = "検索結果が見つかりませんでした。"
+SEARCH_CROSS_SOURCE_MESSAGE = "横断検索結果です。1件選んでください。"
 MAX_COMPONENT_TEXT = 100
 MAX_COMPONENT_VALUE = 100
 MAX_SELECT_URL_CACHE_SIZE = 256
+MAX_SELECT_OPTIONS = 25
+DEFAULT_CROSS_SOURCE_LIMIT = 3
 SELECT_URL_TOKEN_PREFIX = "u:"
 
 _SEARCH_SELECT_URL_CACHE: "OrderedDict[str, str]" = OrderedDict()
@@ -106,10 +114,96 @@ def _format_search_add_response(result: Mapping[str, object]) -> str:
     return "\n".join(lines)
 
 
+def _dedupe_bucket_results(results: Sequence[SearchResult], *, default_source: str) -> List[SearchResult]:
+    unique_results: List[SearchResult] = []
+    seen_keys = set()
+    for result in results:
+        source_name = _coerce_text(result.source) or default_source
+        seed_url = _coerce_text(result.seed_url)
+        title = _coerce_text(result.title)
+        if not seed_url or not title:
+            continue
+        dedupe_key = (source_name, seed_url)
+        if dedupe_key in seen_keys:
+            continue
+        seen_keys.add(dedupe_key)
+        unique_results.append(
+            SearchResult(
+                source=source_name,
+                title=title,
+                seed_url=seed_url,
+                subtitle=_coerce_text(result.subtitle),
+            )
+        )
+    return unique_results
+
+
+def _interleave_result_buckets(
+    result_buckets: Sequence[Sequence[SearchResult]],
+    *,
+    max_results: int,
+) -> List[SearchResult]:
+    interleaved: List[SearchResult] = []
+    max_bucket_size = max((len(bucket) for bucket in result_buckets), default=0)
+    for index in range(max_bucket_size):
+        for bucket in result_buckets:
+            if index >= len(bucket):
+                continue
+            interleaved.append(bucket[index])
+            if len(interleaved) >= max_results:
+                return interleaved
+    return interleaved
+
+
+def _build_select_options(
+    results: Sequence[SearchResult],
+    *,
+    cross_source: bool,
+) -> List[Dict[str, str]]:
+    return [
+        {
+            "label": _truncate_component_text(result.title),
+            "value": _select_option_value(result.seed_url),
+            "description": _truncate_component_text(
+                result.source if cross_source else (result.subtitle or result.source)
+            ),
+        }
+        for result in results[:MAX_SELECT_OPTIONS]
+    ]
+
+
+def _build_search_response(
+    *,
+    content: str,
+    results: Sequence[SearchResult],
+    visibility: str,
+    cross_source: bool,
+) -> Dict[str, object]:
+    return {
+        "content": content,
+        "components": [
+            {
+                "type": 1,
+                "components": [
+                    {
+                        "type": 3,
+                        "custom_id": f"{SEARCH_SELECT_CUSTOM_ID_PREFIX}:{visibility}",
+                        "placeholder": "追加する作品を選択",
+                        "min_values": 1,
+                        "max_values": 1,
+                        "options": _build_select_options(results, cross_source=cross_source),
+                    }
+                ],
+            }
+        ],
+    }
+
+
 @dataclass
 class SearchCommandHandler:
     search_source: Callable[..., List[SearchResult]] = search_source
     add_subscription: Callable[..., Mapping[str, object]] = add_watchlist_url
+    supported_sources: Callable[[], Sequence[str]] = supported_search_sources
 
     def start(
         self,
@@ -125,10 +219,18 @@ class SearchCommandHandler:
         normalized_query = _coerce_text(query)
         if not normalized_query:
             return {"content": SEARCH_MISSING_QUERY_MESSAGE}
-        if not normalized_source:
-            return {"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}
 
         normalized_visibility = _normalize_visibility(visibility)
+        if not normalized_source:
+            try:
+                return self._start_cross_source(
+                    query=normalized_query,
+                    visibility=normalized_visibility,
+                    http_client=http_client,
+                )
+            except Exception:
+                return {"content": SEARCH_FAILURE_MESSAGE, "components": []}
+
         try:
             results = self.search_source(
                 normalized_source,
@@ -144,33 +246,48 @@ class SearchCommandHandler:
         if not results:
             return {"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}
 
-        options = [
-            {
-                "label": _truncate_component_text(result.title),
-                "value": _select_option_value(result.seed_url),
-                "description": _truncate_component_text(result.subtitle or result.source),
-            }
-            for result in results[:25]
-        ]
+        return _build_search_response(
+            content=f"{normalized_source} の検索結果です。1件選んでください。",
+            results=results,
+            visibility=normalized_visibility,
+            cross_source=False,
+        )
 
-        return {
-            "content": f"{normalized_source} の検索結果です。1件選んでください。",
-            "components": [
-                {
-                    "type": 1,
-                    "components": [
-                        {
-                            "type": 3,
-                            "custom_id": f"{SEARCH_SELECT_CUSTOM_ID_PREFIX}:{normalized_visibility}",
-                            "placeholder": "追加する作品を選択",
-                            "min_values": 1,
-                            "max_values": 1,
-                            "options": options,
-                        }
-                    ],
-                }
-            ],
-        }
+    def _start_cross_source(
+        self,
+        *,
+        query: str,
+        visibility: str,
+        http_client: object = None,
+    ) -> Dict[str, object]:
+        buckets: List[List[SearchResult]] = []
+        for source_name in self.supported_sources():
+            results = self.search_source(
+                source_name,
+                query,
+                http_client=http_client,
+                limit=DEFAULT_CROSS_SOURCE_LIMIT,
+            )
+            deduped_results = _dedupe_bucket_results(results, default_source=source_name)
+            if deduped_results:
+                buckets.append(deduped_results[:DEFAULT_CROSS_SOURCE_LIMIT])
+
+        if not buckets:
+            return {"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}
+
+        interleaved_results = _interleave_result_buckets(
+            buckets,
+            max_results=MAX_SELECT_OPTIONS,
+        )
+        if not interleaved_results:
+            return {"content": SEARCH_NO_RESULTS_MESSAGE, "components": []}
+
+        return _build_search_response(
+            content=SEARCH_CROSS_SOURCE_MESSAGE,
+            results=interleaved_results,
+            visibility=visibility,
+            cross_source=True,
+        )
 
     def handle_component(
         self,
