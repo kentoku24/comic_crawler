@@ -1,5 +1,4 @@
 #!/usr/bin/env python3
-import argparse
 import json
 from dataclasses import dataclass
 from typing import Dict, Optional, Sequence
@@ -38,6 +37,66 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="comic-earthstar",
+        domains=("comic-earthstar.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comic-earthstar.com/episode/12207421983526541742",
+            "https://comic-earthstar.com/rss/series/12207421983526538413",
+            "https://comic-earthstar.com/atom/series/12207421983526538413",
+        ),
+    ),
+    SourceCapability(
+        source="comicborder",
+        domains=("comicborder.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comicborder.com/episode/12207421983437812169",
+            "https://comicborder.com/rss/series/12207421983437805229",
+            "https://comicborder.com/atom/series/12207421983437805229",
+        ),
+    ),
+    SourceCapability(
+        source="comic-trail",
+        domains=("comic-trail.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comic-trail.com/episode/2550689798402927313",
+            "https://comic-trail.com/rss/series/14079602755560047206",
+            "https://comic-trail.com/atom/series/14079602755560047206",
+        ),
+    ),
+    SourceCapability(
+        source="kuragebunch",
+        domains=("kuragebunch.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://kuragebunch.com/episode/2550912964856491139",
+            "https://kuragebunch.com/rss/series/2550912964856487532",
+            "https://kuragebunch.com/atom/series/2550912964856487532",
+        ),
+    ),
+    SourceCapability(
+        source="shonenjumpplus",
+        domains=("shonenjumpplus.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://shonenjumpplus.com/episode/17107419589191805801",
+            "https://shonenjumpplus.com/rss/series/3269754496881854342",
+            "https://shonenjumpplus.com/atom/series/3269754496881854342",
+        ),
+    ),
+    SourceCapability(
+        source="sunday-webry",
+        domains=("sunday-webry.com", "www.sunday-webry.com"),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://www.sunday-webry.com/episode/12207421983581042977",
+            "https://www.sunday-webry.com/rss/series/12207421983580960894",
+            "https://www.sunday-webry.com/atom/series/12207421983580960894",
+        ),
+    ),
+    SourceCapability(
         source="champion-cross",
         domains=("championcross.jp",),
         input_labels=("episode URL", "series URL", "series RSS URL"),
@@ -48,6 +107,34 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="magapoke",
+        domains=("pocket.shonenmagazine.com",),
+        input_labels=("title URL", "episode URL"),
+        examples=(
+            "https://pocket.shonenmagazine.com/title/03021",
+            "https://pocket.shonenmagazine.com/title/03021/episode/427856",
+        ),
+    ),
+    SourceCapability(
+        source="firecross",
+        domains=("firecross.jp",),
+        input_labels=("reader URL", "ebook series URL"),
+        examples=(
+            "https://firecross.jp/reader/19386",
+            "https://firecross.jp/ebook/series/358",
+        ),
+    ),
+    SourceCapability(
+        source="takecomic",
+        domains=("takecomic.jp",),
+        input_labels=("episode URL", "series URL", "series RSS URL"),
+        examples=(
+            "https://takecomic.jp/episodes/0123456789ab",
+            "https://takecomic.jp/series/0123456789ab",
+            "https://takecomic.jp/series/0123456789ab/rss",
+        ),
+    ),
+    SourceCapability(
         source="kakuyomu",
         domains=("kakuyomu.jp",),
         input_labels=("work URL", "episode URL"),
@@ -55,6 +142,21 @@ SOURCE_CAPABILITIES = (
             "https://kakuyomu.jp/works/12345678901234567890",
             "https://kakuyomu.jp/works/12345678901234567890/episodes/12345678901234567891",
         ),
+    ),
+    SourceCapability(
+        source="nicovideo-manga",
+        domains=("manga.nicovideo.jp",),
+        input_labels=("comic URL",),
+        examples=(
+            "https://manga.nicovideo.jp/comic/53764",
+            "https://sp.manga.nicovideo.jp/comic/53764",
+        ),
+    ),
+    SourceCapability(
+        source="gaugau",
+        domains=("gaugau.futabanet.jp",),
+        input_labels=("work URL",),
+        examples=("https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",),
     ),
 )
 
@@ -74,19 +176,11 @@ class WatchlistAddError(RuntimeError):
         }
 
 
-class WatchlistArgumentParser(argparse.ArgumentParser):
-    def error(self, message: str) -> None:
-        raise WatchlistAddError(
-            "usage",
-            message,
-            "Run `python3 -m manga_watch.watchlist add <url> [--watchlist <path>]`.",
-        )
-
-
 def add_watchlist_url(
     url: str,
     *,
     watchlist_path: Optional[str] = None,
+    hidden: bool = False,
     adapters: Optional[Sequence[SourceAdapter]] = None,
     http_client: Optional[HttpClient] = None,
 ) -> Dict[str, object]:
@@ -103,7 +197,7 @@ def add_watchlist_url(
         raise WatchlistAddError(
             "load_watchlist",
             f"Failed to load watchlist: {exc}",
-            "Fix the watchlist path or JSON payload, then rerun `watchlist add`.",
+            "Fix the watchlist path or JSON payload, then retry the work registration flow.",
         ) from exc
 
     existing = find_duplicate_entry(watchlist["works"], str(entry["id"]))
@@ -118,6 +212,7 @@ def add_watchlist_url(
         }
 
     works = list(watchlist["works"])
+    entry["hidden"] = hidden
     works.append(entry)
     updated_watchlist = {"version": watchlist["version"], "works": works}
     try:
@@ -126,7 +221,7 @@ def add_watchlist_url(
         raise WatchlistAddError(
             "save_watchlist",
             f"Failed to save watchlist: {exc}",
-            "Check write permissions and disk state, then rerun `watchlist add`.",
+            "Check write permissions and disk state, then retry the work registration flow.",
         ) from exc
 
     return {
@@ -164,7 +259,7 @@ def build_watchlist_preview(
         if message.startswith("Unsupported URL:") or "could not parse" in message:
             raise WatchlistAddError(
                 "unsupported_url_type",
-                f"{capability.source} does not support this URL type for `watchlist add`: {url}",
+                f"{capability.source} does not support this URL type for work registration: {url}",
                 capability_hint(capability),
             ) from exc
         raise WatchlistAddError(
@@ -208,38 +303,24 @@ def find_duplicate_entry(works, work_id: str) -> Optional[Dict[str, object]]:
     return None
 
 
-def parse_args(argv=None):
-    parser = WatchlistArgumentParser(description="Manage comic_crawler watchlist v2.")
-    subparsers = parser.add_subparsers(dest="command")
-
-    add_parser = subparsers.add_parser("add", help="Normalize a URL and add it to watchlist v2.")
-    add_parser.add_argument("url")
-    add_parser.add_argument("--watchlist", dest="watchlist_path")
-    return parser.parse_args(argv)
+def retired_cli_payload() -> Dict[str, object]:
+    error = WatchlistAddError(
+        "deprecated_cli",
+        "`python -m manga_watch.watchlist add ...` has been retired.",
+        "Use Discord `/add url:<作品URL>` for work registration.",
+    )
+    return {
+        "action": "error",
+        "input_url": "",
+        "watchlist_path": get_watchlist_path(),
+        "error": error.to_dict(),
+    }
 
 
 def main(argv=None) -> int:
-    args = None
-    try:
-        args = parse_args(argv)
-        if args.command != "add":
-            raise WatchlistAddError(
-                "usage",
-                "missing command",
-                "Run `python3 -m manga_watch.watchlist add <url> [--watchlist <path>]`.",
-            )
-        payload = add_watchlist_url(args.url, watchlist_path=args.watchlist_path)
-        print(json.dumps(payload, ensure_ascii=False))
-        return 0
-    except WatchlistAddError as exc:
-        payload = {
-            "action": "error",
-            "input_url": str(getattr(args, "url", "") or "").strip(),
-            "watchlist_path": getattr(args, "watchlist_path", None) or get_watchlist_path(),
-            "error": exc.to_dict(),
-        }
-        print(json.dumps(payload, ensure_ascii=False))
-        return 1
+    del argv
+    print(json.dumps(retired_cli_payload(), ensure_ascii=False))
+    return 1
 
 
 if __name__ == "__main__":

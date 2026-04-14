@@ -5,7 +5,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from manga_watch.watchlist import add_watchlist_url
+from manga_watch.watchlist import WatchlistAddError, add_watchlist_url
 
 
 def write_watchlist(path: Path, works):
@@ -25,82 +25,61 @@ class StaticHttpClient:
         return self.responses[url]
 
 
-class WatchlistCliTests(unittest.TestCase):
+class WatchlistAddLogicTests(unittest.TestCase):
     maxDiff = None
 
-    def run_watchlist_module(self, *args):
-        repo_root = Path(__file__).resolve().parents[1]
-        return subprocess.run(
-            [sys.executable, "-m", "manga_watch.watchlist", *args],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-    def test_watchlist_add_adds_entry_from_supported_work_url(self):
+    def test_add_watchlist_url_adds_entry_from_supported_work_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [])
 
-            result = self.run_watchlist_module(
-                "add",
+            payload = add_watchlist_url(
                 "https://kakuyomu.jp/works/123",
-                "--watchlist",
-                str(watchlist_path),
+                watchlist_path=str(watchlist_path),
             )
             saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        payload = json.loads(result.stdout)
         self.assertEqual("added", payload["action"])
         self.assertEqual("kakuyomu:123", payload["entry"]["id"])
         self.assertEqual("https://kakuyomu.jp/works/123", payload["entry"]["seed_url"])
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
-    def test_watchlist_add_reports_duplicate_without_writing_second_entry(self):
+    def test_add_watchlist_url_reports_duplicate_without_writing_second_entry(self):
         existing_entry = {
             "id": "kakuyomu:123",
             "source": "kakuyomu",
             "seed_url": "https://kakuyomu.jp/works/123/episodes/456",
             "enabled": True,
+            "hidden": False,
             "notification_policy": {"mode": "all", "allowed_update_types": None},
         }
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [existing_entry])
 
-            result = self.run_watchlist_module(
-                "add",
+            payload = add_watchlist_url(
                 "https://kakuyomu.jp/works/123",
-                "--watchlist",
-                str(watchlist_path),
+                watchlist_path=str(watchlist_path),
             )
             saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        payload = json.loads(result.stdout)
         self.assertEqual("duplicate", payload["action"])
         self.assertEqual(existing_entry, payload["existing"])
         self.assertEqual(1, payload["work_count"])
         self.assertEqual([existing_entry], saved["works"])
 
-    def test_watchlist_add_adds_entry_from_comic_action_series_feed_url(self):
+    def test_add_watchlist_url_adds_entry_from_comic_action_series_feed_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [])
 
-            result = self.run_watchlist_module(
-                "add",
+            payload = add_watchlist_url(
                 "https://comic-action.com/rss/series/13933686331606207128?free_only=1",
-                "--watchlist",
-                str(watchlist_path),
+                watchlist_path=str(watchlist_path),
             )
             saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        payload = json.loads(result.stdout)
         self.assertEqual("added", payload["action"])
         self.assertEqual("comic-action:13933686331606207128", payload["entry"]["id"])
         self.assertEqual(
@@ -110,34 +89,47 @@ class WatchlistCliTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
-    def test_watchlist_add_reports_duplicate_for_comic_action_series_feed_url(self):
+    def test_add_watchlist_url_reports_duplicate_for_comic_action_series_feed_url(self):
         existing_entry = {
             "id": "comic-action:13933686331606207128",
             "source": "comic-action",
             "seed_url": "https://comic-action.com/episode/11341664176570134078",
             "enabled": True,
+            "hidden": False,
             "notification_policy": {"mode": "all", "allowed_update_types": None},
         }
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [existing_entry])
 
-            result = self.run_watchlist_module(
-                "add",
+            payload = add_watchlist_url(
                 "https://comic-action.com/atom/series/13933686331606207128",
-                "--watchlist",
-                str(watchlist_path),
+                watchlist_path=str(watchlist_path),
             )
             saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
 
-        self.assertEqual(0, result.returncode, msg=result.stderr)
-        payload = json.loads(result.stdout)
         self.assertEqual("duplicate", payload["action"])
         self.assertEqual(existing_entry, payload["existing"])
         self.assertEqual(1, payload["work_count"])
         self.assertEqual([existing_entry], saved["works"])
 
-    def test_watchlist_add_accepts_champion_cross_episode_url(self):
+    def test_add_watchlist_url_can_store_hidden_entries(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://kakuyomu.jp/works/123",
+                watchlist_path=str(watchlist_path),
+                hidden=True,
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertTrue(payload["entry"]["hidden"])
+        self.assertTrue(saved["works"][0]["hidden"])
+
+    def test_add_watchlist_url_accepts_champion_cross_episode_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [])
@@ -168,72 +160,497 @@ class WatchlistCliTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
+    def test_add_watchlist_url_accepts_comic_trail_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://comic-trail.com/episode/2550689798402927313?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://comic-trail.com/episode/2550689798402927313": """
+                        <html>
+                          <head>
+                            <title>第1話 始まり / 作品E | コミックトレイル</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://comic-trail.com/rss/series/14079602755560047206">
+                          </head>
+                          <body>
+                            <script>
+                              window.__DATA__ = {"series_id":"14079602755560047206"};
+                            </script>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("comic-trail:14079602755560047206", payload["entry"]["id"])
+        self.assertEqual(
+            "https://comic-trail.com/rss/series/14079602755560047206",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("comic-trail", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_magapoke_episode_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://pocket.shonenmagazine.com/title/03021/episode/427856?utm_source=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://pocket.shonenmagazine.com/title/03021": """
+                        <html>
+                          <head>
+                            <link rel="alternate" type="application/rss+xml" href="https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml">
+                          </head>
+                          <body></body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("magapoke:3021", payload["entry"]["id"])
+        self.assertEqual(
+            "https://pocket.shonenmagazine.com/title/03021",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("magapoke", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_takecomic_series_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://takecomic.jp/series/3f846451aff2d/?utm_source=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient({}),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("takecomic:3f846451aff2d", payload["entry"]["id"])
+        self.assertEqual(
+            "https://takecomic.jp/series/3f846451aff2d",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("takecomic", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_shonenjumpplus_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://shonenjumpplus.com/episode/17107419589191805801?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://shonenjumpplus.com/episode/17107419589191805801": """
+                        <html>
+                          <head>
+                            <title>[159話]マリッジトキシン - 静脈/依田瑞稀 | 少年ジャンプ＋</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://shonenjumpplus.com/rss/series/3269754496881854342">
+                          </head>
+                          <body></body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("shonenjumpplus:3269754496881854342", payload["entry"]["id"])
+        self.assertEqual(
+            "https://shonenjumpplus.com/rss/series/3269754496881854342",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("shonenjumpplus", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_comicborder_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://comicborder.com/episode/12207421983437812169?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://comicborder.com/episode/12207421983437812169": """
+                        <html>
+                          <head>
+                            <title>マヨネーズ王は貧乏になりたい！【男女比１：１００】世界で逝く勘違い出世街道 - 神影龍之介/馬路まんじ / 第01話 死んでサイタマ　～異世界全方位成り上がりRTA開始（※望んでない）～ | コミックボーダー</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://comicborder.com/rss/series/12207421983437805229">
+                          </head>
+                          <body></body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("comicborder:12207421983437805229", payload["entry"]["id"])
+        self.assertEqual(
+            "https://comicborder.com/rss/series/12207421983437805229",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("comicborder", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_comic_earthstar_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://comic-earthstar.com/episode/12207421983526541742?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://comic-earthstar.com/episode/12207421983526541742": """
+                        <html>
+                          <head>
+                            <title>第1話 / 魔物（マンドラゴラ）ってバレたら討伐ですか？ ～花の魔女のほほえみは勘違いの種を蒔く～ - 漫画：大林ポチ子/原作：Mikura/キャラクター原案：中西達哉 | コミック アース・スター</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://comic-earthstar.com/rss/series/12207421983526538413">
+                          </head>
+                          <body></body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("comic-earthstar:12207421983526538413", payload["entry"]["id"])
+        self.assertEqual(
+            "https://comic-earthstar.com/rss/series/12207421983526538413",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("comic-earthstar", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_sunday_webry_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://www.sunday-webry.com/episode/12207421983581042977?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://www.sunday-webry.com/episode/12207421983581042977": """
+                        <html>
+                          <head>
+                            <title>diary1 つきこと先生 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり</title>
+                            <link rel="alternate" type="application/atom+xml" title="Atom" href="https://www.sunday-webry.com/atom/series/12207421983580960894">
+                            <link rel="alternate" type="application/rss+xml" title="RSS2.0" href="https://www.sunday-webry.com/rss/series/12207421983580960894">
+                          </head>
+                          <body>
+                            <script id="episode-json" type="text/json" data-value='{&quot;readableProduct&quot;:{&quot;series&quot;:{&quot;id&quot;:&quot;12207421983580960894&quot;}}}'></script>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("sunday-webry:12207421983580960894", payload["entry"]["id"])
+        self.assertEqual(
+            "https://www.sunday-webry.com/rss/series/12207421983580960894",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("sunday-webry", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_kuragebunch_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://kuragebunch.com/episode/2550912964856491139?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://kuragebunch.com/episode/2550912964856491139": """
+                        <html>
+                          <head>
+                            <title>赤と青のガウン - 彬子女王/池辺葵 / 第1話 | くらげバンチ</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://kuragebunch.com/rss/series/2550912964856487532">
+                          </head>
+                          <body>
+                            <div data-gtm-data-layer="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;2550912964856487532&quot;}}"></div>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("kuragebunch:2550912964856487532", payload["entry"]["id"])
+        self.assertEqual(
+            "https://kuragebunch.com/rss/series/2550912964856487532",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("kuragebunch", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_sunday_webry_apex_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://sunday-webry.com/episode/12207421983581042977?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://www.sunday-webry.com/episode/12207421983581042977": """
+                        <html>
+                          <head>
+                            <title>diary1 つきこと先生 / しっぽと逆鱗 - 由田果 | サンデーうぇぶり</title>
+                            <link rel="alternate" type="application/atom+xml" title="Atom" href="https://www.sunday-webry.com/atom/series/12207421983580960894">
+                            <link rel="alternate" type="application/rss+xml" title="RSS2.0" href="https://www.sunday-webry.com/rss/series/12207421983580960894">
+                          </head>
+                          <body>
+                            <script id="episode-json" type="text/json" data-value='{&quot;readableProduct&quot;:{&quot;series&quot;:{&quot;id&quot;:&quot;12207421983580960894&quot;}}}'></script>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("sunday-webry:12207421983580960894", payload["entry"]["id"])
+        self.assertEqual(
+            "https://www.sunday-webry.com/rss/series/12207421983580960894",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("sunday-webry", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_firecross_reader_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://firecross.jp/reader/19386?trial=0&token=temp&vertical=0",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://firecross.jp/reader/19386": """
+                        <html>
+                          <body>
+                            <a href="https://firecross.jp/series/series-abc">作品詳細</a>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("firecross:series-abc", payload["entry"]["id"])
+        self.assertEqual(
+            "https://firecross.jp/reader/19386",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("firecross", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_add_watchlist_url_accepts_firecross_ebook_series_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://firecross.jp/ebook/series/358?sort=latest",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient({}),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("firecross:358", payload["entry"]["id"])
+        self.assertEqual(
+            "https://firecross.jp/ebook/series/358",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("firecross", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_watchlist_add_accepts_nicovideo_sp_comic_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://sp.manga.nicovideo.jp/comic/53764?track=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient({}),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("nicovideo-manga:53764", payload["entry"]["id"])
+        self.assertEqual(
+            "https://manga.nicovideo.jp/comic/53764",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("nicovideo-manga", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_watchlist_add_accepts_gaugau_work_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000?from=search",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient({}),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("gaugau:600a5fd37765610d30010000", payload["entry"]["id"])
+        self.assertEqual(
+            "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("gaugau", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
     def test_watchlist_add_reports_unsupported_source(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
             write_watchlist(watchlist_path, [])
 
-            result = self.run_watchlist_module(
-                "add",
-                "https://example.com/work/1",
-                "--watchlist",
-                str(watchlist_path),
-            )
+class WatchlistCliRetirementTests(unittest.TestCase):
+    maxDiff = None
+
+    def run_watchlist_module(self, *args):
+        repo_root = Path(__file__).resolve().parents[1]
+        return subprocess.run(
+            [sys.executable, "-m", "manga_watch.watchlist", *args],
+            cwd=repo_root,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+
+    def test_watchlist_cli_reports_deprecated_when_called_with_add(self):
+        result = self.run_watchlist_module("add", "https://example.com/work/1")
 
         self.assertEqual(1, result.returncode)
         payload = json.loads(result.stdout)
         self.assertEqual("error", payload["action"])
-        self.assertEqual("unsupported_source", payload["error"]["kind"])
+        self.assertEqual("deprecated_cli", payload["error"]["kind"])
+        self.assertIn("retired", payload["error"]["message"])
+        self.assertIn("/add", payload["error"]["next_action"])
 
-    def test_watchlist_add_reports_unsupported_url_type_for_supported_source(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            watchlist_path = Path(tmpdir) / "watchlist.json"
-            write_watchlist(watchlist_path, [])
-
-            result = self.run_watchlist_module(
-                "add",
-                "https://comic-action.com/series/123",
-                "--watchlist",
-                str(watchlist_path),
-            )
-
-        self.assertEqual(1, result.returncode)
-        payload = json.loads(result.stdout)
-        self.assertEqual("error", payload["action"])
-        self.assertEqual("unsupported_url_type", payload["error"]["kind"])
-
-    def test_watchlist_add_reports_invalid_url(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            watchlist_path = Path(tmpdir) / "watchlist.json"
-            write_watchlist(watchlist_path, [])
-
-            result = self.run_watchlist_module(
-                "add",
-                "not-a-url",
-                "--watchlist",
-                str(watchlist_path),
-            )
-
-        self.assertEqual(1, result.returncode)
-        payload = json.loads(result.stdout)
-        self.assertEqual("error", payload["action"])
-        self.assertEqual("invalid_url", payload["error"]["kind"])
-
-    def test_watchlist_add_reports_usage_errors_as_json(self):
+    def test_watchlist_cli_reports_deprecated_without_arguments(self):
         result = self.run_watchlist_module()
 
         self.assertEqual(1, result.returncode)
         payload = json.loads(result.stdout)
         self.assertEqual("error", payload["action"])
-        self.assertEqual("usage", payload["error"]["kind"])
+        self.assertEqual("deprecated_cli", payload["error"]["kind"])
 
-    def test_watchlist_add_missing_url_reports_usage_as_json(self):
-        result = self.run_watchlist_module("add")
+    def test_add_watchlist_url_reports_unsupported_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
 
-        self.assertEqual(1, result.returncode)
-        payload = json.loads(result.stdout)
-        self.assertEqual("error", payload["action"])
-        self.assertEqual("usage", payload["error"]["kind"])
+            with self.assertRaisesRegex(WatchlistAddError, "Unsupported source host: example.com"):
+                add_watchlist_url(
+                    "https://example.com/work/1",
+                    watchlist_path=str(watchlist_path),
+                )
+
+    def test_add_watchlist_url_reports_unsupported_url_type_for_supported_source(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            with self.assertRaisesRegex(
+                WatchlistAddError,
+                "does not support this URL type for work registration",
+            ):
+                add_watchlist_url(
+                    "https://comic-action.com/series/123",
+                    watchlist_path=str(watchlist_path),
+                )
+
+    def test_add_watchlist_url_reports_unsupported_url_type_for_firecross_series_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            with self.assertRaisesRegex(
+                WatchlistAddError,
+                "does not support this URL type for work registration",
+            ):
+                add_watchlist_url(
+                    "https://firecross.jp/series/series-abc",
+                    watchlist_path=str(watchlist_path),
+                )
+
+    def test_add_watchlist_url_reports_invalid_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            with self.assertRaisesRegex(
+                WatchlistAddError,
+                "Input must be an absolute http\\(s\\) URL",
+            ):
+                add_watchlist_url(
+                    "not-a-url",
+                    watchlist_path=str(watchlist_path),
+                )
 
 
 if __name__ == "__main__":

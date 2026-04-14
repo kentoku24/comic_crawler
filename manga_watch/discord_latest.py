@@ -103,6 +103,8 @@ def build_latest_query_lines(
             raise ValueError("watchlist entry must be an object")
         if not bool(raw_entry.get("enabled")):
             continue
+        if bool(raw_entry.get("hidden")):
+            continue
 
         work_id = str(raw_entry.get("id") or "").strip()
         if not work_id:

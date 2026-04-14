@@ -4,6 +4,7 @@ __pycache__/
 .venv/
 .env
 .worktrees/
+.web_admin.sqlite3
 
 # Local state (optional)
 # If you want to commit state.json, remove the next line.

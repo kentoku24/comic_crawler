@@ -8,6 +8,7 @@ import threading
 import time
 import unittest
 from pathlib import Path
+from unittest import mock
 
 import requests
 
@@ -24,6 +25,8 @@ from manga_watch.runner import (
     TRIGGER_SOURCE_DISCORD_FETCH,
     TRIGGER_SOURCE_SCHEDULED,
     TRIGGER_SOURCE_STARTUP,
+    _run_generic_notification_phase,
+    _send_run_report_phase,
     RunCoordinator,
     RunnerConfig,
     replay_outbox_once,
@@ -142,6 +145,26 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(2, result.returncode)
         self.assertIn("[runner] configuration error:", result.stderr)
         self.assertIn("MANGA_WATCH_NOTIFIER_BACKENDS", result.stderr)
+
+    def test_run_once_records_run_summary_when_recorder_is_injected(self):
+        recorded = []
+
+        def checker(_watchlist_path):
+            return {"updates": [], "errors": {"sources": [], "run": []}}
+
+        outcome = run_once(
+            self.make_config(),
+            checker=checker,
+            state_loader=lambda: {"version": 2, "works": {}, "last_run_at": None, "notification_outbox": [], "discord_delivery": {"daily_notification": {"delivered_latest_keys": {}, "pending_messages": []}}},
+            state_saver=lambda _state: None,
+            run_recorder=lambda summary: recorded.append(dict(summary)) or "run-1",
+            report_logger=lambda _message: None,
+            error_logger=lambda _message: None,
+        )
+
+        self.assertEqual("run-1", outcome["runId"])
+        self.assertEqual(1, len(recorded))
+        self.assertTrue(recorded[0]["ok"])
 
     def make_config(self, *, with_discord=False):
         return RunnerConfig(
@@ -426,6 +449,49 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("通知対象: 1件", reports[0])
         self.assertIn("通知抑制: 0件", reports[0])
 
+    def test_run_once_records_run_summary(self):
+        recorded = []
+
+        outcome = run_once(
+            self.make_config(),
+            notifier=FakeNotifier(),
+            checker=lambda _: {"updates": [self.make_update()]},
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            run_recorder=recorded.append,
+            now_fn=lambda: 1_700_000_000,
+            report_logger=lambda _: None,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        self.assertTrue(outcome["ok"])
+        self.assertEqual(1, len(recorded))
+        self.assertEqual(outcome, recorded[0])
+
+    def test_run_once_reports_failure_when_run_recorder_raises(self):
+        reports = []
+        errors = []
+
+        outcome = run_once(
+            self.make_config(),
+            notifier=FakeNotifier(),
+            checker=lambda _: {"updates": [self.make_update()]},
+            state_loader=self.make_state,
+            state_saver=lambda _: None,
+            run_recorder=lambda _summary: (_ for _ in ()).throw(RuntimeError("firestore write failed")),
+            now_fn=lambda: 1_700_000_000,
+            report_logger=reports.append,
+            error_logger=errors.append,
+        )
+
+        self.assertFalse(outcome["ok"])
+        self.assertEqual([], reports)
+        self.assertEqual(1, outcome["errorCount"])
+        self.assertIn("record_run_summary", outcome["error"])
+        self.assertEqual(1, len(errors))
+        self.assertIn("巡回実行に失敗しました", errors[0])
+        self.assertIn("record_run_summary", errors[0])
+
     def test_run_once_suppresses_bonus_updates_from_notifier_but_reports_them(self):
         notifier = FakeNotifier()
         reports = []
@@ -629,6 +695,37 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn("work-1: update event work-1 is missing latest_key", errors[0])
 
+    def test_generic_notification_phase_continues_delivering_valid_updates_when_one_payload_is_invalid(self):
+        notifier = FakeNotifier()
+        errors = {"sources": [], "run": []}
+        store, load_from_store, save_to_store = self.make_state_store()
+        invalid_update = self.make_update()
+        invalid_update["to"] = {
+            "series_title": "作品A",
+            "episode_title": "第2話",
+            "update_type": "main_story",
+            "default_notify": True,
+        }
+
+        phase = _run_generic_notification_phase(
+            state=load_from_store(),
+            notify_updates=[invalid_update, self.make_update(latest_key="episode-3")],
+            named_notifiers={"stdout": notifier},
+            detected_at="2023-11-14T22:13:20Z",
+            state_saver=save_to_store,
+            errors=errors,
+            redaction_secrets=(),
+        )
+
+        self.assertEqual(0, phase.outbox_pending_count)
+        self.assertEqual([], phase.delivery_failures)
+        self.assertEqual(1, len(notifier.events))
+        self.assertEqual("episode-3", notifier.events[0].latest_key)
+        self.assertEqual(1, len(errors["run"]))
+        self.assertEqual("build_update_event", errors["run"][0]["stage"])
+        self.assertIn("work-1: update event work-1 is missing latest_key", errors["run"][0]["message"])
+        self.assertEqual([], store["notification_outbox"])
+
     def test_build_update_event_requires_explicit_latest_key_without_fallback(self):
         invalid_update = self.make_update()
         invalid_update["to"] = {
@@ -737,6 +834,46 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual([], store["discord_delivery"]["daily_notification"]["pending_messages"])
         self.assertEqual(1, len(reports))
         self.assertIn("daily notification: 送信した", reports[0])
+
+    def test_run_once_with_discord_outbound_skips_hidden_daily_notifications(self):
+        discord = FakeDiscordClient()
+        reports = []
+        store, load_from_store, save_to_store = self.make_state_store()
+
+        with mock.patch(
+            "manga_watch.runner.load_watchlist",
+            return_value={
+                "version": 2,
+                "works": [
+                    {
+                        "id": "work-1",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-1",
+                        "enabled": True,
+                        "hidden": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    }
+                ],
+            },
+        ):
+            outcome = run_once(
+                self.make_config(with_discord=True),
+                notifier=FakeNotifier(),
+                discord_client=discord,
+                checker=lambda _: {"updates": [self.make_update()]},
+                state_loader=load_from_store,
+                state_saver=save_to_store,
+                now_fn=lambda: 1_700_000_000,
+                report_logger=reports.append,
+                error_logger=lambda _: self.fail("unexpected error log"),
+            )
+
+        self.assertTrue(outcome["ok"])
+        self.assertFalse(outcome["dailyNotificationSent"])
+        self.assertEqual(["run-report-channel"], [call["channel_id"] for call in discord.calls])
+        self.assertEqual({}, store["discord_delivery"]["daily_notification"]["delivered_latest_keys"])
+        self.assertEqual([], store["discord_delivery"]["daily_notification"]["pending_messages"])
+        self.assertIn("daily notification: 送信なし", reports[0])
 
     def test_run_once_replays_pending_daily_notification_on_next_run(self):
         failing_discord = FakeDiscordClient(fail_channels={"main-channel"})
@@ -851,6 +988,29 @@ class RunnerTests(unittest.TestCase):
         self.assertFalse(outcome["ok"])
         self.assertEqual(1, len(discord.calls))
         self.assertEqual("run-report-channel", discord.calls[0]["channel_id"])
+        self.assertEqual(1, len(errors))
+        self.assertIn("run report 自体の送信に失敗しました", errors[0])
+        self.assertIn("トリガー: scheduled", errors[0])
+
+    def test_send_run_report_phase_logs_delivery_error_and_returns_exception(self):
+        config = self.make_config(with_discord=True)
+        discord = FakeDiscordClient(fail_channels={"run-report-channel"})
+        errors = []
+
+        run_report_delivery_error = _send_run_report_phase(
+            config=config,
+            resolved_discord_client=discord,
+            run_report="report body",
+            timestamp="2023-11-14 22:13:20 JST",
+            trigger_source=TRIGGER_SOURCE_SCHEDULED,
+            error_logger=errors.append,
+            redaction_secrets=(),
+        )
+
+        self.assertIsInstance(run_report_delivery_error, RuntimeError)
+        self.assertEqual(1, len(discord.calls))
+        self.assertEqual("run-report-channel", discord.calls[0]["channel_id"])
+        self.assertEqual("report body", discord.calls[0]["content"])
         self.assertEqual(1, len(errors))
         self.assertIn("run report 自体の送信に失敗しました", errors[0])
         self.assertIn("トリガー: scheduled", errors[0])

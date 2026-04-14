@@ -5,6 +5,7 @@ from pathlib import Path
 from unittest import mock
 
 from manga_watch.source_drift import (
+    CanaryObservation,
     DEFAULT_SOURCE_CANARY_CONTRACTS,
     SourceCanaryResult,
     main,
@@ -67,8 +68,14 @@ class SourceDriftTests(unittest.TestCase):
                 result = run_source_canary(contract, http_client=client)
 
                 self.assertEqual("ok", result.status)
-                self.assertTrue(result.checked_urls)
-                self.assertGreaterEqual(len(result.observations), 3)
+                self.assertEqual(tuple(manifest["expectedCheckedUrls"]), result.checked_urls)
+                self.assertEqual(
+                    tuple(
+                        CanaryObservation(entry["name"], entry["value"])
+                        for entry in manifest["expectedObservations"]
+                    ),
+                    result.observations,
+                )
 
     def test_broken_fixture_reports_drift_with_refresh_hint(self):
         manifest, client = load_fixture_http_client("comic-walker", "broken_missing_next_data")

@@ -1,0 +1,45 @@
+{
+  "seedUrl": "https://sp.manga.nicovideo.jp/comic/53764",
+  "expectedWork": {
+    "source": "nicovideo-manga",
+    "kind": "nicovideo-manga",
+    "workId": "nicovideo-manga:53764",
+    "seedUrl": "https://manga.nicovideo.jp/comic/53764",
+    "series": "nicovideo-manga:53764",
+    "comicId": "53764"
+  },
+  "steps": [
+    {
+      "url": "https://manga.nicovideo.jp/comic/53764/new",
+      "response": "01-latest.html"
+    }
+  ],
+  "expectedCheckedUrls": [
+    "https://manga.nicovideo.jp/comic/53764/new",
+    "https://manga.nicovideo.jp/watch/mg1007626"
+  ],
+  "expectedObservations": [
+    {
+      "name": "canonical_seed_url",
+      "value": "https://manga.nicovideo.jp/comic/53764"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://manga.nicovideo.jp/watch/mg1007626"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第51話"
+    }
+  ],
+  "expectedLatest": {
+    "source": "nicovideo-manga",
+    "workId": "nicovideo-manga:53764",
+    "latestKey": "https://manga.nicovideo.jp/watch/mg1007626",
+    "url": "https://manga.nicovideo.jp/watch/mg1007626",
+    "series": "nicovideo-manga:53764",
+    "seriesTitle": "ダンジョンの中のひと",
+    "episodeTitle": "第51話",
+    "pageTitle": "ダンジョンの中のひと 第51話 / 双見酔 - ニコニコ漫画"
+  }
+}

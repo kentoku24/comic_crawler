@@ -3,12 +3,14 @@ from __future__ import annotations
 import os
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
+from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence, Tuple
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import requests
 
 from manga_watch.secret_redaction import redact_secret_text
+from manga_watch.secret_resolver import resolve_env_value
+from manga_watch.storage import state_daily_notification_delivery
 from manga_watch.discord_text import (
     episode_label_for_snapshot,
     series_label_for_snapshot,
@@ -52,10 +54,14 @@ class DiscordOutboundConfig:
     timeout: int = DEFAULT_DISCORD_TIMEOUT
 
     @classmethod
-    def from_env(cls) -> "DiscordOutboundConfig":
-        bot_token = _coerce_text(os.environ.get("DISCORD_BOT_TOKEN"))
+    def from_env(
+        cls,
+        *,
+        secret_resolver: Callable[[str], Optional[str]] = resolve_env_value,
+    ) -> "DiscordOutboundConfig":
+        bot_token = secret_resolver("DISCORD_BOT_TOKEN")
         if not bot_token:
-            raise ValueError("DISCORD_BOT_TOKEN is required")
+            raise ValueError("DISCORD_BOT_TOKEN or DISCORD_BOT_TOKEN_SECRET_VERSION is required")
 
         main_channel_id = _coerce_text(os.environ.get("DISCORD_MAIN_CHANNEL_ID"))
         if not main_channel_id:
@@ -189,25 +195,7 @@ class DiscordChannelClient:
 
 
 def _daily_notification_state(state: Dict[str, object]) -> Dict[str, object]:
-    discord_delivery = state.setdefault(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, dict):
-        discord_delivery = {}
-        state[DISCORD_DELIVERY_STATE_KEY] = discord_delivery
-
-    daily_notification = discord_delivery.setdefault(
-        DAILY_NOTIFICATION_STATE_KEY,
-        {
-            "delivered_latest_keys": {},
-            "pending_messages": [],
-        },
-    )
-    if not isinstance(daily_notification, dict):
-        daily_notification = {
-            "delivered_latest_keys": {},
-            "pending_messages": [],
-        }
-        discord_delivery[DAILY_NOTIFICATION_STATE_KEY] = daily_notification
-    return daily_notification
+    return state_daily_notification_delivery(state)
 
 
 def daily_notification_key(update: Mapping[str, object]) -> Optional[Tuple[str, str]]:
@@ -222,26 +210,14 @@ def daily_notification_key(update: Mapping[str, object]) -> Optional[Tuple[str, 
 
 
 def _pending_daily_notification_keys(state: Mapping[str, object]) -> set[Tuple[str, str]]:
-    discord_delivery = state.get(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, Mapping):
+    if not isinstance(state, dict):
         return set()
-    daily_notification = discord_delivery.get(DAILY_NOTIFICATION_STATE_KEY, {})
-    if not isinstance(daily_notification, Mapping):
-        return set()
-    pending_messages = daily_notification.get("pending_messages", [])
-    if not isinstance(pending_messages, list):
-        return set()
+    pending_messages = _daily_notification_state(state).get("pending_messages", [])
 
     keys: set[Tuple[str, str]] = set()
     for entry in pending_messages:
-        if not isinstance(entry, Mapping):
-            continue
         message_keys = entry.get("message_keys", [])
-        if not isinstance(message_keys, list):
-            continue
         for message_key in message_keys:
-            if not isinstance(message_key, Mapping):
-                continue
             work_id = _coerce_text(message_key.get("work_id"))
             latest_key = _coerce_text(message_key.get("latest_key"))
             if work_id and latest_key:
@@ -250,34 +226,19 @@ def _pending_daily_notification_keys(state: Mapping[str, object]) -> set[Tuple[s
 
 
 def pending_daily_notification_count(state: Mapping[str, object]) -> int:
-    discord_delivery = state.get(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, Mapping):
+    if not isinstance(state, dict):
         return 0
-    daily_notification = discord_delivery.get(DAILY_NOTIFICATION_STATE_KEY, {})
-    if not isinstance(daily_notification, Mapping):
-        return 0
-    pending_messages = daily_notification.get("pending_messages", [])
-    return len(pending_messages) if isinstance(pending_messages, list) else 0
+    return len(_daily_notification_state(state).get("pending_messages", []))
 
 
 def _delivered_latest_keys(state: Mapping[str, object]) -> Dict[str, str]:
-    discord_delivery = state.get(DISCORD_DELIVERY_STATE_KEY, {})
-    if not isinstance(discord_delivery, Mapping):
+    if not isinstance(state, dict):
         return {}
-    daily_notification = discord_delivery.get(DAILY_NOTIFICATION_STATE_KEY, {})
-    if not isinstance(daily_notification, Mapping):
-        return {}
-    delivered = daily_notification.get("delivered_latest_keys", {})
-    if not isinstance(delivered, Mapping):
-        return {}
+    delivered = _daily_notification_state(state).get("delivered_latest_keys", {})
 
     normalized: Dict[str, str] = {}
     for work_id, entry in delivered.items():
-        latest_key = None
-        if isinstance(entry, Mapping):
-            latest_key = _coerce_text(entry.get("latest_key"))
-        else:
-            latest_key = _coerce_text(entry)
+        latest_key = _coerce_text(entry.get("latest_key")) if isinstance(entry, Mapping) else _coerce_text(entry)
         if latest_key:
             normalized[str(work_id)] = latest_key
     return normalized
@@ -315,6 +276,31 @@ def build_daily_notification_message(
     lines = [f"新着エピソードを検知しました（{local_date}）"]
     lines.extend(format_daily_notification_line(update) for update in updates)
     return "\n".join(lines)
+
+
+def filter_updates_for_daily_notifications(
+    updates: Sequence[Mapping[str, object]],
+    watchlist: Mapping[str, object],
+) -> List[Mapping[str, object]]:
+    works = watchlist.get("works", [])
+    if not isinstance(works, list):
+        raise ValueError("watchlist.works must be a list")
+
+    hidden_work_ids = {
+        str(entry.get("id") or "").strip()
+        for entry in works
+        if isinstance(entry, Mapping) and bool(entry.get("hidden"))
+    }
+    if not hidden_work_ids:
+        return list(updates)
+
+    filtered_updates: List[Mapping[str, object]] = []
+    for update in updates:
+        work_id = _coerce_text(update.get("id") or update.get("work_id"))
+        if work_id in hidden_work_ids:
+            continue
+        filtered_updates.append(update)
+    return filtered_updates
 
 
 def enqueue_daily_notification(

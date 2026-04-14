@@ -9,6 +9,7 @@ from manga_watch.discord_outbound import (
     DiscordOutboundConfig,
     build_daily_notification_message,
     enqueue_daily_notification,
+    filter_updates_for_daily_notifications,
 )
 from manga_watch.storage import load_state, save_state
 
@@ -162,6 +163,71 @@ class DiscordOutboundTests(unittest.TestCase):
 
         self.assertEqual({"queued": False, "candidateUpdateCount": 0}, result)
         self.assertEqual([], state["discord_delivery"]["daily_notification"]["pending_messages"])
+
+    def test_enqueue_daily_notification_dedupes_against_legacy_camel_case_delivery_state(self):
+        state = {
+            "discordDelivery": {
+                "dailyNotification": {
+                    "deliveredLatestKeys": {
+                        "work-1": {
+                            "latestKey": "episode-2",
+                            "deliveredAt": "2023-11-14T22:13:20Z",
+                        }
+                    },
+                    "pendingMessages": [],
+                }
+            }
+        }
+
+        result = enqueue_daily_notification(
+            state,
+            updates=[
+                self.make_update(
+                    episode_title="第2話 改題",
+                    previous="第2話",
+                )
+            ],
+            channel_id="main-channel",
+            now_ts=1_700_000_300,
+            timezone_name="Asia/Tokyo",
+            created_at="2023-11-14T22:18:20Z",
+        )
+
+        self.assertEqual({"queued": False, "candidateUpdateCount": 0}, result)
+        self.assertEqual([], state["discord_delivery"]["daily_notification"]["pending_messages"])
+
+    def test_filter_updates_for_daily_notifications_excludes_hidden_watchlist_entries(self):
+        updates = [
+            self.make_update(series="表示作品", latest_key="episode-visible"),
+            {
+                **self.make_update(series="非表示作品", latest_key="episode-hidden"),
+                "id": "work-hidden",
+            },
+        ]
+        watchlist = {
+            "version": 2,
+            "works": [
+                {
+                    "id": "work-1",
+                    "source": "comic-walker",
+                    "seed_url": "https://example.com/work-1",
+                    "enabled": True,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                },
+                {
+                    "id": "work-hidden",
+                    "source": "comic-walker",
+                    "seed_url": "https://example.com/work-hidden",
+                    "enabled": True,
+                    "hidden": True,
+                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                },
+            ],
+        }
+
+        filtered = filter_updates_for_daily_notifications(updates, watchlist)
+
+        self.assertEqual(["work-1"], [update["id"] for update in filtered])
 
     def test_discord_channel_client_posts_bot_message(self):
         session = FakeSession(responses=[FakeResponse(200)])

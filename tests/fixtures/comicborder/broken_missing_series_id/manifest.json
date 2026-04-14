@@ -1,0 +1,19 @@
+{
+  "seedUrl": "https://comicborder.com/episode/12207421983437812169",
+  "expectedWork": {
+    "source": "comicborder",
+    "kind": "comicborder",
+    "workId": "https://comicborder.com/episode/12207421983437812169",
+    "seedUrl": "https://comicborder.com/episode/12207421983437812169"
+  },
+  "expectedError": {
+    "type": "SourceParseError",
+    "message": "comicborder: series id not found"
+  },
+  "steps": [
+    {
+      "url": "https://comicborder.com/episode/12207421983437812169",
+      "response": "01-episode.html"
+    }
+  ]
+}

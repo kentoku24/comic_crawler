@@ -16,6 +16,24 @@
       "response": "02-latest.html"
     }
   ],
+  "expectedCheckedUrls": [
+    "https://comic-action.com/episode/111",
+    "https://comic-action.com/episode/222"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "123"
+    },
+    {
+      "name": "next_readable_url",
+      "value": "https://comic-action.com/episode/222"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第2話"
+    }
+  ],
   "expectedLatest": {
     "source": "comic-action",
     "workId": "https://comic-action.com/episode/111",

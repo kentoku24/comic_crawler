@@ -1,0 +1,28 @@
+{
+  "captured_at": "2026-04-08",
+  "catalog_url": "https://yawaspi.com/series/index.html",
+  "work_pages": [
+    {
+      "slug": "itsuwari",
+      "url": "https://yawaspi.com/itsuwari/index.html",
+      "response": "02-itsuwari-work.html",
+      "canonical_seed": "https://yawaspi.com/itsuwari/index.html",
+      "expected_latest_url": "https://yawaspi.com/itsuwari/comic/001_001.html",
+      "notes": [
+        "single main-story launch title",
+        "top page__read card is directly usable as latest main-story candidate"
+      ]
+    },
+    {
+      "slug": "yakutohi",
+      "url": "https://yawaspi.com/yakutohi/index.html",
+      "response": "03-yakutohi-work.html",
+      "canonical_seed": "https://yawaspi.com/yakutohi/index.html",
+      "expected_latest_url": "https://yawaspi.com/yakutohi/comic/005_001.html",
+      "notes": [
+        "top page__read card is a release-promo `sp` entry",
+        "latest main-story candidate is the first non-`sp` comic URL"
+      ]
+    }
+  ]
+}

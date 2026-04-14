@@ -1,16 +1,28 @@
 # comic_crawler
 
-Docker コンテナ 1 つで定期クロールし、generic notifier backend (`stdout` / webhook) に update event を送れる漫画更新監視アプリです。Discord surface は別契約で、daily notification を main channel、run report を run-report channel へ送ります。stdout/stderr はローカル運用ログとして引き続き使います。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
+GCP では Cloud Run Job / Cloud Run Service / Cloud Scheduler を primary path として定期クロールし、generic notifier backend (`stdout` / webhook) に update event を送る漫画更新監視アプリです。Discord surface は別契約で、daily notification を main channel、run report を run-report channel へ送ります。stdout/stderr はローカル運用ログとして引き続き使います。Issue #7 の cutover 以降、runtime は `watchlist/state v2` のみを読み書きし、Issue #17 以降は state v2 に更新履歴と未読イベントも保持します。
 
 ## Canonical docs
 
-この repo の source of truth は次の 5 文書です。
+この repo の source of truth は次の 6 文書です。
 
 - `doc/要件定義書.md`
 - `doc/設計書.md`
+- `doc/gcp-deploy.md`
 - `spec.md` (document title: `SPEC.md`)
 - `doc/運用手順書.md`
 - `doc/受け入れテスト計画書.md`
+
+GCP runtime の backend env / Firestore schema / Secret Manager mapping / migration command は [`doc/gcp-runtime.md`](doc/gcp-runtime.md) を source of truth とします。
+
+GCP の deploy / run / verify の source of truth は [`doc/gcp-deploy.md`](doc/gcp-deploy.md)、日常運用の確認手順は [`doc/運用手順書.md`](doc/運用手順書.md) を参照します。
+
+## GCP runtime
+
+- Cloud Run Job `comic-crawler-job`: 定期クロールと手動実行の実体
+- Cloud Run Service `comic-crawler-service`: Discord interaction endpoint
+- Cloud Scheduler helper: `python3 scripts/print_cloud_scheduler_job.py create|update --schedule "<cron>"`
+- Scheduler force-run: `gcloud scheduler jobs run comic-crawler-scheduled-run --project=star-light-breaker --location=asia-northeast1`
 
 root の受け入れ仕様書は Git 上の実ファイル名を `spec.md` にしていますが、文書名と cross-document 参照では `SPEC.md` と表記します。これは macOS などの case-insensitive filesystem で path 衝突を避けるためです。canonical docs や新しい issue / PR で `SPEC.md` と書かれている場合は、この `spec.md` を指します。旧 single-file spec への過去の言及は reference 扱いで、source of truth ではありません。
 
@@ -91,6 +103,7 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
       "source": "comic-walker",
       "seed_url": "https://comic-walker.com/detail/KC_003913_S",
       "enabled": true,
+      "hidden": false,
       "notification_policy": {
         "mode": "all",
         "allowed_update_types": null
@@ -117,7 +130,9 @@ checker は watchlist を並列に処理しますが、`updates` / `errors.sourc
 - `health`: `last_checked_at`, `last_success_at`, `consecutive_failures`
 - root `discord_delivery.daily_notification`: Discord main channel 向け daily notification の durable dedupe / pending state
 
-履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と migration contract は [root 受け入れ仕様書 (`spec.md`, 文書名: `SPEC.md`)](spec.md) を source of truth とします。
+履歴保持は作品ごとの `history_retention` で上書きでき、未指定時は既定値 20 件です。trim するときは「未読は全件保持 + 既読は最新 N 件のみ保持」を守ります。必要なら watchlist 側で `health_policy.expected_interval_seconds` を指定し、stale 判定の期待巡回間隔を作品単位で上書きできます。詳細な schema と state contract は [root 受け入れ仕様書 (`spec.md`, 文書名: `SPEC.md`)](spec.md) を source of truth とします。
+
+`hidden=true` の作品は watchlist に残ったまま巡回・state 更新・履歴保持を続けますが、`latest` 表示と Discord の daily notification からは除外されます。重複購読の副媒体を静かに追跡したいときのためのフラグで、`notification_policy.mode=mute` とは別概念です。
 
 ### backlog CLI
 
@@ -134,10 +149,6 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 - `--mark-read <work_id>`: その作品の現在未読を既読化し、保持ルールに従って履歴を trim
 
 複数話進行の推定は source 固有 id ではなく title から行います。`第N話` / `Episode N` / `Ep.N` / `#N` のような番号が両端で取れるときだけ `estimated_new_episode_count` を出し、取れない source や title では `from_latest` だけを残す fallback にします。
-
-### legacy v1 input
-
-`manga_watch/urls.txt` は migration 入力と rollback 用の参考データです。runtime はこのファイルを読みません。
 
 更新分類の既定値は次の通りです。
 
@@ -208,28 +219,29 @@ runner が backend に送る update event は次の schema です。
 
 ## Supported sources
 
-| Source | `watchlist add` accepted inputs | Stored `seed_url` | `work_id` | `latest_key` |
+| Source | Discord `/add` accepted inputs | Stored `seed_url` | `work_id` | `latest_key` |
 | --- | --- | --- | --- | --- |
 | ComicWalker | canonical series URL, episode URL | `https://comic-walker.com/detail/<series>` | `KC_XXXXXX_S` | `episodeCode` |
 | webアクション | episode URL, RSS/Atom series feed URL | canonical episode URL または canonical series feed URL | `comic-action:<series_id>` | 最終到達 episode URL |
+| コミック アース・スター | episode URL, RSS/Atom series feed URL | `https://comic-earthstar.com/rss/series/<series_id>` | `comic-earthstar:<series_id>` | 最新 episode URL |
+| コミックボーダー | episode URL, RSS/Atom series feed URL | `https://comicborder.com/rss/series/<series_id>` | `comicborder:<series_id>` | 最新 episode URL |
+| コミックトレイル | episode URL, RSS/Atom series feed URL | `https://comic-trail.com/rss/series/<series_id>` | `comic-trail:<series_id>` | 最新 episode URL |
+| くらげバンチ | episode URL, RSS/Atom series feed URL | `https://kuragebunch.com/rss/series/<series_id>` | `kuragebunch:<series_id>` | 最新 episode URL |
+| 少年ジャンプ＋ | episode URL, RSS/Atom series feed URL | `https://shonenjumpplus.com/rss/series/<series_id>` | `shonenjumpplus:<series_id>` | 最新 episode URL |
+| サンデーうぇぶり | episode URL, RSS/Atom series feed URL | `https://www.sunday-webry.com/rss/series/<series_id>` | `sunday-webry:<series_id>` | 最新 episode URL |
 | Champion Cross | episode URL, series URL, series RSS URL | canonical episode URL / canonical series URL / canonical series RSS URL | `champion-cross:<series_hash>` | 最新 episode URL |
+| マガポケ | title URL, episode URL | `https://pocket.shonenmagazine.com/title/<title_id>` | `magapoke:<title_id>` | 最新 episode URL |
 | Kakuyomu | work URL, episode URL | 入力 URL のまま | `kakuyomu:<numeric_work_id>` | 最新 episode id |
 
-Phase 1 では source ごとの capability 差を隠しません。`watchlist add` が受け付ける URL 種別は上の表だけです。
+Phase 1 では source ごとの capability 差を隠しません。作品追加で受け付ける URL 種別は上の表だけです。内部の source capability / normalize 契約もこの表を source of truth とします。
 
-## Watchlist add CLI
+`Supported sources` にまだ入っていない host/domain の legacy/current 判定や successor mapping は、runtime contract を直接広げる前に `doc/` 配下の triage note へ残します。`comic-valkyrie.com -> comic-brise.com` の判定根拠は [`doc/source-triage-comic-valkyrie-comic-brise.md`](doc/source-triage-comic-valkyrie-comic-brise.md) を参照してください。
 
-```bash
-python3 -m manga_watch.watchlist add <url>
-python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
-```
+## Discord `/add`
 
-- デフォルトの watchlist パスは `MANGA_WATCH_WATCHLIST`、未設定時は `MANGA_WATCH_URLS`、さらに未設定なら `manga_watch/watchlist.json`
-- 出力は常に JSON
-- `action=added` と `action=duplicate` は exit code `0`
-- `action=error` は exit code `1`
+作品追加の正式導線は Discord slash command `/add url:<作品URL>` です。内部では shared add logic が URL を normalize し、duplicate / unsupported 判定を行ってから watchlist を更新します。
 
-成功時は normalize preview を `entry` に返します。
+成功時は normalize preview 相当の結果から、登録された `work_id` と `seed_url` を返します。
 
 ```json
 {
@@ -241,6 +253,7 @@ python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
     "source": "kakuyomu",
     "seed_url": "https://kakuyomu.jp/works/123",
     "enabled": true,
+    "hidden": false,
     "notification_policy": {"mode": "all", "allowed_update_types": null}
   },
   "work_count": 1
@@ -258,20 +271,52 @@ python3 -m manga_watch.watchlist add <url> --watchlist /path/to/watchlist.json
 }
 ```
 
-エラー時は `kind`, `message`, `next_action` を返します。`kind` は少なくとも `invalid_url`, `unsupported_source`, `unsupported_url_type`, `normalize_failed` を使います。
+エラー時は shared add logic の `kind`, `message`, `next_action` をもとに応答します。`kind` は少なくとも `invalid_url`, `unsupported_source`, `unsupported_url_type`, `normalize_failed` を使います。
 
 ```json
 {
   "action": "error",
   "error": {
     "kind": "unsupported_url_type",
-    "message": "comic-action does not support this URL type for `watchlist add`: https://comic-action.com/series/123",
+    "message": "comic-action does not support this URL type for work registration: https://comic-action.com/series/123",
     "next_action": "Supported input types for comic-action: episode URL, series feed URL. Examples: https://comic-action.com/episode/123456 / https://comic-action.com/rss/series/123456"
   }
 }
 ```
 
-## Docker run
+## GCP run / verify
+
+GCP での運用は Cloud Run Job / Cloud Run Service / Cloud Scheduler を基準にします。詳細な resource contract は [`doc/gcp-deploy.md`](doc/gcp-deploy.md) を見てください。
+
+```bash
+gcloud run jobs execute comic-crawler-job \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --wait
+
+gcloud scheduler jobs run comic-crawler-scheduled-run \
+  --project=star-light-breaker \
+  --location=asia-northeast1
+
+gcloud run jobs logs read comic-crawler-job \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --limit=20
+
+gcloud run services logs read comic-crawler-service \
+  --project=star-light-breaker \
+  --region=asia-northeast1 \
+  --limit=20
+```
+
+- Cloud Run Job は手動 run と定期 run の実行主体
+- Cloud Run Service は `latest` / `fetch` を受ける Discord interaction endpoint
+- Cloud Scheduler helper script は `create` / `update` の command shape を出すので、Scheduler 側の設定確認に使う
+- 詳細な日次確認は [`doc/運用手順書.md`](doc/運用手順書.md) を参照する
+
+## Legacy / local fallback
+
+`docker compose` は GCP の代替ではなく、ローカル検証や一時的な fallback 用です。
 
 1. `.env.example` を `.env` にコピーして notifier 設定を入れる
 2. 必要なら `manga_watch/watchlist.json` を編集する
@@ -284,16 +329,45 @@ docker compose logs -f
 
 compose は `manga_watch/watchlist.json` を read-only mount し、state v2 は volume `crawler-data` に保存します。
 
+### Legacy local update
+
+ローカル fallback を更新するときは、repo root で次を実行します。
+
+```bash
+git pull --ff-only origin main
+docker compose up -d --build
+docker compose ps
+docker compose logs --tail 80 comic-crawler
+```
+
+- `git pull --ff-only origin main`: ローカル `main` を `origin/main` に fast-forward する
+- `docker compose up -d --build`: 新しい image を build してコンテナを再作成する
+- `docker compose ps`: `comic-crawler` が `Up` になっていることを確認する
+- `docker compose logs --tail 80 comic-crawler`: startup run に configuration / state / delivery failure が出ていないことを確認する
+
+GCP production runtime の deploy / rollback はこの compose 手順ではなく、GitHub Actions の `Deploy Production` / `Rollback Production` workflow を source of truth とします。production deploy contract と確認コマンドは [`doc/gcp-deploy.md`](doc/gcp-deploy.md)、日常運用は [`doc/運用手順書.md`](doc/運用手順書.md) を参照してください。
+
 ### Environment variables
 
 - `MANGA_WATCH_NOTIFIER_BACKENDS`: required。comma-separated backend list。現在値は `stdout`, `webhook`
 - `MANGA_WATCH_WEBHOOK_URL`: `webhook` backend を使うときの POST 先 URL
 - `MANGA_WATCH_WEBHOOK_TIMEOUT`: webhook timeout 秒。既定値は `10`
 - `DISCORD_BOT_TOKEN`: Discord main/run-report channel に送る bot token
+- `DISCORD_APPLICATION_ID`: slash command 登録先の application id。省略時は bot token で `/oauth2/applications/@me` を引いて解決する
+- `DISCORD_GUILD_ID`: slash command を test guild scope で登録したいときの guild id。未指定なら global command を更新する
 - `DISCORD_MAIN_CHANNEL_ID`: daily notification の送信先 channel id
 - `DISCORD_RUN_REPORT_CHANNEL_ID`: run report の送信先 channel id
-- `DISCORD_INBOUND_ENABLED`: `true` のとき Discord main channel で `latest` / `fetch` コマンドを監視する。既定値は `true`
-- `DISCORD_COMMAND_POLL_INTERVAL`: inbound command polling 間隔（秒）。既定値は `5`
+- `DISCORD_INBOUND_ENABLED`: local fallback の polling inbound を有効化する。既定値は `true`
+- `DISCORD_COMMAND_POLL_INTERVAL`: local fallback の inbound polling 間隔（秒）。既定値は `5`
+- `DISCORD_APPLICATION_PUBLIC_KEY`: Cloud Run Service の Discord interaction verification に使う public key
+- `MANGA_WATCH_GITHUB_TOKEN`: `/add` で未対応媒体を受けたときに GitHub Issue を自動作成するための token
+- `MANGA_WATCH_GITHUB_REPOSITORY`: 未対応媒体の対応候補 Issue を作る GitHub repository。例: `kentoku24/comic_crawler`
+- `MANGA_WATCH_GITHUB_API_BASE_URL`: GitHub API base URL。既定値は `https://api.github.com`
+- `MANGA_WATCH_INSECURE_DISABLE_VERIFICATION`: local のみで verification を無効化する escape hatch。production では使わない
+- `MANGA_WATCH_FETCH_BACKEND`: Cloud Run Service の `fetch` 実行先。`coordinator` または `cloud-run-job`。既定値は `coordinator`
+- `MANGA_WATCH_GCP_PROJECT`: `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のときに使う GCP project
+- `MANGA_WATCH_CLOUD_RUN_REGION`: `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のときに使う Cloud Run region。既定値は `asia-northeast1`
+- `MANGA_WATCH_CLOUD_RUN_JOB_NAME`: `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のときに起動する Job 名。既定値は `comic-crawler-job`
 - `TZ`: スケジュール計算の timezone。既定値は `Asia/Tokyo`
 - `CRAWL_SCHEDULE`: cron 形式。既定値は `0 19 * * *`
 - `CRAWL_INTERVAL`: 秒単位の固定間隔。`CRAWL_SCHEDULE` と同時指定は不可
@@ -320,7 +394,7 @@ python3.12 -m venv .venv
 .venv/bin/python -m manga_watch.check --status --format json
 .venv/bin/python -m manga_watch.source_drift
 .venv/bin/python -m manga_watch.source_drift --format json
-.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog
+.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_backlog
 .venv/bin/python -m manga_watch.run_mocked_acceptance
 .venv/bin/python -m manga_watch.discord_real_e2e --case all --json
 ```
@@ -336,8 +410,32 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 .venv/bin/python -m manga_watch.replay_outbox
 ```
 
-Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。
+Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、shared add logic で対応できる URL のみクロール対象へ追加します。`MANGA_WATCH_GITHUB_TOKEN` と `MANGA_WATCH_GITHUB_REPOSITORY` が設定されている場合、`unsupported_source` は追加失敗のまま GitHub Issue を自動作成し、「対応候補として記録した」と返信します。
+Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/search` `/remove` `/supertwins-search` `/supertwins-manage` を扱います。`/search` は媒体ごとに作品検索を行い、選択した結果を visible または hidden で watchlist に追加します。`champion-cross` / `kakuyomu` / `comic-walker` は媒体内検索を使い、それ以外の対応 source (`comic-action` / `comic-earthstar` / `comicborder` / `comic-trail` / `kuragebunch` / `shonenjumpplus` / `sunday-webry` / `magapoke` / `firecross` / `takecomic` / `nicovideo-manga`) は site index 検索を使います。
+`/supertwins-search` は既存 watchlist 作品を起点に他媒体候補を探し、選択した候補を hidden で watchlist に追加しつつ state 上の `supertwins.groups` に登録します。既存 duplicate が選ばれた場合も、その entry を hidden 化したうえで group に追加します。`/supertwins-manage` は group と member を選択して、hidden のまま残す / hidden を解除する / subscription を削除する、の 3 アクションを扱います。削除だけは confirm を返します。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
+
+Cloud Run Service の Discord interaction endpoint をローカルで起動する場合は、署名検証用の public key に加えて command registration 用の bot token を入れて `python -m manga_watch.run_service` を使います。service startup では `/latest` `/fetch` `/add` `/search` `/remove` `/supertwins-search` `/supertwins-manage` の command 定義を Discord へ idempotent に登録し、登録に失敗した場合は fail-fast で起動を中断します。`DISCORD_GUILD_ID` を入れると guild command、未指定なら global command を更新します。
+
+```bash
+export DISCORD_BOT_TOKEN=...
+export DISCORD_APPLICATION_ID=...
+export DISCORD_GUILD_ID=...  # optional
+export DISCORD_APPLICATION_PUBLIC_KEY=...
+export MANGA_WATCH_GITHUB_TOKEN=...        # optional
+export MANGA_WATCH_GITHUB_REPOSITORY=...   # optional
+export MANGA_WATCH_INSECURE_DISABLE_VERIFICATION=false
+.venv/bin/python -m manga_watch.run_service
+```
+
+startup registration だけを手動で確認したいときは次を使います。service と同じ env を読み、planned payload の表示や再登録の fallback に使えます。
+
+```bash
+.venv/bin/python scripts/register_discord_commands.py --dry-run
+.venv/bin/python scripts/register_discord_commands.py
+```
+
+`manga_watch.run_service` は Slash Command 用の `POST /` に加えて、署名検証なしの lightweight health check として `GET /healthz` を返します。Cloud Run の scale-to-zero を完全には防げませんが、Cloud Scheduler から `15` 分おきに `GET /healthz` を送って warm 状態を維持しやすくできます。不十分なら、運用しながら間隔を短くします。
 
 ## Status CLI
 
@@ -371,6 +469,13 @@ fixture regression だけでは拾えない upstream HTML / embedded JSON drift 
 | --- | --- | --- | --- |
 | ComicWalker | `https://comic-walker.com/detail/KC_003913_S` | canonical series page の `__NEXT_DATA__`、同一 series の最新 `episodeCode`、最新 episode page title parse | `tests/fixtures/comic-walker/normal` |
 | webアクション | `https://comic-action.com/episode/2550689798784879524` | seed episode page の `series_id`、`nextReadableProductUri`、最終到達 episode page title parse | `tests/fixtures/comic-action/normal` |
+| コミック アース・スター | `https://comic-earthstar.com/episode/12207421983526541742` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comic-earthstar/normal` |
+| コミックボーダー | `https://comicborder.com/episode/12207421983437812169` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comicborder/normal` |
+| コミックトレイル | `https://comic-trail.com/episode/2550689798402927313` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/comic-trail/normal` |
+| くらげバンチ | `https://kuragebunch.com/episode/2550912964856491139` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/kuragebunch/normal` |
+| 少年ジャンプ＋ | `https://shonenjumpplus.com/episode/17107419589191805801` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/shonenjumpplus/normal` |
+| サンデーうぇぶり | `https://www.sunday-webry.com/episode/12207421983581042977` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/sunday-webry/normal` |
+| マガポケ | `https://pocket.shonenmagazine.com/title/03021` | title page の RSS feed URL、title page の次回更新ラベル、series RSS の最新 episode URL/title | `tests/fixtures/magapoke/normal` |
 | Kakuyomu | `https://kakuyomu.jp/works/16818093092974667738/episodes/822139844009936710` | work page の `__NEXT_DATA__`、最新 episode id/title、最新 episode page title | `tests/fixtures/kakuyomu/normal` |
 
 drift を検知したら、次の順で進めます。
@@ -388,65 +493,26 @@ drift を検知したら、次の順で進めます。
 2. `manga_watch/sources/registry.py` の `REGISTERED_ADAPTERS` に adapter instance を追加する
 3. `manga_watch/source_drift.py` に live canary target URL と monitored signal contract を追加する
 4. fixture / state contract に影響がある場合は `tests/fixtures/` や関連 test を更新する
-5. `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check tests.test_runner tests.test_migrate_v2` を実行する
+5. `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_check tests.test_runner` を実行する
 
 2 を忘れると `tests.test_sources.SourceAdapterTests.test_registry_covers_every_concrete_adapter_module` が失敗します。
-
-## One-time migration from v1
-
-migration も `python3.12` で作った `.venv` から実行します。
-
-```bash
-docker compose images comic-crawler
-
-.venv/bin/python -m manga_watch.migrate_v2 \
-  --watchlist-v1 manga_watch/urls.txt \
-  --state-v1 /data/state.json \
-  --watchlist-v2 manga_watch/watchlist.json \
-  --state-v2 /data/state.json \
-  --backup-dir /data/migration-backups/20260308T080000Z \
-  --pre-cutover-image-ref sha256:0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
-```
-
-- migration は v1 入力の backup を先に取り、`--backup-dir/rollback-manifest.json` を書きます
-- `rollback-manifest.json` が rollback の source of truth です。戻すべき `urls.txt` / `state.json` backup と、差し戻すべき pre-cutover image / git commit をここで特定します
-- `--pre-cutover-image-ref` には immutable な image digest (`repo@sha256:...`) または local image ID (`sha256:...`) を渡します。`latest` は受け付けません
-- `rollback-manifest.json` には current git `HEAD` から解決した `git_commit` も併記されます。別 commit を記録したいときは `--pre-cutover-git-commit` を明示してください
-- migration 後は runtime 設定を `MANGA_WATCH_WATCHLIST` に切り替えます
-- rollback には manifest に書かれた backup の復元と pre-cutover image / commit への差し戻しが必要です
-
-### Rollback checklist
-
-Prechecks:
-
-- rollback 対象の cutover で作られた `--backup-dir/rollback-manifest.json` を開き、`data_backups[*].backup_path` と `pre_cutover_runtime.image_ref` / `pre_cutover_runtime.git_commit` が今回戻す対象と一致していることを確認する
-- `data_backups[*].backup_path` が実在し、`restore_to_path` が元の v1 `urls.txt` / `state.json` を指していることを確認する
-- v2 runner を停止し、rollback 判断の根拠になった source error / state corruption / update spam の証跡を残す
-
-Post-rollback smoke checks:
-
-- manifest に書かれた backup と pre-cutover image / commit を戻したあと、復元した pre-cutover runtime 上で `python3 -m manga_watch.check manga_watch/urls.txt` を実行し、v1 data を正常に読めることを確認する
-- `docker compose up -d comic-crawler` で pre-cutover runner を再起動し、初回 run のログに想定外の parser/state error や notification burst が無いことを確認する
-
-詳細な mapping / cutover / rollback 条件は [root 受け入れ仕様書 (`spec.md`, 文書名: `SPEC.md`)](spec.md) を参照してください。
+source expansion の Issue / PR review には [`docs/source-expansion-review-rubric.md`](docs/source-expansion-review-rubric.md) を使って、implementation readiness と merge readiness を分けて評価してください。
 
 ## Repository layout
 
 - `manga_watch/check.py`: watchlist/state v2 を読む checker
 - `manga_watch/backlog.py`: 更新履歴 / 未読確認と既読化の最小 CLI
-- `manga_watch/migrate_v2.py`: v1 から v2 への one-time migration CLI
 - `manga_watch/source_drift.py`: live source drift canary と fixture refresh 導線
 - `manga_watch/status.py`: status CLI 向けの health 集約と text / JSON 表示
 - `manga_watch/storage.py`: watchlist/state v2 validation と atomic write
 - `manga_watch/discord_text.py`: Discord 表示向け label fallback / truncate helper
 - `manga_watch/discord_outbound.py`: Discord daily notification / run report formatter と sender
 - `manga_watch/notifier.py`: update event schema + stdout/webhook backend
-- `manga_watch/watchlist.py`: `watchlist add <url>` CLI
+- `manga_watch/watchlist.py`: Discord `/add` が使う shared add logic と source capability 定義
 - `manga_watch/runner.py`: スケジューラ + notifier fan-out + Discord outbound orchestration
 - `manga_watch/update_classification.py`: 更新種別と既定通知対象の分類ロジック
 - `manga_watch/watchlist.json`: watchlist v2 sample
 - `manga_watch/state.json`: state v2 sample
-- `manga_watch/urls.txt`: legacy v1 migration input sample
 - `tests/fixtures/<source>/<case>/`: raw response bundle + `manifest.json`
 
 分類テストでは source ごとの代表例に加えて、main/bonus の曖昧ケースと bonus/announcement の suppress 維持ケースを確認します。
@@ -457,8 +523,8 @@ Post-rollback smoke checks:
 - サイトの HTML が変わって検知が止まったら `.venv/bin/python -m manga_watch.check manga_watch/watchlist.json` を実行して例外を確認する
 - upstream drift が silent に見えるときは `.venv/bin/python -m manga_watch.source_drift` を先に回して、source ごとの canary signal がまだ生きているか確認する
 - silent failure が疑わしいときは `.venv/bin/python -m manga_watch.check --status` で stale / degraded / broken な作品を先に確認する
-- migration や state contract を更新したら `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` を回す
+- state contract を更新したら `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_backlog` を回す
 - canonical docs の mocked acceptance 契約をまとめて確認したいときは `.venv/bin/python -m manga_watch.run_mocked_acceptance` を使う
 - 未読の確認や既読化を手動で行いたいときは `.venv/bin/python -m manga_watch.backlog --unread-only` または `.venv/bin/python -m manga_watch.backlog --mark-read <work_id>` を使う
-- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_migrate_v2 tests.test_backlog` で runner まで確認する
+- run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_backlog` で runner まで確認する
 - 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` と `manga_watch/source_drift.py` の canary contract を更新して fixture / source tests を更新する
