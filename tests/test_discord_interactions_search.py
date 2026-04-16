@@ -40,12 +40,39 @@ class RecordingFetchDispatcher:
         return {"message": "fetch ok"}
 
 
+class RecordingInteractionCallbackClient:
+    def __init__(self):
+        self.deferred_channel_messages = []
+        self.edits = []
+
+    def defer_channel_message(self, *, interaction_id: str, interaction_token: str, ephemeral: bool = False):
+        self.deferred_channel_messages.append(
+            {
+                "interaction_id": interaction_id,
+                "interaction_token": interaction_token,
+                "ephemeral": ephemeral,
+            }
+        )
+
+    def edit_original_response(self, *, application_id: str, interaction_token: str, data):
+        self.edits.append(
+            {
+                "application_id": application_id,
+                "interaction_token": interaction_token,
+                "data": data,
+            }
+        )
+
+
 class DiscordInteractionSearchTests(unittest.TestCase):
     def signed_command_payload(self, command_name, *, query="まんが", source=None):
         options = [{"name": "query", "type": 3, "value": query}]
         if source is not None:
             options.append({"name": "source", "type": 3, "value": source})
         return {
+            "id": "interaction-1",
+            "application_id": "app-1",
+            "token": "token-1",
             "type": 2,
             "data": {
                 "name": command_name,
@@ -55,11 +82,13 @@ class DiscordInteractionSearchTests(unittest.TestCase):
 
     def test_search_command_routes_to_search_handler(self):
         search_handler = RecordingSearchHandler()
+        callback_client = RecordingInteractionCallbackClient()
         service = DiscordInteractionService(
             timezone_name="Asia/Tokyo",
             fetch_dispatcher=RecordingFetchDispatcher(),
             verification_disabled=True,
             search_handler=search_handler,
+            interaction_callback_client=callback_client,
         )
 
         response = service.handle_request(
@@ -71,20 +100,25 @@ class DiscordInteractionSearchTests(unittest.TestCase):
             ).encode("utf-8"),
         )
 
-        payload = json.loads(response.body)
-        self.assertEqual(4, payload["type"])
-        self.assertEqual(64, payload["data"]["flags"])
-        self.assertEqual("検索結果を選んでください。", payload["data"]["content"])
+        self.assertEqual(202, response.status_code)
+        self.assertEqual(b"", response.body)
+        self.assertEqual(
+            [{"interaction_id": "interaction-1", "interaction_token": "token-1", "ephemeral": True}],
+            callback_client.deferred_channel_messages,
+        )
+        self.assertEqual("検索結果を選んでください。", callback_client.edits[0]["data"]["content"])
         self.assertEqual("champion-cross", search_handler.start_calls[0]["source"])
         self.assertEqual("まんが", search_handler.start_calls[0]["query"])
 
     def test_search_command_routes_to_search_handler_without_source(self):
         search_handler = RecordingSearchHandler()
+        callback_client = RecordingInteractionCallbackClient()
         service = DiscordInteractionService(
             timezone_name="Asia/Tokyo",
             fetch_dispatcher=RecordingFetchDispatcher(),
             verification_disabled=True,
             search_handler=search_handler,
+            interaction_callback_client=callback_client,
         )
 
         response = service.handle_request(
@@ -94,9 +128,8 @@ class DiscordInteractionSearchTests(unittest.TestCase):
             body=json.dumps(self.signed_command_payload(SEARCH_COMMAND)).encode("utf-8"),
         )
 
-        payload = json.loads(response.body)
-        self.assertEqual(4, payload["type"])
-        self.assertEqual("検索結果を選んでください。", payload["data"]["content"])
+        self.assertEqual(202, response.status_code)
+        self.assertEqual("検索結果を選んでください。", callback_client.edits[0]["data"]["content"])
         self.assertIsNone(search_handler.start_calls[0]["source"])
         self.assertEqual("まんが", search_handler.start_calls[0]["query"])
 

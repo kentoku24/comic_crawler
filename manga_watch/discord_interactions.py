@@ -130,6 +130,9 @@ class InteractionCallbackClient(Protocol):
     def defer_component(self, *, interaction_id: str, interaction_token: str) -> None:
         ...
 
+    def defer_channel_message(self, *, interaction_id: str, interaction_token: str, ephemeral: bool = False) -> None:
+        ...
+
     def edit_original_response(
         self,
         *,
@@ -212,6 +215,20 @@ class DiscordInteractionCallbackClient:
         response = self.session.post(
             f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback",
             json={"type": INTERACTION_RESPONSE_TYPE_DEFERRED_UPDATE_MESSAGE},
+            timeout=self.defer_timeout,
+        )
+        response.raise_for_status()
+
+    def defer_channel_message(self, *, interaction_id: str, interaction_token: str, ephemeral: bool = False) -> None:
+        data: Dict[str, object] = {}
+        if ephemeral:
+            data["flags"] = EPHEMERAL_MESSAGE_FLAG
+        response = self.session.post(
+            f"https://discord.com/api/v10/interactions/{interaction_id}/{interaction_token}/callback",
+            json={
+                "type": 5,
+                "data": data,
+            },
             timeout=self.defer_timeout,
         )
         response.raise_for_status()
@@ -430,13 +447,7 @@ class DiscordInteractionService:
             )
             return interaction_message_response(str(response_payload.get("content") or "").strip())
         if command_name == SEARCH_COMMAND and self.search_handler is not None:
-            response_payload = self.search_handler.start(
-                source=self._command_option(payload, "source"),
-                query=self._command_option(payload, "query"),
-                visibility=self._command_option(payload, "visibility"),
-                watchlist_path=self.watchlist_path,
-            )
-            return interaction_ephemeral_response(response_payload)
+            return self._handle_deferred_search_command(payload)
         if command_name == REMOVE_COMMAND and self.remove_handler is not None:
             payload = self.remove_handler.start(
                 watchlist_path=self.watchlist_path,
@@ -456,6 +467,61 @@ class DiscordInteractionService:
             )
             return interaction_ephemeral_response(response_payload)
         return text_response(400, f"unsupported command: {command_name or '(missing)'}")
+
+    def _handle_deferred_search_command(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
+        interaction_id = _coerce_text(payload.get("id"))
+        application_id = _coerce_text(payload.get("application_id"))
+        interaction_token = _coerce_text(payload.get("token"))
+        if (
+            not interaction_id
+            or not application_id
+            or not interaction_token
+            or self.interaction_callback_client is None
+            or self.search_handler is None
+        ):
+            response_payload = self.search_handler.start(
+                source=self._command_option(payload, "source"),
+                query=self._command_option(payload, "query"),
+                visibility=self._command_option(payload, "visibility"),
+                watchlist_path=self.watchlist_path,
+            )
+            return interaction_ephemeral_response(response_payload)
+
+        try:
+            self.interaction_callback_client.defer_channel_message(
+                interaction_id=interaction_id,
+                interaction_token=interaction_token,
+                ephemeral=True,
+            )
+        except Exception:
+            response_payload = self.search_handler.start(
+                source=self._command_option(payload, "source"),
+                query=self._command_option(payload, "query"),
+                visibility=self._command_option(payload, "visibility"),
+                watchlist_path=self.watchlist_path,
+            )
+            return interaction_ephemeral_response(response_payload)
+
+        response_payload = {"content": SEARCH_FAILURE_MESSAGE, "components": []}
+        try:
+            response_payload = self.search_handler.start(
+                source=self._command_option(payload, "source"),
+                query=self._command_option(payload, "query"),
+                visibility=self._command_option(payload, "visibility"),
+                watchlist_path=self.watchlist_path,
+            )
+        except Exception:
+            pass
+
+        try:
+            self.interaction_callback_client.edit_original_response(
+                application_id=application_id,
+                interaction_token=interaction_token,
+                data=response_payload,
+            )
+        except Exception:
+            pass
+        return empty_response(202)
 
     def _handle_message_component(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
         data = payload.get("data")
