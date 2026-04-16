@@ -372,6 +372,11 @@ class FetchDispatcherTests(unittest.TestCase):
         )
 
         client.defer_component(interaction_id="interaction-1", interaction_token="token-1")
+        client.defer_channel_message(
+            interaction_id="interaction-2",
+            interaction_token="token-2",
+            ephemeral=True,
+        )
         client.edit_original_response(
             application_id="app-1",
             interaction_token="token-1",
@@ -379,6 +384,9 @@ class FetchDispatcherTests(unittest.TestCase):
         )
 
         self.assertEqual(2, session.posts[0]["timeout"])
+        self.assertEqual(2, session.posts[1]["timeout"])
+        self.assertEqual(5, session.posts[1]["json"]["type"])
+        self.assertEqual(64, session.posts[1]["json"]["data"]["flags"])
         self.assertEqual(15, session.patches[0]["timeout"])
 
 
