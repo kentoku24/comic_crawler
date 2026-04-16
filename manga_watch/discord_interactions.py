@@ -14,7 +14,12 @@ from nacl.signing import VerifyKey
 from manga_watch.discord_add import ADD_COMMAND, AddCommandHandler
 from manga_watch.discord_fetch import FETCH_COMMAND, handle_fetch_trigger
 from manga_watch.discord_latest import LATEST_COMMAND, handle_latest_query, validated_timezone_name
-from manga_watch.discord_search import SEARCH_COMMAND, SEARCH_SELECT_CUSTOM_ID_PREFIX, SearchCommandHandler
+from manga_watch.discord_search import (
+    SEARCH_COMMAND,
+    SEARCH_FAILURE_MESSAGE,
+    SEARCH_SELECT_CUSTOM_ID_PREFIX,
+    SearchCommandHandler,
+)
 from manga_watch.discord_remove import REMOVE_COMMAND, RemoveCommandHandler
 from manga_watch.discord_supertwins_manage import (
     SUPERTWINS_MANAGE_COMMAND,
