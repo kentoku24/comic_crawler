@@ -1,6 +1,7 @@
 import re
 import xml.etree.ElementTree as ET
 from typing import Optional, Tuple
+from urllib.parse import urlparse
 
 from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, WorkDescriptor
 
@@ -12,6 +13,12 @@ _RSS_URL = re.compile(
     r'<link[^>]+rel="alternate"[^>]+type="application/rss\+xml"[^>]+href="([^"]+)"',
     re.I,
 )
+_ALLOWED_RSS_SCHEMES = {"http", "https"}
+_ALLOWED_RSS_HOSTS = {
+    "pocket.shonenmagazine.com",
+    "www.pocket.shonenmagazine.com",
+    "mgpk-cdn.magazinepocket.com",
+}
 
 
 def normalize_magapoke_title_id(raw_title_id: str) -> Tuple[str, str]:
@@ -36,7 +43,17 @@ def extract_magapoke_rss_url(html_text: str) -> Optional[str]:
     match = _RSS_URL.search(html_text)
     if not match:
         return None
-    return match.group(1).strip() or None
+    rss_url = match.group(1).strip()
+    if not rss_url:
+        return None
+
+    parsed = urlparse(rss_url)
+    if parsed.scheme not in _ALLOWED_RSS_SCHEMES:
+        return None
+    if parsed.hostname not in _ALLOWED_RSS_HOSTS:
+        return None
+
+    return rss_url
 
 
 def extract_magapoke_next_update_label(html_text: str) -> Optional[str]:

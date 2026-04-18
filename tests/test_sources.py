@@ -498,6 +498,82 @@ class SourceAdapterTests(unittest.TestCase):
             client.calls,
         )
 
+    def test_magapoke_fetch_latest_rejects_non_http_rss_url_from_title_page(self):
+        adapter = MagapokeAdapter()
+        work = adapter.normalize("https://pocket.shonenmagazine.com/title/03021/episode/427856")
+        client = StaticHttpClient(
+            {
+                "https://pocket.shonenmagazine.com/title/03021": """
+                <html>
+                  <head>
+                    <link rel="alternate" type="application/rss+xml" href="file:///etc/passwd">
+                  </head>
+                </html>
+                """,
+                "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml": """
+                <rss>
+                  <channel>
+                    <title>マガポケ（普通の本はありません！）</title>
+                    <item>
+                      <title>【＃17】ハルとギンギン丸</title>
+                      <link>https://pocket.shonenmagazine.com/title/03021/episode/434393</link>
+                      <description>普通の本はありません！</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://pocket.shonenmagazine.com/title/03021/episode/434393", latest["url"])
+        self.assertEqual(
+            [
+                "https://pocket.shonenmagazine.com/title/03021",
+                "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml",
+            ],
+            client.calls,
+        )
+
+    def test_magapoke_fetch_latest_rejects_untrusted_rss_host_from_title_page(self):
+        adapter = MagapokeAdapter()
+        work = adapter.normalize("https://pocket.shonenmagazine.com/title/03021/episode/427856")
+        client = StaticHttpClient(
+            {
+                "https://pocket.shonenmagazine.com/title/03021": """
+                <html>
+                  <head>
+                    <link rel="alternate" type="application/rss+xml" href="https://attacker.example/rss.xml">
+                  </head>
+                </html>
+                """,
+                "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml": """
+                <rss>
+                  <channel>
+                    <title>マガポケ（普通の本はありません！）</title>
+                    <item>
+                      <title>【＃17】ハルとギンギン丸</title>
+                      <link>https://pocket.shonenmagazine.com/title/03021/episode/434393</link>
+                      <description>普通の本はありません！</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://pocket.shonenmagazine.com/title/03021/episode/434393", latest["url"])
+        self.assertEqual(
+            [
+                "https://pocket.shonenmagazine.com/title/03021",
+                "https://mgpk-cdn.magazinepocket.com/static/rss/3021/feed.xml",
+            ],
+            client.calls,
+        )
+
     def test_comic_walker_normalize_accepts_canonical_series_url(self):
         work = ComicWalkerAdapter().normalize("https://comic-walker.com/detail/KC_123456_S/?from=detail")
 
