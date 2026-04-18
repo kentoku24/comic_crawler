@@ -348,7 +348,7 @@ SERVICE_URL="$(gcloud run services describe comic-crawler-service \
 gcloud scheduler jobs create http comic-crawler-service-keep-warm \
   --project=star-light-breaker \
   --location=asia-northeast1 \
-  --schedule='*/15 * * * *' \
+  --schedule='*/5 * * * *' \
   --uri="${SERVICE_URL}/healthz" \
   --http-method=GET
 ```
@@ -356,7 +356,7 @@ gcloud scheduler jobs create http comic-crawler-service-keep-warm \
 補足:
 
 - この ping は cold start 発生率を下げるための best effort であり、`min instances=1` ほどの保証はない
-- 初期値は 15 分間隔とし、不十分なら運用しながら短くする
+- 初期値は 5 分間隔とする
 - `comic-crawler-scheduled-run` とは別用途なので、job 名は分ける
 
 ## 9. Practical run / verify
