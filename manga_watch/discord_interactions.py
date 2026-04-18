@@ -28,6 +28,7 @@ INTERACTION_RESPONSE_TYPE_PONG = 1
 INTERACTION_RESPONSE_TYPE_CHANNEL_MESSAGE = 4
 INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE = 7
 EPHEMERAL_MESSAGE_FLAG = 64
+DISCORD_PERMISSION_ADMINISTRATOR = 0x8
 DEFAULT_HTTP_TIMEOUT = 15
 DEFAULT_INTERACTION_PATH = "/"
 DEFAULT_FETCH_BACKEND = "coordinator"
@@ -52,6 +53,18 @@ def _header_value(headers: Mapping[str, str], name: str) -> Optional[str]:
         if key.lower() == name.lower():
             return _coerce_text(value)
     return None
+
+
+def _has_admin_permission(payload: Mapping[str, object]) -> bool:
+    member = payload.get("member")
+    if not isinstance(member, Mapping):
+        return False
+    permissions_raw = member.get("permissions")
+    try:
+        permissions = int(str(permissions_raw or "0").strip() or "0")
+    except ValueError:
+        return False
+    return (permissions & DISCORD_PERMISSION_ADMINISTRATOR) != 0
 
 
 def build_cloud_run_job_run_uri(*, project: str, region: str, job_name: str) -> str:
@@ -351,6 +364,10 @@ class DiscordInteractionService:
             )
             return interaction_message_response(str(response_payload.get("content") or "").strip())
         if command_name == REMOVE_COMMAND and self.remove_handler is not None:
+            if not _has_admin_permission(payload):
+                return interaction_ephemeral_response(
+                    {"content": "このコマンドを実行する権限がありません。", "components": []}
+                )
             payload = self.remove_handler.start(
                 watchlist_path=self.watchlist_path,
                 state_path=self.state_path,
@@ -361,6 +378,11 @@ class DiscordInteractionService:
     def _handle_message_component(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
         if self.remove_handler is None:
             return text_response(400, "unsupported interaction type")
+        if not _has_admin_permission(payload):
+            return interaction_payload_response(
+                INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
+                {"content": "この操作を実行する権限がありません。", "components": []},
+            )
         data = payload.get("data")
         if not isinstance(data, Mapping):
             return text_response(400, "invalid interaction payload")

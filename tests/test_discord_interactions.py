@@ -254,7 +254,14 @@ class DiscordInteractionServiceTests(unittest.TestCase):
                 }
 
         service, signing_key = self.make_service(remove_handler=FakeRemoveHandler())
-        headers, body = self.signed_request({"type": 2, "data": {"name": REMOVE_COMMAND}}, signing_key)
+        headers, body = self.signed_request(
+            {
+                "type": 2,
+                "data": {"name": REMOVE_COMMAND},
+                "member": {"permissions": str(0x8)},
+            },
+            signing_key,
+        )
 
         response = service.handle_request(method="POST", path="/", headers=headers, body=body)
 
@@ -275,7 +282,11 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         remove_handler = FakeRemoveHandler()
         service, signing_key = self.make_service(remove_handler=remove_handler)
         headers, body = self.signed_request(
-            {"type": 3, "data": {"custom_id": "remove_select", "values": ["token-a"]}},
+            {
+                "type": 3,
+                "data": {"custom_id": "remove_select", "values": ["token-a"]},
+                "member": {"permissions": str(0x8)},
+            },
             signing_key,
         )
 
@@ -285,6 +296,40 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         self.assertEqual(7, payload["type"])
         self.assertEqual("updated", payload["data"]["content"])
         self.assertEqual("remove_select", remove_handler.calls[0]["custom_id"])
+
+    def test_remove_command_requires_admin_permission(self):
+        class FakeRemoveHandler:
+            def start(self, **_kwargs):
+                raise AssertionError("should not be called")
+
+        service, signing_key = self.make_service(remove_handler=FakeRemoveHandler())
+        headers, body = self.signed_request({"type": 2, "data": {"name": REMOVE_COMMAND}}, signing_key)
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertEqual(4, payload["type"])
+        self.assertEqual(64, payload["data"]["flags"])
+        self.assertIn("権限がありません", payload["data"]["content"])
+
+    def test_remove_component_requires_admin_permission(self):
+        class FakeRemoveHandler:
+            def handle_component(self, *_args, **_kwargs):
+                raise AssertionError("should not be called")
+
+        service, signing_key = self.make_service(remove_handler=FakeRemoveHandler())
+        headers, body = self.signed_request(
+            {"type": 3, "data": {"custom_id": "remove_confirm:token-a"}},
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(200, response.status_code)
+        payload = json.loads(response.body)
+        self.assertEqual(7, payload["type"])
+        self.assertIn("権限がありません", payload["data"]["content"])
 
 
 class FetchDispatcherTests(unittest.TestCase):
