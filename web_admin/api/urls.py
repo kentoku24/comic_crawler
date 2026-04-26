@@ -15,5 +15,6 @@ urlpatterns = [
     path("run-history/", views.run_history_detail, name="run_history"),
     path("watchlist/<str:work_id>/enabled/", views.watchlist_enabled_detail, name="watchlist_enabled"),
     path("manual-run/", views.manual_run_detail, name="manual_run"),
+    path("codex/approval-assess/", views.codex_approval_assess_detail, name="codex_approval_assess"),
     path("openapi.json", views.openapi_detail, name="openapi"),
 ]

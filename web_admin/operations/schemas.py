@@ -3,6 +3,8 @@ from __future__ import annotations
 from dataclasses import asdict, dataclass
 from typing import Any, Dict, List, Optional
 
+from .codex_approvals import ApprovalAssessment
+
 
 @dataclass(frozen=True)
 class MachineAuthPolicy:
@@ -32,3 +34,15 @@ class CapabilityReport:
         payload = asdict(self)
         payload["machine_auth_policy"] = self.machine_auth_policy.to_dict()
         return payload
+
+
+@dataclass(frozen=True)
+class ApprovalAssessmentResponse:
+    ok: bool
+    assessment: ApprovalAssessment
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "ok": self.ok,
+            "assessment": self.assessment.to_dict(),
+        }
