@@ -1,0 +1,25 @@
+{
+  "seedUrl": "https://piccoma.com/web/product/58170?etype=episode",
+  "expectedWork": {
+    "source": "piccoma",
+    "kind": "piccoma",
+    "workId": "piccoma:58170",
+    "seedUrl": "https://piccoma.com/web/product/58170?etype=episode",
+    "series": "piccoma:58170",
+    "productId": "58170"
+  },
+  "steps": [
+    {
+      "url": "https://piccoma.com/web/product/58170?etype=episode",
+      "response": "01-product.html"
+    },
+    {
+      "url": "https://piccoma.com/web/product/58170/episodes?etype=E",
+      "response": "02-episodes.html"
+    }
+  ],
+  "expectedError": {
+    "type": "SourceParseError",
+    "message": "piccoma: latest episode identifier not found"
+  }
+}

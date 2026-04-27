@@ -89,6 +89,12 @@ class UpdateClassificationTests(unittest.TestCase):
         self.assertEqual("no classification markers matched", decision.classification_reason)
         self.assertTrue(decision.default_notify)
 
+    def test_piccoma_court_number_label_is_main_story(self):
+        decision = classify_update(episode_title="第134審 (2)")
+
+        self.assertEqual("main_story", decision.update_type)
+        self.assertTrue(decision.default_notify)
+
 
 if __name__ == "__main__":
     unittest.main()

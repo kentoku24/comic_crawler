@@ -60,6 +60,15 @@ from .sources.nicovideo_manga import (
     NicovideoMangaAdapter,
     canonical_nicovideo_manga_latest_url,
 )
+from .sources.piccoma import (
+    PiccomaAdapter,
+    canonical_piccoma_episodes_url,
+    extract_piccoma_episode_list_latest_episode,
+    extract_piccoma_free_episode_label,
+    extract_piccoma_ld_json_product_name,
+    extract_piccoma_total_episode_label,
+    extract_piccoma_wait_free_label,
+)
 from .sources.shonenjumpplus import (
     ShonenJumpPlusAdapter,
     extract_shonenjumpplus_series_id,
@@ -269,6 +278,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "canonical work URL remains stable for the same work token",
             "work page keeps a latest free episode URL",
             "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "piccoma": SourceCanaryContract(
+        source="piccoma",
+        seed_url="https://piccoma.com/web/product/58170?etype=episode",
+        fixture_bundle="tests/fixtures/piccoma/normal",
+        monitored_signals=(
+            "canonical product URL remains stable for the same product id",
+            "product page keeps LD JSON Product.name",
+            "episodes endpoint keeps #js_episodeList with latest data-episode_id",
         ),
     ),
     "takecomic": SourceCanaryContract(
@@ -863,6 +882,44 @@ def _gaugau_canary(
     )
 
 
+def _piccoma_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = PiccomaAdapter()
+    work = adapter.normalize(contract.seed_url)
+    product_id = str(work.metadata.get("productId") or "")
+    if not product_id:
+        raise RuntimeError("piccoma: productId is required")
+
+    product_html = http_client.get_text(work.seed_url)
+    series_title = extract_piccoma_ld_json_product_name(product_html)
+    if not series_title:
+        raise SourceParseError("piccoma: LD JSON Product.name not found")
+
+    episodes_url = canonical_piccoma_episodes_url(product_id)
+    episodes_html = http_client.get_text(episodes_url)
+    latest_episode_id, latest_episode_title = extract_piccoma_episode_list_latest_episode(episodes_html)
+    if not latest_episode_id:
+        raise SourceParseError("piccoma: #js_episodeList latest episode identifier not found")
+
+    observations = [
+        CanaryObservation("canonical_seed_url", work.seed_url),
+        CanaryObservation("series_title", series_title),
+        CanaryObservation("latest_episode_id", latest_episode_id),
+        CanaryObservation("latest_episode_title", latest_episode_title or ""),
+    ]
+    for name, value in (
+        ("free_episode_label", extract_piccoma_free_episode_label(product_html)),
+        ("wait_free_label", extract_piccoma_wait_free_label(product_html)),
+        ("total_episode_label", extract_piccoma_total_episode_label(product_html)),
+    ):
+        if value:
+            observations.append(CanaryObservation(name, value))
+
+    return ((work.seed_url, episodes_url), tuple(observations))
+
+
 CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
@@ -878,6 +935,7 @@ CANARY_RUNNERS = {
     "kakuyomu": _kakuyomu_canary,
     "nicovideo-manga": _nicovideo_manga_canary,
     "gaugau": _gaugau_canary,
+    "piccoma": _piccoma_canary,
     "takecomic": _takecomic_canary,
 }
 
