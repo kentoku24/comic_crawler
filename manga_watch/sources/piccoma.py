@@ -1,0 +1,202 @@
+from __future__ import annotations
+
+import html
+import json
+import re
+from typing import Iterable, Optional
+
+from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, WorkDescriptor
+from .util import html_title
+
+
+_PRODUCT_URL = re.compile(
+    r"^https?://(?:www\.)?piccoma\.com/web/product/(\d+)(?:/)?(?:\?.*)?$"
+)
+_LD_JSON_SCRIPT = re.compile(
+    r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
+    re.I | re.S,
+)
+_EPISODE_ITEM = re.compile(
+    r'<(?:div|li)\b[^>]*data-episode_id=["\']([^"\']+)["\'][^>]*>(.*?)</(?:div|li)>',
+    re.I | re.S,
+)
+
+
+def canonical_piccoma_product_url(product_id: str) -> str:
+    return f"https://piccoma.com/web/product/{product_id}?etype=episode"
+
+
+def canonical_piccoma_episodes_url(product_id: str) -> str:
+    return f"https://piccoma.com/web/product/{product_id}/episodes?etype=E"
+
+
+def extract_piccoma_product_id(seed_url: str) -> Optional[str]:
+    match = _PRODUCT_URL.match(str(seed_url or "").strip())
+    if not match:
+        return None
+    return match.group(1)
+
+
+def parse_piccoma_product_url(seed_url: str) -> Optional[str]:
+    product_id = extract_piccoma_product_id(seed_url)
+    if not product_id:
+        return None
+    return canonical_piccoma_product_url(product_id)
+
+
+def extract_piccoma_series_title(html_text: str, page_title: Optional[str] = None) -> Optional[str]:
+    for match in _LD_JSON_SCRIPT.finditer(html_text or ""):
+        name = _product_name_from_ld_json(match.group(1))
+        if name:
+            return name
+
+    heading = re.search(r"<h1[^>]*>(.*?)</h1>", html_text or "", re.I | re.S)
+    if heading:
+        title = _plain_text(heading.group(1))
+        if title:
+            return title
+
+    if page_title:
+        title = re.split(r"[｜|]", page_title, maxsplit=1)[0].strip()
+        if title:
+            return title
+    return None
+
+
+def extract_piccoma_total_episode_label(html_text: str) -> Optional[str]:
+    match = re.search(r"全\s*(\d+)\s*話", _plain_text(html_text))
+    if not match:
+        return None
+    return f"全 {match.group(1)} 話"
+
+
+def extract_piccoma_free_episode_label(html_text: str) -> Optional[str]:
+    match = re.search(r"(\d+\s*話分無料|\d+\s*話無料)", _plain_text(html_text))
+    if not match:
+        return None
+    return re.sub(r"\s+", "", match.group(1))
+
+
+def extract_piccoma_wait_free_label(html_text: str) -> Optional[str]:
+    text = _plain_text(html_text)
+    match = re.search(r"(\d+\s*話分)\s*(?:待てば)?¥0", text)
+    if not match:
+        match = re.search(r"待てば¥0.*?(\d+\s*話分)", text)
+    if not match:
+        return None
+    return re.sub(r"\s+", " ", match.group(1)).strip()
+
+
+def extract_piccoma_latest_episode(episodes_html: str) -> tuple[Optional[str], Optional[str]]:
+    latest_id = None
+    latest_title = None
+    for match in _EPISODE_ITEM.finditer(episodes_html or ""):
+        episode_id = match.group(1).strip()
+        if not episode_id:
+            continue
+        latest_id = episode_id
+        latest_title = _plain_text(match.group(2)) or None
+    return latest_id, latest_title
+
+
+def _plain_text(html_text: str) -> str:
+    no_tags = re.sub(r"<[^>]+>", " ", html_text or "")
+    return html.unescape(re.sub(r"\s+", " ", no_tags)).strip()
+
+
+def _product_name_from_ld_json(raw_json: str) -> Optional[str]:
+    try:
+        payload = json.loads(html.unescape(raw_json))
+    except json.JSONDecodeError:
+        return None
+
+    product_candidates = []
+    named_candidates = []
+    for candidate in _walk_json_dicts(payload):
+        raw_type = candidate.get("@type")
+        types = raw_type if isinstance(raw_type, list) else [raw_type]
+        if "Product" in types:
+            product_candidates.append(candidate)
+        elif candidate.get("name"):
+            named_candidates.append(candidate)
+
+    for candidate in product_candidates + named_candidates:
+        name = str(candidate.get("name") or "").strip()
+        if name:
+            return name
+    return None
+
+
+def _walk_json_dicts(value) -> Iterable[dict]:
+    if isinstance(value, dict):
+        yield value
+        for child in value.values():
+            yield from _walk_json_dicts(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _walk_json_dicts(child)
+
+
+def _piccoma_episode_title(identifier: str, title: Optional[str]) -> str:
+    return title or f"episode:{identifier}"
+
+
+class PiccomaAdapter(SourceAdapter):
+    source = "piccoma"
+
+    def can_handle(self, seed_url: str) -> bool:
+        return bool(parse_piccoma_product_url(seed_url))
+
+    def normalize(self, seed_url: str) -> WorkDescriptor:
+        product_id = extract_piccoma_product_id(seed_url)
+        if not product_id:
+            raise RuntimeError(f"{self.source}: could not parse product URL: {seed_url}")
+
+        stable_work_id = f"{self.source}:{product_id}"
+        return WorkDescriptor(
+            source=self.source,
+            work_id=stable_work_id,
+            seed_url=canonical_piccoma_product_url(product_id),
+            metadata={
+                "series": stable_work_id,
+                "productId": product_id,
+            },
+        )
+
+    def fetch_latest(self, work: WorkDescriptor, http_client: HttpClient) -> LatestEpisode:
+        product_id = work.metadata.get("productId") or extract_piccoma_product_id(work.seed_url)
+        if not product_id:
+            raise RuntimeError(f"{self.source}: productId is required")
+
+        product_url = canonical_piccoma_product_url(product_id)
+        product_html = http_client.get_text(product_url)
+        page_title = html_title(product_html)
+        series_title = extract_piccoma_series_title(product_html, page_title)
+        if not series_title:
+            raise SourceParseError(f"{self.source}: series title not found")
+
+        episodes_html = http_client.get_text(canonical_piccoma_episodes_url(product_id))
+        latest_identifier, latest_title = extract_piccoma_latest_episode(episodes_html)
+        if not latest_identifier:
+            raise SourceParseError(f"{self.source}: latest episode identifier not found")
+
+        extra = {}
+        for key, value in (
+            ("freeEpisodeLabel", extract_piccoma_free_episode_label(product_html)),
+            ("waitFreeLabel", extract_piccoma_wait_free_label(product_html)),
+            ("totalEpisodeLabel", extract_piccoma_total_episode_label(product_html)),
+        ):
+            if value:
+                extra[key] = value
+
+        return LatestEpisode(
+            source=self.source,
+            work_id=work.work_id,
+            latest_key=f"{self.source}:{product_id}:episode:{latest_identifier}",
+            url=product_url,
+            series=work.metadata.get("series"),
+            series_title=series_title,
+            episode_title=_piccoma_episode_title(latest_identifier, latest_title),
+            page_title=page_title,
+            extra=extra,
+        )
