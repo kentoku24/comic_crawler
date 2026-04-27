@@ -1,0 +1,71 @@
+{
+  "seedUrl": "https://piccoma.com/web/product/58170?etype=episode",
+  "expectedWork": {
+    "source": "piccoma",
+    "kind": "piccoma",
+    "workId": "piccoma:58170",
+    "seedUrl": "https://piccoma.com/web/product/58170?etype=episode",
+    "series": "piccoma:58170",
+    "productId": "58170"
+  },
+  "steps": [
+    {
+      "url": "https://piccoma.com/web/product/58170?etype=episode",
+      "response": "01-product.html"
+    },
+    {
+      "url": "https://piccoma.com/web/product/58170/episodes?etype=E",
+      "response": "02-episodes.html"
+    }
+  ],
+  "expectedCheckedUrls": [
+    "https://piccoma.com/web/product/58170?etype=episode",
+    "https://piccoma.com/web/product/58170/episodes?etype=E"
+  ],
+  "expectedObservations": [
+    {
+      "name": "canonical_seed_url",
+      "value": "https://piccoma.com/web/product/58170?etype=episode"
+    },
+    {
+      "name": "series_title",
+      "value": "九条の大罪"
+    },
+    {
+      "name": "latest_episode_id",
+      "value": "6212936"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "第134審 (2)"
+    },
+    {
+      "name": "free_episode_label",
+      "value": "77話分無料"
+    },
+    {
+      "name": "wait_free_label",
+      "value": "41 話分"
+    },
+    {
+      "name": "total_episode_label",
+      "value": "全 313 話"
+    }
+  ],
+  "expectedLatest": {
+    "source": "piccoma",
+    "workId": "piccoma:58170",
+    "latestKey": "piccoma:58170:episode:6212936",
+    "url": "https://piccoma.com/web/product/58170?etype=episode",
+    "series": "piccoma:58170",
+    "seriesTitle": "九条の大罪",
+    "episodeTitle": "第134審 (2)",
+    "pageTitle": "九条の大罪｜41話 待てば¥0｜無料漫画ならピッコマ",
+    "update_type": "main_story",
+    "classification_reason": "episode_title matched main-story numbering",
+    "default_notify": true,
+    "freeEpisodeLabel": "77話分無料",
+    "waitFreeLabel": "41 話分",
+    "totalEpisodeLabel": "全 313 話"
+  }
+}

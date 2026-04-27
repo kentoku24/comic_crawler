@@ -25,6 +25,7 @@ from manga_watch.sources.gaugau import GaugauAdapter
 from manga_watch.sources.kakuyomu import KakuyomuAdapter
 from manga_watch.sources.magapoke import MagapokeAdapter
 from manga_watch.sources.nicovideo_manga import NicovideoMangaAdapter
+from manga_watch.sources.piccoma import PiccomaAdapter
 from manga_watch.sources.shonenjumpplus import ShonenJumpPlusAdapter
 from manga_watch.sources.sunday_webry import SundayWebryAdapter
 from manga_watch.sources.util import html_title
@@ -96,6 +97,11 @@ SOURCE_CASES = {
     "gaugau": (
         "normal",
     ),
+    "piccoma": (
+        "normal",
+        "broken_missing_episode",
+        "broken_missing_episode_list",
+    ),
     "bookwalker": (
         "normal",
     ),
@@ -160,6 +166,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "normal": "main_story",
     },
     "gaugau": {
+        "normal": "main_story",
+    },
+    "piccoma": {
         "normal": "main_story",
     },
     "bookwalker": {
@@ -269,6 +278,7 @@ class SourceAdapterTests(unittest.TestCase):
                 "nicovideo-manga",
                 "kakuyomu",
                 "gaugau",
+                "piccoma",
                 "bookwalker",
             ),
             REGISTERED_SOURCES,
@@ -329,6 +339,29 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_gaugau_fixtures(self):
         self._assert_fixture_matrix("gaugau")
+
+    def test_piccoma_fixtures(self):
+        self._assert_fixture_matrix("piccoma")
+
+    def test_piccoma_normalize_accepts_product_url(self):
+        work = PiccomaAdapter().normalize("https://piccoma.com/web/product/58170?etype=episode")
+
+        self.assertEqual(
+            {
+                "source": "piccoma",
+                "kind": "piccoma",
+                "workId": "piccoma:58170",
+                "seedUrl": "https://piccoma.com/web/product/58170?etype=episode",
+                "series": "piccoma:58170",
+                "productId": "58170",
+            },
+            work.to_dict(),
+        )
+
+    def test_piccoma_normalize_canonicalizes_query_variants(self):
+        work = PiccomaAdapter().normalize("https://piccoma.com/web/product/58170?foo=bar")
+
+        self.assertEqual("https://piccoma.com/web/product/58170?etype=episode", work.seed_url)
 
     def test_bookwalker_fixtures(self):
         self._assert_fixture_matrix("bookwalker")

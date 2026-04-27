@@ -98,6 +98,7 @@ class SourceSearchTests(unittest.TestCase):
                 "nicovideo-manga",
                 "kakuyomu",
                 "gaugau",
+                "piccoma",
                 "bookwalker",
             ),
             supported_search_sources(),
@@ -627,6 +628,100 @@ class SourceSearchTests(unittest.TestCase):
             ],
             results,
         )
+
+    def test_search_source_parses_piccoma_json_results(self):
+        query = "九条の大罪"
+        request_url = (
+            "https://piccoma.com/web/search/result_ajax/list"
+            f"?tab_type=T&word={quote_plus(query)}&page=1"
+        )
+        json_text = (FIXTURES_ROOT / "piccoma" / "01-search.json").read_text(encoding="utf-8")
+
+        results = search_source(
+            "piccoma",
+            query,
+            http_client=StaticHttpClient({request_url: json_text}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="piccoma",
+                    title="九条の大罪",
+                    seed_url="https://piccoma.com/web/product/58170?etype=episode",
+                    subtitle="piccoma",
+                ),
+                SearchResult(
+                    source="piccoma",
+                    title="闇金ウシジマくん",
+                    seed_url="https://piccoma.com/web/product/12345?etype=episode",
+                    subtitle="piccoma",
+                ),
+            ],
+            results,
+        )
+
+    def test_search_source_piccoma_ignores_malformed_rows(self):
+        query = "九条の大罪"
+        request_url = (
+            "https://piccoma.com/web/search/result_ajax/list"
+            f"?tab_type=T&word={quote_plus(query)}&page=1"
+        )
+        json_text = """
+        {
+          "status": 0,
+          "products": [
+            {"id": 58170},
+            {"id": "abc", "title": "bad id"},
+            {"title": "missing id"},
+            null,
+            "bad row",
+            {"id": 58170, "title": "九条の大罪"},
+            {"id": 58170, "title": "duplicate"}
+          ]
+        }
+        """
+
+        results = search_source(
+            "piccoma",
+            query,
+            http_client=StaticHttpClient({request_url: json_text}),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="piccoma",
+                    title="九条の大罪",
+                    seed_url="https://piccoma.com/web/product/58170?etype=episode",
+                    subtitle="piccoma",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_piccoma_returns_empty_for_empty_or_malformed_products(self):
+        query = "九条の大罪"
+        request_url = (
+            "https://piccoma.com/web/search/result_ajax/list"
+            f"?tab_type=T&word={quote_plus(query)}&page=1"
+        )
+
+        for json_text in (
+            '{"status": 0, "products": []}',
+            '{"status": 0, "products": {}}',
+            '{"status": 1, "products": [{"id": 58170, "title": "九条の大罪"}]}',
+            '{"status": 0}',
+            'not json',
+        ):
+            with self.subTest(json_text=json_text):
+                results = search_source(
+                    "piccoma",
+                    query,
+                    http_client=StaticHttpClient({request_url: json_text}),
+                )
+
+                self.assertEqual([], results)
 
     def test_search_source_falls_back_to_comicborder_homepage_results_when_search_errors(self):
         homepage_html = """

@@ -159,6 +159,12 @@ SOURCE_CAPABILITIES = (
         examples=("https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",),
     ),
     SourceCapability(
+        source="piccoma",
+        domains=("piccoma.com", "www.piccoma.com"),
+        input_labels=("product URL",),
+        examples=("https://piccoma.com/web/product/58170?etype=episode",),
+    ),
+    SourceCapability(
         source="bookwalker",
         domains=("bookwalker.jp",),
         input_labels=("series URL", "book detail URL"),

@@ -14,6 +14,7 @@ from .kakuyomu import KakuyomuAdapter
 from .kuragebunch import KuragebunchAdapter
 from .magapoke import MagapokeAdapter
 from .nicovideo_manga import NicovideoMangaAdapter
+from .piccoma import PiccomaAdapter
 from .shonenjumpplus import ShonenJumpPlusAdapter
 from .sunday_webry import SundayWebryAdapter
 from .takecomic import TakecomicAdapter
@@ -35,6 +36,7 @@ REGISTERED_ADAPTERS = (
     NicovideoMangaAdapter(),
     KakuyomuAdapter(),
     GaugauAdapter(),
+    PiccomaAdapter(),
     BookwalkerAdapter(),
 )
 REGISTERED_SOURCES = tuple(adapter.source for adapter in REGISTERED_ADAPTERS)

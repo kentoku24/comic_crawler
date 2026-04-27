@@ -563,6 +563,70 @@ class WatchlistAddLogicTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
+    def test_watchlist_add_accepts_piccoma_product_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://piccoma.com/web/product/58170?foo=bar&etype=episode",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient({}),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("piccoma:58170", payload["entry"]["id"])
+        self.assertEqual(
+            "https://piccoma.com/web/product/58170?etype=episode",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("piccoma", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_watchlist_add_reports_duplicate_for_piccoma_query_variant(self):
+        existing_entry = {
+            "id": "piccoma:58170",
+            "source": "piccoma",
+            "seed_url": "https://piccoma.com/web/product/58170?etype=episode",
+            "enabled": True,
+            "hidden": False,
+            "notification_policy": {"mode": "all", "allowed_update_types": None},
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [existing_entry])
+
+            payload = add_watchlist_url(
+                "https://www.piccoma.com/web/product/58170?utm_source=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient({}),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("duplicate", payload["action"])
+        self.assertEqual(existing_entry, payload["existing"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual([existing_entry], saved["works"])
+
+    def test_watchlist_add_reports_unsupported_piccoma_url_type(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            with self.assertRaisesRegex(
+                WatchlistAddError,
+                "piccoma does not support this URL type for work registration",
+            ) as cm:
+                add_watchlist_url(
+                    "https://piccoma.com/web/event/58170",
+                    watchlist_path=str(watchlist_path),
+                    http_client=StaticHttpClient({}),
+                )
+
+        self.assertEqual("unsupported_url_type", cm.exception.kind)
+
     def test_watchlist_add_accepts_bookwalker_series_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"
