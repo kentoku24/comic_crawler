@@ -128,6 +128,33 @@ class SourceDriftTests(unittest.TestCase):
         self.assertEqual("SourceParseError", result.error_type)
         self.assertIn("LD JSON Product.name not found", result.message)
 
+    def test_piccoma_canary_rejects_non_product_ld_json_name(self):
+        manifest, client = load_fixture_http_client("piccoma", "normal")
+        product_with_non_product_ld_json = (FIXTURES_ROOT / "piccoma" / "normal" / "01-product.html").read_text(
+            encoding="utf-8"
+        )
+        product_with_non_product_ld_json = product_with_non_product_ld_json.replace(
+            '{"@type":"Product","name":"九条の大罪"}',
+            '{"@type":"BreadcrumbList","name":"九条の大罪"}',
+        )
+        client.steps[0] = {
+            "url": manifest["steps"][0]["url"],
+            "body": product_with_non_product_ld_json,
+        }
+        contract = DEFAULT_SOURCE_CANARY_CONTRACTS["piccoma"]
+        contract = contract.__class__(
+            source=contract.source,
+            seed_url=manifest["seedUrl"],
+            fixture_bundle=contract.fixture_bundle,
+            monitored_signals=contract.monitored_signals,
+        )
+
+        result = run_source_canary(contract, http_client=client)
+
+        self.assertEqual("drift", result.status)
+        self.assertEqual("SourceParseError", result.error_type)
+        self.assertIn("LD JSON Product.name not found", result.message)
+
     def test_main_returns_non_zero_when_a_canary_fails(self):
         failing_result = SourceCanaryResult(
             source="comic-walker",

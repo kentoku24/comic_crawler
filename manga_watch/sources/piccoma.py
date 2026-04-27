@@ -60,7 +60,7 @@ def extract_piccoma_series_title(html_text: str, page_title: Optional[str] = Non
 
 def extract_piccoma_ld_json_product_name(html_text: str) -> Optional[str]:
     for match in _LD_JSON_SCRIPT.finditer(html_text or ""):
-        name = _product_name_from_ld_json(match.group(1))
+        name = _product_name_from_ld_json(match.group(1), product_only=True)
         if name:
             return name
     return None
@@ -167,7 +167,7 @@ def _plain_text(html_text: str) -> str:
     return html.unescape(re.sub(r"\s+", " ", no_tags)).strip()
 
 
-def _product_name_from_ld_json(raw_json: str) -> Optional[str]:
+def _product_name_from_ld_json(raw_json: str, *, product_only: bool = False) -> Optional[str]:
     try:
         payload = json.loads(html.unescape(raw_json))
     except json.JSONDecodeError:
@@ -183,7 +183,8 @@ def _product_name_from_ld_json(raw_json: str) -> Optional[str]:
         elif candidate.get("name"):
             named_candidates.append(candidate)
 
-    for candidate in product_candidates + named_candidates:
+    candidates = product_candidates if product_only else product_candidates + named_candidates
+    for candidate in candidates:
         name = str(candidate.get("name") or "").strip()
         if name:
             return name
