@@ -20,7 +20,7 @@ from manga_watch.discord_search import (
     SEARCH_SELECT_CUSTOM_ID_PREFIX,
     SearchCommandHandler,
 )
-from manga_watch.discord_where import WHERE_COMMAND, WhereCommandHandler, is_where_component
+from manga_watch.discord_where import WHERE_COMMAND, WHERE_FAILURE_MESSAGE, WhereCommandHandler, is_where_component
 from manga_watch.discord_remove import REMOVE_COMMAND, RemoveCommandHandler
 from manga_watch.discord_supertwins_manage import (
     SUPERTWINS_MANAGE_COMMAND,
@@ -456,11 +456,7 @@ class DiscordInteractionService:
         if command_name == SEARCH_COMMAND and self.search_handler is not None:
             return self._handle_deferred_search_command(payload)
         if command_name == WHERE_COMMAND and self.where_handler is not None:
-            response_payload = self.where_handler.start(
-                query=self._command_option(payload, "query"),
-                episode=self._command_option(payload, "episode"),
-            )
-            return interaction_ephemeral_response(response_payload)
+            return self._handle_deferred_where_command(payload)
         if command_name == REMOVE_COMMAND and self.remove_handler is not None:
             payload = self.remove_handler.start(
                 watchlist_path=self.watchlist_path,
@@ -549,6 +545,8 @@ class DiscordInteractionService:
                 watchlist_path=self.watchlist_path,
             )
         elif self.where_handler is not None and is_where_component(custom_id):
+            if self.interaction_callback_client is not None:
+                return self._handle_deferred_where_component(payload, data)
             response_payload = self.where_handler.handle_component(data)
         elif self.remove_handler is not None and (
             custom_id == "remove_select" or custom_id.startswith("remove_")
@@ -578,6 +576,104 @@ class DiscordInteractionService:
             INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
             response_payload,
         )
+
+    def _handle_deferred_where_command(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
+        interaction_id = _coerce_text(payload.get("id"))
+        application_id = _coerce_text(payload.get("application_id"))
+        interaction_token = _coerce_text(payload.get("token"))
+        if (
+            not interaction_id
+            or not application_id
+            or not interaction_token
+            or self.interaction_callback_client is None
+            or self.where_handler is None
+        ):
+            response_payload = self.where_handler.start(
+                query=self._command_option(payload, "query"),
+                episode=self._command_option(payload, "episode"),
+            )
+            return interaction_ephemeral_response(response_payload)
+
+        try:
+            self.interaction_callback_client.defer_channel_message(
+                interaction_id=interaction_id,
+                interaction_token=interaction_token,
+                ephemeral=True,
+            )
+        except Exception:
+            response_payload = self.where_handler.start(
+                query=self._command_option(payload, "query"),
+                episode=self._command_option(payload, "episode"),
+            )
+            return interaction_ephemeral_response(response_payload)
+
+        response_payload = {"content": WHERE_FAILURE_MESSAGE, "components": []}
+        try:
+            response_payload = self.where_handler.start(
+                query=self._command_option(payload, "query"),
+                episode=self._command_option(payload, "episode"),
+            )
+        except Exception:
+            pass
+
+        try:
+            self.interaction_callback_client.edit_original_response(
+                application_id=application_id,
+                interaction_token=interaction_token,
+                data=response_payload,
+            )
+        except Exception:
+            pass
+        return empty_response(202)
+
+    def _handle_deferred_where_component(
+        self,
+        payload: Mapping[str, object],
+        data: Mapping[str, object],
+    ) -> InteractionHttpResponse:
+        interaction_id = _coerce_text(payload.get("id"))
+        application_id = _coerce_text(payload.get("application_id"))
+        interaction_token = _coerce_text(payload.get("token"))
+        if (
+            not interaction_id
+            or not application_id
+            or not interaction_token
+            or self.interaction_callback_client is None
+            or self.where_handler is None
+        ):
+            response_payload = self.where_handler.handle_component(data)
+            return interaction_payload_response(
+                INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
+                response_payload,
+            )
+
+        try:
+            self.interaction_callback_client.defer_component(
+                interaction_id=interaction_id,
+                interaction_token=interaction_token,
+            )
+        except Exception:
+            response_payload = self.where_handler.handle_component(data)
+            return interaction_payload_response(
+                INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
+                response_payload,
+            )
+
+        response_payload: Mapping[str, object] = {"content": WHERE_FAILURE_MESSAGE, "components": []}
+        try:
+            response_payload = self.where_handler.handle_component(data)
+        except Exception:
+            pass
+
+        try:
+            self.interaction_callback_client.edit_original_response(
+                application_id=application_id,
+                interaction_token=interaction_token,
+                data=response_payload,
+            )
+        except Exception:
+            pass
+        return empty_response(202)
 
     def _handle_deferred_supertwins_search_work_select(
         self,
