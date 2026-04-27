@@ -234,6 +234,67 @@ def delete_supertwins_search_session(
             pass
 
 
+def load_where_session(
+    token: str,
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> Dict[str, object]:
+    normalized_token = _normalize_interaction_session_token(token, session_name="where session")
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        return get_firestore_repository().load_where_session(normalized_token)
+
+    session_path = _where_session_path(path or get_state_path(), normalized_token)
+    if not os.path.exists(session_path):
+        raise FileNotFoundError(f"missing where session: {normalized_token}")
+    with open(session_path, "r", encoding="utf-8") as f:
+        payload = json.load(f)
+    if not isinstance(payload, Mapping):
+        raise ValueError("where session payload must be an object")
+    return dict(payload)
+
+
+def save_where_session(
+    token: str,
+    payload: Mapping[str, object],
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> None:
+    normalized_token = _normalize_interaction_session_token(token, session_name="where session")
+    normalized_payload = dict(payload)
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        get_firestore_repository().save_where_session(normalized_token, normalized_payload)
+        return
+
+    atomic_write_json(
+        _where_session_path(path or get_state_path(), normalized_token),
+        normalized_payload,
+    )
+
+
+def delete_where_session(
+    token: str,
+    path: Optional[str] = None,
+    *,
+    backend: Optional[str] = None,
+) -> None:
+    normalized_token = _normalize_interaction_session_token(token, session_name="where session")
+    resolved_backend = _effective_storage_backend(backend)
+    if resolved_backend == STORAGE_BACKEND_FIRESTORE:
+        get_firestore_repository().delete_where_session(normalized_token)
+        return
+
+    session_path = _where_session_path(path or get_state_path(), normalized_token)
+    with advisory_file_lock(session_path):
+        try:
+            os.unlink(session_path)
+        except FileNotFoundError:
+            pass
+
+
 def record_run_summary(
     summary: Mapping[str, object],
     *,
@@ -295,13 +356,17 @@ def atomic_write_json(path: str, payload: Mapping[str, object]) -> None:
             raise
 
 
-def _normalize_supertwins_search_session_token(token: object) -> str:
+def _normalize_interaction_session_token(token: object, *, session_name: str) -> str:
     normalized = str(token or "").strip()
     if not normalized:
-        raise ValueError("supertwins search session token must be a non-empty string")
+        raise ValueError(f"{session_name} token must be a non-empty string")
     if not re.fullmatch(r"[A-Za-z0-9:_-]+", normalized):
-        raise ValueError("supertwins search session token contains unsupported characters")
+        raise ValueError(f"{session_name} token contains unsupported characters")
     return normalized
+
+
+def _normalize_supertwins_search_session_token(token: object) -> str:
+    return _normalize_interaction_session_token(token, session_name="supertwins search session")
 
 
 def _supertwins_search_session_dir(state_path: str) -> str:
@@ -312,6 +377,16 @@ def _supertwins_search_session_dir(state_path: str) -> str:
 
 def _supertwins_search_session_path(state_path: str, token: str) -> str:
     return os.path.join(_supertwins_search_session_dir(state_path), f"{token}.json")
+
+
+def _where_session_dir(state_path: str) -> str:
+    directory = os.path.dirname(state_path) or "."
+    basename = os.path.basename(state_path) or "state.json"
+    return os.path.join(directory, f".{basename}.where_sessions")
+
+
+def _where_session_path(state_path: str, token: str) -> str:
+    return os.path.join(_where_session_dir(state_path), f"{token}.json")
 
 
 def validate_watchlist(payload: Mapping[str, object]) -> Dict[str, object]:

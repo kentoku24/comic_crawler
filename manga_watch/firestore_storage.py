@@ -14,6 +14,7 @@ DEFAULT_WATCHLIST_DOCUMENT = "current"
 DEFAULT_STATE_COLLECTION = "states"
 DEFAULT_STATE_DOCUMENT = "runtime"
 DEFAULT_SUPERTWINS_SEARCH_SESSIONS_COLLECTION = "supertwins_search_sessions"
+DEFAULT_WHERE_SESSIONS_COLLECTION = "where_sessions"
 DEFAULT_RUNS_COLLECTION = "runs"
 DEFAULT_NOTIFICATION_DEDUPE_COLLECTION = "notification_dedupe"
 DEFAULT_DELIVERY_BACKLOG_COLLECTION = "delivery_backlog"
@@ -67,6 +68,7 @@ class FirestoreStorageConfig:
     state_collection: str = DEFAULT_STATE_COLLECTION
     state_document: str = DEFAULT_STATE_DOCUMENT
     supertwins_search_sessions_collection: str = DEFAULT_SUPERTWINS_SEARCH_SESSIONS_COLLECTION
+    where_sessions_collection: str = DEFAULT_WHERE_SESSIONS_COLLECTION
     runs_collection: str = DEFAULT_RUNS_COLLECTION
     notification_dedupe_collection: str = DEFAULT_NOTIFICATION_DEDUPE_COLLECTION
     delivery_backlog_collection: str = DEFAULT_DELIVERY_BACKLOG_COLLECTION
@@ -103,6 +105,10 @@ class FirestoreStorageConfig:
                 env.get("MANGA_WATCH_FIRESTORE_SUPERTWINS_SEARCH_SESSIONS_COLLECTION")
             )
             or DEFAULT_SUPERTWINS_SEARCH_SESSIONS_COLLECTION,
+            where_sessions_collection=_normalize_optional_text(
+                env.get("MANGA_WATCH_FIRESTORE_WHERE_SESSIONS_COLLECTION")
+            )
+            or DEFAULT_WHERE_SESSIONS_COLLECTION,
             runs_collection=_normalize_optional_text(env.get("MANGA_WATCH_FIRESTORE_RUNS_COLLECTION"))
             or DEFAULT_RUNS_COLLECTION,
             notification_dedupe_collection=_normalize_optional_text(
@@ -197,6 +203,31 @@ class FirestoreStorageRepository:
 
     def delete_supertwins_search_session(self, token: str) -> None:
         self.client.collection(self.config.supertwins_search_sessions_collection).document(
+            build_shadow_document_id(self.config.state_document, token)
+        ).delete()
+
+    def load_where_session(self, token: str) -> Dict[str, object]:
+        snapshot = self.client.collection(self.config.where_sessions_collection).document(
+            build_shadow_document_id(self.config.state_document, token)
+        ).get()
+        if not snapshot.exists:
+            raise FileNotFoundError(
+                f"missing Firestore document: {self.config.where_sessions_collection}/{token}"
+            )
+        payload = snapshot.to_dict() or {}
+        return dict(payload)
+
+    def save_where_session(self, token: str, payload: Mapping[str, object]) -> None:
+        normalized_payload = dict(payload)
+        normalized_payload["state_document_id"] = self.config.state_document
+        self._save_document(
+            self.config.where_sessions_collection,
+            build_shadow_document_id(self.config.state_document, token),
+            normalized_payload,
+        )
+
+    def delete_where_session(self, token: str) -> None:
+        self.client.collection(self.config.where_sessions_collection).document(
             build_shadow_document_id(self.config.state_document, token)
         ).delete()
 
@@ -414,6 +445,7 @@ class FirestoreRepository(FirestoreStorageRepository):
         watchlist_document_id: str = DEFAULT_WATCHLIST_DOCUMENT,
         state_collection: str = DEFAULT_STATE_COLLECTION,
         state_document_id: str = DEFAULT_STATE_DOCUMENT,
+        where_sessions_collection: str = DEFAULT_WHERE_SESSIONS_COLLECTION,
         runs_collection: str = DEFAULT_RUNS_COLLECTION,
         notification_dedupe_collection: str = DEFAULT_NOTIFICATION_DEDUPE_COLLECTION,
         delivery_backlog_collection: str = DEFAULT_DELIVERY_BACKLOG_COLLECTION,
@@ -427,6 +459,7 @@ class FirestoreRepository(FirestoreStorageRepository):
                 watchlist_document=watchlist_document_id,
                 state_collection=state_collection,
                 state_document=state_document_id,
+                where_sessions_collection=where_sessions_collection,
                 runs_collection=runs_collection,
                 notification_dedupe_collection=notification_dedupe_collection,
                 delivery_backlog_collection=delivery_backlog_collection,

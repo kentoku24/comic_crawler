@@ -8,10 +8,13 @@ from unittest import mock
 
 from manga_watch.storage import (
     delete_supertwins_search_session,
+    delete_where_session,
     load_state,
     load_supertwins_search_session,
+    load_where_session,
     save_state,
     save_supertwins_search_session,
+    save_where_session,
     state_daily_notification_delivery,
     state_notification_outbox,
     validate_watchlist,
@@ -251,6 +254,35 @@ class StorageTests(unittest.TestCase):
         )
         with self.assertRaises(FileNotFoundError):
             load_supertwins_search_session("session-a", str(state_path))
+
+    def test_where_sessions_round_trip_without_overwrite(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = Path(tmpdir) / "state.json"
+            save_where_session(
+                "session-a",
+                {"query": "作品A", "episode": "1話", "results": [{"source": "comic-walker"}]},
+                path=str(state_path),
+            )
+            save_where_session(
+                "session-b",
+                {"query": "作品B", "episode": "2話", "results": [{"source": "nicovideo-manga"}]},
+                path=str(state_path),
+            )
+
+            session_a = load_where_session("session-a", str(state_path))
+            session_b = load_where_session("session-b", str(state_path))
+            delete_where_session("session-a", str(state_path))
+
+        self.assertEqual(
+            {"query": "作品A", "episode": "1話", "results": [{"source": "comic-walker"}]},
+            session_a,
+        )
+        self.assertEqual(
+            {"query": "作品B", "episode": "2話", "results": [{"source": "nicovideo-manga"}]},
+            session_b,
+        )
+        with self.assertRaises(FileNotFoundError):
+            load_where_session("session-a", str(state_path))
 
     def test_validate_watchlist_normalizes_hidden_to_boolean(self):
         normalized = validate_watchlist(

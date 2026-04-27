@@ -1,0 +1,396 @@
+from __future__ import annotations
+
+import re
+import secrets
+import unicodedata
+from dataclasses import dataclass
+from dataclasses import field
+from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence
+
+from manga_watch.availability import (
+    resolve_episode_availability,
+    source_label,
+    status_label,
+    supported_availability_sources,
+)
+from manga_watch.source_search import SearchResult, search_source
+from manga_watch.storage import delete_where_session, load_where_session, save_where_session
+
+WHERE_COMMAND = "where"
+WHERE_SELECT_CUSTOM_ID_PREFIX = "where_select"
+WHERE_MISSING_QUERY_MESSAGE = "探したい作品名を `query` で指定してください。"
+WHERE_MISSING_EPISODE_MESSAGE = "探したい話数を `episode` で指定してください。"
+WHERE_FAILURE_MESSAGE = "availability 検索に失敗しました。サーバーログを確認してください。"
+WHERE_NO_RESULTS_MESSAGE = "availability 候補が見つかりませんでした。"
+WHERE_CROSS_SOURCE_MESSAGE = "availability を確認する候補です。1件選んでください。"
+DEFAULT_WHERE_SOURCE_LIMIT = 3
+MAX_COMPONENT_TEXT = 100
+
+
+class WhereContextStore(Protocol):
+    def save(self, token: str, payload: Mapping[str, object]) -> None:
+        ...
+
+    def load(self, token: str) -> Mapping[str, object]:
+        ...
+
+    def delete(self, token: str) -> None:
+        ...
+
+
+class MemoryWhereContextStore:
+    def __init__(self):
+        self._payloads: Dict[str, Dict[str, object]] = {}
+
+    def save(self, token: str, payload: Mapping[str, object]) -> None:
+        self._payloads[token] = dict(payload)
+
+    def load(self, token: str) -> Mapping[str, object]:
+        try:
+            return self._payloads[token]
+        except KeyError as exc:
+            raise FileNotFoundError(f"missing where session: {token}") from exc
+
+    def delete(self, token: str) -> None:
+        self._payloads.pop(token, None)
+
+
+class StoredWhereContextStore:
+    def __init__(
+        self,
+        *,
+        state_path: Optional[str] = None,
+        backend: Optional[str] = None,
+    ):
+        self.state_path = state_path
+        self.backend = backend
+
+    def save(self, token: str, payload: Mapping[str, object]) -> None:
+        save_where_session(token, payload, self.state_path, backend=self.backend)
+
+    def load(self, token: str) -> Mapping[str, object]:
+        return load_where_session(token, self.state_path, backend=self.backend)
+
+    def delete(self, token: str) -> None:
+        delete_where_session(token, self.state_path, backend=self.backend)
+
+
+def _coerce_text(value: object) -> Optional[str]:
+    if value is None:
+        return None
+    text = str(value).strip()
+    return text or None
+
+
+def _truncate_component_text(text: object, *, max_length: int = MAX_COMPONENT_TEXT) -> str:
+    normalized = str(text or "").strip()
+    if len(normalized) <= max_length:
+        return normalized
+    if max_length <= 1:
+        return "…"
+    return normalized[: max_length - 1] + "…"
+
+
+def _search_result_payload(result: SearchResult) -> Dict[str, object]:
+    return {
+        "source": result.source,
+        "title": result.title,
+        "seed_url": result.seed_url,
+        "subtitle": result.subtitle,
+    }
+
+
+def _search_result_from_payload(payload: Mapping[str, object]) -> Optional[SearchResult]:
+    source = _coerce_text(payload.get("source"))
+    title = _coerce_text(payload.get("title"))
+    seed_url = _coerce_text(payload.get("seed_url"))
+    if not source or not title or not seed_url:
+        return None
+    return SearchResult(
+        source=source,
+        title=title,
+        seed_url=seed_url,
+        subtitle=_coerce_text(payload.get("subtitle")),
+    )
+
+
+def _context_payload(
+    *,
+    query: str,
+    episode: str,
+    results: Sequence[SearchResult],
+    failed_sources: Sequence[str] = (),
+) -> Dict[str, object]:
+    return {
+        "query": query,
+        "episode": episode,
+        "results": [_search_result_payload(result) for result in results],
+        "failed_sources": list(failed_sources),
+    }
+
+
+def _context_from_payload(payload: Mapping[str, object]) -> Optional[Dict[str, object]]:
+    query = _coerce_text(payload.get("query"))
+    episode = _coerce_text(payload.get("episode"))
+    raw_results = payload.get("results")
+    if not query or not episode or not isinstance(raw_results, list):
+        return None
+    raw_failed_sources = payload.get("failed_sources", [])
+    if not isinstance(raw_failed_sources, list):
+        return None
+    results: List[SearchResult] = []
+    for item in raw_results:
+        if not isinstance(item, Mapping):
+            return None
+        result = _search_result_from_payload(item)
+        if result is None:
+            return None
+        results.append(result)
+    failed_sources = []
+    for source in raw_failed_sources:
+        normalized_source = _coerce_text(source)
+        if normalized_source:
+            failed_sources.append(normalized_source)
+    return {"query": query, "episode": episode, "results": results, "failed_sources": failed_sources}
+
+
+def _remember_context(context_store: WhereContextStore, payload: Mapping[str, object]) -> Optional[str]:
+    for _ in range(3):
+        token = secrets.token_urlsafe(9)
+        try:
+            context_store.save(token, payload)
+        except Exception:
+            return None
+        return token
+    return None
+
+
+def _context_for_token(context_store: WhereContextStore, token: object) -> Optional[Dict[str, object]]:
+    normalized = _coerce_text(token)
+    if not normalized:
+        return None
+    try:
+        payload = context_store.load(normalized)
+    except (FileNotFoundError, ValueError):
+        return None
+    return _context_from_payload(payload)
+
+
+def _normalized_title(value: object) -> str:
+    normalized = unicodedata.normalize("NFKC", str(value or "")).casefold()
+    return re.sub(r"\s+", "", normalized)
+
+
+def _dedupe_results(results: Sequence[SearchResult]) -> List[SearchResult]:
+    deduped: List[SearchResult] = []
+    seen = set()
+    for result in results:
+        key = (result.source, result.seed_url)
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(result)
+    return deduped
+
+
+def _select_candidates_for_title(
+    results: Sequence[SearchResult],
+    *,
+    selected: SearchResult,
+) -> Dict[str, SearchResult]:
+    selected_title = _normalized_title(selected.title)
+    candidates: Dict[str, SearchResult] = {selected.source: selected}
+    for result in results:
+        if result.source in candidates:
+            continue
+        if _normalized_title(result.title) != selected_title:
+            continue
+        candidates[result.source] = result
+    candidates.setdefault(selected.source, selected)
+    return candidates
+
+
+def _delete_context(context_store: WhereContextStore, token: object) -> None:
+    normalized = _coerce_text(token)
+    if not normalized:
+        return
+    try:
+        context_store.delete(normalized)
+    except Exception:
+        pass
+
+
+def _episode_display_label(episode: object) -> str:
+    normalized = unicodedata.normalize("NFKC", str(episode or "")).strip()
+    match = re.search(r"(?:第\s*)?(\d+)\s*話?", normalized)
+    if not match:
+        return normalized
+    return f"第{int(match.group(1))}話"
+
+
+def _build_where_response(
+    *,
+    selected: SearchResult,
+    results: Sequence[Mapping[str, object]],
+    episode: str,
+) -> str:
+    lines = [f"「{selected.title}」 {_episode_display_label(episode)}", ""]
+    for result in results:
+        source = str(result.get("source") or "")
+        lines.append(f"{source_label(source)}: {status_label(result.get('status'))}")
+        url = _coerce_text(result.get("url"))
+        if url:
+            lines.append(url)
+        lines.append("")
+    return "\n".join(lines).rstrip()
+
+
+@dataclass
+class WhereCommandHandler:
+    search_source: Callable[..., List[SearchResult]] = search_source
+    availability_resolver: Callable[..., Mapping[str, object]] = resolve_episode_availability
+    availability_sources: Callable[[], Sequence[str]] = supported_availability_sources
+    context_store: WhereContextStore = field(default_factory=MemoryWhereContextStore)
+
+    def start(
+        self,
+        *,
+        query: Optional[str],
+        episode: Optional[str],
+        http_client: object = None,
+    ) -> Dict[str, object]:
+        normalized_query = _coerce_text(query)
+        normalized_episode = _coerce_text(episode)
+        if not normalized_query:
+            return {"content": WHERE_MISSING_QUERY_MESSAGE, "components": []}
+        if not normalized_episode:
+            return {"content": WHERE_MISSING_EPISODE_MESSAGE, "components": []}
+
+        results: List[SearchResult] = []
+        failed_sources: List[str] = []
+        for source_name in self.availability_sources():
+            try:
+                results.extend(
+                    self.search_source(
+                        source_name,
+                        normalized_query,
+                        http_client=http_client,
+                        limit=DEFAULT_WHERE_SOURCE_LIMIT,
+                    )
+                )
+            except Exception:
+                failed_sources.append(source_name)
+
+        deduped_results = _dedupe_results(results)
+        if not deduped_results:
+            if failed_sources:
+                return {"content": WHERE_FAILURE_MESSAGE, "components": []}
+            return {"content": WHERE_NO_RESULTS_MESSAGE, "components": []}
+
+        context_token = _remember_context(
+            self.context_store,
+            _context_payload(
+                query=normalized_query,
+                episode=normalized_episode,
+                results=deduped_results,
+                failed_sources=failed_sources,
+            ),
+        )
+        if context_token is None:
+            return {"content": WHERE_FAILURE_MESSAGE, "components": []}
+        return {
+            "content": WHERE_CROSS_SOURCE_MESSAGE,
+            "components": [
+                {
+                    "type": 1,
+                    "components": [
+                        {
+                            "type": 3,
+                            "custom_id": f"{WHERE_SELECT_CUSTOM_ID_PREFIX}:{context_token}",
+                            "placeholder": "availability を確認する作品を選択",
+                            "min_values": 1,
+                            "max_values": 1,
+                            "options": [
+                                {
+                                    "label": _truncate_component_text(result.title, max_length=MAX_COMPONENT_TEXT),
+                                    "value": str(index),
+                                    "description": _truncate_component_text(result.source, max_length=MAX_COMPONENT_TEXT),
+                                }
+                                for index, result in enumerate(deduped_results[:25])
+                            ],
+                        }
+                    ],
+                }
+            ],
+        }
+
+    def handle_component(
+        self,
+        data: Mapping[str, object],
+        *,
+        http_client: object = None,
+    ) -> Dict[str, object]:
+        custom_id = str(data.get("custom_id") or "").strip()
+        if not custom_id.startswith(f"{WHERE_SELECT_CUSTOM_ID_PREFIX}:"):
+            return {"content": "画面の有効期限が切れたため、もう一度 `/where` を実行してください。", "components": []}
+
+        context_token = custom_id.partition(":")[2]
+        context = _context_for_token(self.context_store, context_token)
+        if context is None:
+            return {"content": "画面の有効期限が切れたため、もう一度 `/where` を実行してください。", "components": []}
+
+        values = data.get("values") or []
+        try:
+            selected_index = int(values[0])
+        except (IndexError, TypeError, ValueError):
+            return {"content": "選択された候補が見つかりませんでした。", "components": []}
+
+        results = context.get("results")
+        if not isinstance(results, list) or selected_index < 0 or selected_index >= len(results):
+            return {"content": "選択された候補が見つかりませんでした。", "components": []}
+        selected = results[selected_index]
+        if not isinstance(selected, SearchResult):
+            return {"content": "選択された候補が見つかりませんでした。", "components": []}
+
+        _delete_context(self.context_store, context_token)
+
+        episode = str(context.get("episode") or "")
+        failed_sources = {
+            str(source or "").strip()
+            for source in context.get("failed_sources", [])
+            if str(source or "").strip()
+        }
+        candidate_by_source = _select_candidates_for_title(results, selected=selected)
+        availability_results: List[Mapping[str, object]] = []
+        for source_name in self.availability_sources():
+            candidate = candidate_by_source.get(source_name)
+            if candidate is None:
+                if source_name in failed_sources:
+                    availability_results.append({"source": source_name, "status": "needs_check", "url": None})
+                    continue
+                availability_results.append({"source": source_name, "status": "not_found", "url": None})
+                continue
+            try:
+                availability_results.append(
+                    self.availability_resolver(
+                        candidate.source,
+                        candidate.seed_url,
+                        episode,
+                        http_client=http_client,
+                    )
+                )
+            except Exception:
+                availability_results.append({"source": source_name, "status": "needs_check", "url": candidate.seed_url})
+
+        return {
+            "content": _build_where_response(
+                selected=selected,
+                results=availability_results,
+                episode=episode,
+            ),
+            "components": [],
+        }
+
+
+def is_where_component(custom_id: object) -> bool:
+    return str(custom_id or "").strip().startswith(f"{WHERE_SELECT_CUSTOM_ID_PREFIX}:")
