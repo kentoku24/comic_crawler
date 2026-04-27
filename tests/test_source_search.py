@@ -625,6 +625,7 @@ class SourceSearchTests(unittest.TestCase):
           "status": 0,
           "products": [
             {"id": 58170},
+            {"id": "abc", "title": "bad id"},
             {"title": "missing id"},
             null,
             "bad row",

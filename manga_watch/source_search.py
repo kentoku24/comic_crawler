@@ -12,6 +12,7 @@ from manga_watch.sources.base import HttpClient, RequestsHttpClient
 from manga_watch.sources.comic_action import canonical_comic_action_series_feed_url
 from manga_watch.sources.comic_earthstar import ComicEarthstarAdapter
 from manga_watch.sources.firecross import canonical_firecross_ebook_series_url
+from manga_watch.sources.piccoma import canonical_piccoma_product_url
 
 DEFAULT_SEARCH_LIMIT = 10
 SEARCH_RESULT_LIMIT = 25
@@ -565,10 +566,10 @@ def _search_piccoma(
 
         product_id = str(product.get("id") or "").strip()
         title = str(product.get("title") or "").strip()
-        if not product_id or not title:
+        if not product_id.isdigit() or not title:
             continue
 
-        seed_url = f"https://piccoma.com/web/product/{product_id}?etype=episode"
+        seed_url = canonical_piccoma_product_url(product_id)
         if seed_url in seen_seed_urls:
             continue
 
