@@ -20,6 +20,7 @@ from manga_watch.discord_search import (
     SEARCH_SELECT_CUSTOM_ID_PREFIX,
     SearchCommandHandler,
 )
+from manga_watch.discord_where import WHERE_COMMAND, WhereCommandHandler, is_where_component
 from manga_watch.discord_remove import REMOVE_COMMAND, RemoveCommandHandler
 from manga_watch.discord_supertwins_manage import (
     SUPERTWINS_MANAGE_COMMAND,
@@ -388,6 +389,7 @@ class DiscordInteractionService:
     latest_handler: Callable[..., Optional[str]] = handle_latest_query
     add_handler: Optional[AddCommandHandler] = None
     search_handler: Optional[SearchCommandHandler] = None
+    where_handler: Optional[WhereCommandHandler] = None
     remove_handler: Optional[RemoveCommandHandler] = None
     supertwins_search_handler: Optional[SearchSupertwinsCommandHandler] = None
     supertwins_manage_handler: Optional[ManageSupertwinsCommandHandler] = None
@@ -453,6 +455,12 @@ class DiscordInteractionService:
             return interaction_message_response(str(response_payload.get("content") or "").strip())
         if command_name == SEARCH_COMMAND and self.search_handler is not None:
             return self._handle_deferred_search_command(payload)
+        if command_name == WHERE_COMMAND and self.where_handler is not None:
+            response_payload = self.where_handler.start(
+                query=self._command_option(payload, "query"),
+                episode=self._command_option(payload, "episode"),
+            )
+            return interaction_ephemeral_response(response_payload)
         if command_name == REMOVE_COMMAND and self.remove_handler is not None:
             payload = self.remove_handler.start(
                 watchlist_path=self.watchlist_path,
@@ -540,6 +548,8 @@ class DiscordInteractionService:
                 data,
                 watchlist_path=self.watchlist_path,
             )
+        elif self.where_handler is not None and is_where_component(custom_id):
+            response_payload = self.where_handler.handle_component(data)
         elif self.remove_handler is not None and (
             custom_id == "remove_select" or custom_id.startswith("remove_")
         ):
@@ -734,6 +744,7 @@ def build_interaction_service_from_env(
         verification_disabled=verification.verification_disabled,
         add_handler=AddCommandHandler.from_env(),
         search_handler=SearchCommandHandler(),
+        where_handler=WhereCommandHandler(),
         remove_handler=RemoveCommandHandler(backend=storage_backend),
         supertwins_search_handler=SearchSupertwinsCommandHandler(backend=storage_backend),
         supertwins_manage_handler=ManageSupertwinsCommandHandler(backend=storage_backend),

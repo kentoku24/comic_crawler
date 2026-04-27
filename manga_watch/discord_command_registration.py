@@ -10,6 +10,7 @@ from manga_watch.discord_add import ADD_COMMAND
 from manga_watch.discord_fetch import FETCH_COMMAND
 from manga_watch.discord_latest import LATEST_COMMAND
 from manga_watch.discord_search import SEARCH_COMMAND
+from manga_watch.discord_where import WHERE_COMMAND
 from manga_watch.source_search import searchable_source_choices
 from manga_watch.discord_remove import REMOVE_COMMAND
 from manga_watch.discord_supertwins_manage import SUPERTWINS_MANAGE_COMMAND
@@ -81,6 +82,24 @@ def default_interaction_commands() -> List[Dict[str, object]]:
                         {"name": "visible", "value": "visible"},
                         {"name": "hidden", "value": "hidden"},
                     ],
+                },
+            ],
+        },
+        {
+            "name": WHERE_COMMAND,
+            "description": "指定話を読める媒体を横断検索します。",
+            "options": [
+                {
+                    "type": 3,
+                    "name": "query",
+                    "description": "探したい作品名",
+                    "required": True,
+                },
+                {
+                    "type": 3,
+                    "name": "episode",
+                    "description": "探したい話数。例: 第1話",
+                    "required": True,
                 },
             ],
         },
