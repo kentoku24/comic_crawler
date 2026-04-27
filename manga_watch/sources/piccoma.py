@@ -107,16 +107,13 @@ class _PiccomaEpisodeListParser(HTMLParser):
         super().__init__(convert_charrefs=True)
         self._depth = 0
         self._episode_list_depth: Optional[int] = None
-        self._saw_episode_list = False
         self._active_items = []
-        self._all_items: list[tuple[str, Optional[str]]] = []
         self._episode_list_items: list[tuple[str, Optional[str]]] = []
 
     def handle_starttag(self, tag, attrs):
         attrs_by_name = {name: value for name, value in attrs}
         next_depth = self._depth + 1
         if attrs_by_name.get("id") == "js_episodeList":
-            self._saw_episode_list = True
             self._episode_list_depth = next_depth
 
         episode_id = (attrs_by_name.get("data-episode_id") or "").strip()
@@ -171,10 +168,7 @@ class _PiccomaEpisodeListParser(HTMLParser):
                 item["chunks"].append(text)
 
     def latest_episode(self) -> tuple[Optional[str], Optional[str]]:
-        items = self._episode_list_items if self._saw_episode_list else self._all_items
-        if not items:
-            return None, None
-        return items[-1]
+        return self.latest_episode_from_episode_list()
 
     def latest_episode_from_episode_list(self) -> tuple[Optional[str], Optional[str]]:
         if not self._episode_list_items:
@@ -183,7 +177,6 @@ class _PiccomaEpisodeListParser(HTMLParser):
 
     def _append_item(self, episode_id: str, title: Optional[str], in_episode_list: bool):
         item = (episode_id, title)
-        self._all_items.append(item)
         if in_episode_list:
             self._episode_list_items.append(item)
 
@@ -266,7 +259,7 @@ class PiccomaAdapter(SourceAdapter):
             raise SourceParseError(f"{self.source}: series title not found")
 
         episodes_html = http_client.get_text(canonical_piccoma_episodes_url(product_id))
-        latest_identifier, latest_title = extract_piccoma_latest_episode(episodes_html)
+        latest_identifier, latest_title = extract_piccoma_episode_list_latest_episode(episodes_html)
         if not latest_identifier:
             raise SourceParseError(f"{self.source}: latest episode identifier not found")
 

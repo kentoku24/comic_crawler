@@ -99,6 +99,7 @@ SOURCE_CASES = {
     "piccoma": (
         "normal",
         "broken_missing_episode",
+        "broken_missing_episode_list",
     ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
