@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import re
 from dataclasses import dataclass
 from html import unescape
@@ -11,6 +12,7 @@ from manga_watch.sources.base import HttpClient, RequestsHttpClient
 from manga_watch.sources.comic_action import canonical_comic_action_series_feed_url
 from manga_watch.sources.comic_earthstar import ComicEarthstarAdapter
 from manga_watch.sources.firecross import canonical_firecross_ebook_series_url
+from manga_watch.sources.piccoma import canonical_piccoma_product_url
 
 DEFAULT_SEARCH_LIMIT = 10
 SEARCH_RESULT_LIMIT = 25
@@ -75,6 +77,10 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
     "gaugau": {
         "search_url": "https://gaugau.futabanet.jp/list/search-result?word={query}",
         "allowed_domains": ("gaugau.futabanet.jp",),
+    },
+    "piccoma": {
+        "search_url": "https://piccoma.com/web/search/result_ajax/list?tab_type=T&word={query}&page=1",
+        "allowed_domains": ("piccoma.com", "www.piccoma.com"),
     },
 }
 
@@ -533,6 +539,55 @@ def _search_gaugau(
     )
 
 
+def _search_piccoma(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    config = _SOURCE_SEARCH_CONFIG["piccoma"]
+    search_url = str(config["search_url"]).format(query=quote_plus(query))
+    try:
+        payload = json.loads(http_client.get_text(search_url))
+    except (TypeError, ValueError):
+        return []
+    if not isinstance(payload, dict) or payload.get("status") != 0:
+        return []
+
+    products = payload.get("products")
+    if not isinstance(products, list):
+        return []
+
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+    for product in products:
+        if not isinstance(product, dict):
+            continue
+
+        product_id = str(product.get("id") or "").strip()
+        title = str(product.get("title") or "").strip()
+        if not product_id.isdigit() or not title:
+            continue
+
+        seed_url = canonical_piccoma_product_url(product_id)
+        if seed_url in seen_seed_urls:
+            continue
+
+        seen_seed_urls.add(seed_url)
+        results.append(
+            SearchResult(
+                source="piccoma",
+                title=title,
+                seed_url=seed_url,
+                subtitle="piccoma",
+            )
+        )
+        if len(results) >= limit:
+            break
+
+    return results
+
+
 def _search_firecross(
     query: str,
     http_client: HttpClient,
@@ -965,3 +1020,4 @@ _SEARCHERS["firecross"] = _search_firecross
 _SEARCHERS["champion-cross"] = _search_champion_cross
 _SEARCHERS["sunday-webry"] = _search_sunday_webry
 _SEARCHERS["gaugau"] = _search_gaugau
+_SEARCHERS["piccoma"] = _search_piccoma
