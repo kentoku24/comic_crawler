@@ -127,8 +127,15 @@ class _PiccomaEpisodeListParser(HTMLParser):
                     "episode_id": episode_id,
                     "in_episode_list": self._episode_list_depth is not None,
                     "chunks": [],
+                    "title_chunks": [],
+                    "title_depth": None,
                 }
             )
+
+        if tag.lower() in {"h1", "h2", "h3"}:
+            for item in self._active_items:
+                if item["title_depth"] is None:
+                    item["title_depth"] = next_depth
 
         self._depth = next_depth
 
@@ -139,9 +146,14 @@ class _PiccomaEpisodeListParser(HTMLParser):
             self._append_item(episode_id, None, self._episode_list_depth is not None)
 
     def handle_endtag(self, tag):
+        for item in self._active_items:
+            if item["title_depth"] == self._depth:
+                item["title_depth"] = None
+
         while self._active_items and self._active_items[-1]["depth"] == self._depth:
             item = self._active_items.pop()
-            title = " ".join(item["chunks"]).strip() or None
+            title_chunks = item["title_chunks"] or item["chunks"]
+            title = " ".join(title_chunks).strip() or None
             self._append_item(item["episode_id"], title, item["in_episode_list"])
 
         if self._episode_list_depth == self._depth:
@@ -153,7 +165,10 @@ class _PiccomaEpisodeListParser(HTMLParser):
         if not text:
             return
         for item in self._active_items:
-            item["chunks"].append(text)
+            if item["title_depth"] is not None:
+                item["title_chunks"].append(text)
+            else:
+                item["chunks"].append(text)
 
     def latest_episode(self) -> tuple[Optional[str], Optional[str]]:
         items = self._episode_list_items if self._saw_episode_list else self._all_items
