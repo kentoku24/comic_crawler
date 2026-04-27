@@ -232,6 +232,7 @@ runner が backend に送る update event は次の schema です。
 | Champion Cross | episode URL, series URL, series RSS URL | canonical episode URL / canonical series URL / canonical series RSS URL | `champion-cross:<series_hash>` | 最新 episode URL |
 | マガポケ | title URL, episode URL | `https://pocket.shonenmagazine.com/title/<title_id>` | `magapoke:<title_id>` | 最新 episode URL |
 | Kakuyomu | work URL, episode URL | 入力 URL のまま | `kakuyomu:<numeric_work_id>` | 最新 episode id |
+| BOOK☆WALKER | series URL, book detail URL | `https://bookwalker.jp/series/<series_id>/list/` または `https://bookwalker.jp/de<book_uuid>/` | `bookwalker:series:<series_id>` または `bookwalker:book:<book_uuid>` | 最新 book UUID |
 
 Phase 1 では source ごとの capability 差を隠しません。作品追加で受け付ける URL 種別は上の表だけです。内部の source capability / normalize 契約もこの表を source of truth とします。
 
@@ -411,7 +412,7 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 ```
 
 Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、shared add logic で対応できる URL のみクロール対象へ追加します。`MANGA_WATCH_GITHUB_TOKEN` と `MANGA_WATCH_GITHUB_REPOSITORY` が設定されている場合、`unsupported_source` は追加失敗のまま GitHub Issue を自動作成し、「対応候補として記録した」と返信します。
-Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/search` `/remove` `/supertwins-search` `/supertwins-manage` を扱います。`/search` は媒体ごとに作品検索を行い、選択した結果を visible または hidden で watchlist に追加します。`champion-cross` / `kakuyomu` / `comic-walker` は媒体内検索を使い、それ以外の対応 source (`comic-action` / `comic-earthstar` / `comicborder` / `comic-trail` / `kuragebunch` / `shonenjumpplus` / `sunday-webry` / `magapoke` / `firecross` / `takecomic` / `nicovideo-manga`) は site index 検索を使います。
+Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/search` `/remove` `/supertwins-search` `/supertwins-manage` を扱います。`/search` は媒体ごとに作品検索を行い、選択した結果を visible または hidden で watchlist に追加します。`champion-cross` / `kakuyomu` / `comic-walker` / `bookwalker` は媒体内検索を使い、それ以外の対応 source (`comic-action` / `comic-earthstar` / `comicborder` / `comic-trail` / `kuragebunch` / `shonenjumpplus` / `sunday-webry` / `magapoke` / `firecross` / `takecomic` / `nicovideo-manga`) は site index 検索を使います。
 `/supertwins-search` は既存 watchlist 作品を起点に他媒体候補を探し、選択した候補を hidden で watchlist に追加しつつ state 上の `supertwins.groups` に登録します。既存 duplicate が選ばれた場合も、その entry を hidden 化したうえで group に追加します。`/supertwins-manage` は group と member を選択して、hidden のまま残す / hidden を解除する / subscription を削除する、の 3 アクションを扱います。削除だけは confirm を返します。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 
@@ -477,6 +478,7 @@ fixture regression だけでは拾えない upstream HTML / embedded JSON drift 
 | サンデーうぇぶり | `https://www.sunday-webry.com/episode/12207421983581042977` | seed episode page 由来の stable `series_id`、series RSS の最新 episode URL、最新 episode page title parse | `tests/fixtures/sunday-webry/normal` |
 | マガポケ | `https://pocket.shonenmagazine.com/title/03021` | title page の RSS feed URL、title page の次回更新ラベル、series RSS の最新 episode URL/title | `tests/fixtures/magapoke/normal` |
 | Kakuyomu | `https://kakuyomu.jp/works/16818093092974667738/episodes/822139844009936710` | work page の `__NEXT_DATA__`、最新 episode id/title、最新 episode page title | `tests/fixtures/kakuyomu/normal` |
+| BOOK☆WALKER | `https://bookwalker.jp/series/519222/list/` | series page の book item card、最新 book UUID、最新 book title | `tests/fixtures/bookwalker/normal` |
 
 drift を検知したら、次の順で進めます。
 

@@ -1,0 +1,41 @@
+{
+  "seedUrl": "https://bookwalker.jp/series/519222/list/",
+  "expectedWork": {
+    "source": "bookwalker",
+    "kind": "bookwalker",
+    "workId": "bookwalker:series:519222",
+    "seedUrl": "https://bookwalker.jp/series/519222/list/",
+    "series": "bookwalker:series:519222",
+    "seriesId": "519222"
+  },
+  "steps": [
+    {
+      "url": "https://bookwalker.jp/series/519222/list/",
+      "response": "01-series.html"
+    }
+  ],
+  "expectedLatest": {
+    "source": "bookwalker",
+    "workId": "bookwalker:series:519222",
+    "latestKey": "bookwalker:book:893cb2ba-dc87-4c1b-90cb-a1cd13d33a0f",
+    "url": "https://bookwalker.jp/de893cb2ba-dc87-4c1b-90cb-a1cd13d33a0f/",
+    "series": "bookwalker:series:519222",
+    "seriesTitle": "くまぐらし（MANGAバル コミックス）",
+    "episodeCode": "893cb2ba-dc87-4c1b-90cb-a1cd13d33a0f",
+    "episodeTitle": "くまぐらし （０６）",
+    "nextUpdateLabel": "2026/5/14(木) 配信予定"
+  },
+  "expectedCheckedUrls": [
+    "https://bookwalker.jp/series/519222/list/"
+  ],
+  "expectedObservations": [
+    {
+      "name": "latest_book_uuid",
+      "value": "893cb2ba-dc87-4c1b-90cb-a1cd13d33a0f"
+    },
+    {
+      "name": "latest_title",
+      "value": "くまぐらし （０６）"
+    }
+  ]
+}

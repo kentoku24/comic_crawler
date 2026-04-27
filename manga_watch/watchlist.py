@@ -158,6 +158,15 @@ SOURCE_CAPABILITIES = (
         input_labels=("work URL",),
         examples=("https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",),
     ),
+    SourceCapability(
+        source="bookwalker",
+        domains=("bookwalker.jp",),
+        input_labels=("series URL", "book detail URL"),
+        examples=(
+            "https://bookwalker.jp/series/519222/list/",
+            "https://bookwalker.jp/de2b0ecd13-4ad0-405e-9fe9-a625ad80c74c/",
+        ),
+    ),
 )
 
 

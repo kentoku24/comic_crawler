@@ -76,6 +76,10 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "search_url": "https://gaugau.futabanet.jp/list/search-result?word={query}",
         "allowed_domains": ("gaugau.futabanet.jp",),
     },
+    "bookwalker": {
+        "search_url": "https://bookwalker.jp/search/?word={query}&order=score",
+        "allowed_domains": ("bookwalker.jp", "www.bookwalker.jp"),
+    },
 }
 
 _CONFIGURED_SOURCE_NAMES = set(_SOURCE_SEARCH_CONFIG)
@@ -533,6 +537,68 @@ def _search_gaugau(
     )
 
 
+def _search_bookwalker(
+    query: str,
+    http_client: HttpClient,
+    *,
+    limit: int,
+) -> List[SearchResult]:
+    config = _SOURCE_SEARCH_CONFIG["bookwalker"]
+    search_url = str(config["search_url"]).format(query=quote_plus(query))
+    html_text = http_client.get_text(search_url)
+    results: List[SearchResult] = []
+    seen_seed_urls = set()
+
+    for block in re.findall(
+        r'<(?:li|div)\b[^>]*class="[^"]*\bm-(?:tile|book-item)\b[^"]*"[^>]*>.*?(?=<(?:li|div)\b[^>]*class="[^"]*\bm-(?:tile|book-item)\b|</ul>|</section>|$)',
+        html_text,
+        re.I | re.S,
+    ):
+        candidate = _extract_bookwalker_search_candidate(block, search_url=search_url)
+        if not candidate:
+            continue
+        title, seed_url = candidate
+        if seed_url in seen_seed_urls:
+            continue
+
+        seen_seed_urls.add(seed_url)
+        results.append(SearchResult("bookwalker", title, seed_url, "bookwalker"))
+        if len(results) >= limit:
+            break
+
+    return results
+
+
+def _extract_bookwalker_search_candidate(block: str, *, search_url: str) -> Optional[tuple[str, str]]:
+    title_link_match = re.search(
+        r'<a\b(?=[^>]*class="[^"]*\bm-book-item__title\b)[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+        block,
+        re.I | re.S,
+    )
+    thumb_link_match = re.search(
+        r'<a\b(?=[^>]*class="[^"]*\bm-thumb__image\b)[^>]*href="([^"]+)"[^>]*>(.*?)</a>',
+        block,
+        re.I | re.S,
+    )
+    link_match = title_link_match or thumb_link_match
+    if not link_match:
+        return None
+
+    resolved_url = _resolve_result_url(link_match.group(1), search_url=search_url)
+    if not resolved_url or not _is_allowed_domain(resolved_url, ("bookwalker.jp", "www.bookwalker.jp")):
+        return None
+
+    canonical_seed_url = _canonical_seed_url_for_source("bookwalker", resolved_url)
+    if not canonical_seed_url:
+        return None
+
+    title = _extract_anchor_title(link_match.group(0), link_match.group(2))
+    if not title:
+        image_match = re.search(r"<img\b[^>]*>", block, re.I | re.S)
+        title = _extract_anchor_title(image_match.group(0), "") if image_match else ""
+    return (title or canonical_seed_url, canonical_seed_url)
+
+
 def _search_firecross(
     query: str,
     http_client: HttpClient,
@@ -965,3 +1031,4 @@ _SEARCHERS["firecross"] = _search_firecross
 _SEARCHERS["champion-cross"] = _search_champion_cross
 _SEARCHERS["sunday-webry"] = _search_sunday_webry
 _SEARCHERS["gaugau"] = _search_gaugau
+_SEARCHERS["bookwalker"] = _search_bookwalker

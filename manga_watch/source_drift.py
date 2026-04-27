@@ -9,6 +9,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .sources import HttpClient, RequestsHttpClient, registered_sources
 from .sources.base import SourceParseError
+from .sources.bookwalker import BookwalkerAdapter
 from .sources.champion_cross import (
     ChampionCrossAdapter,
     canonical_champion_cross_series_rss_url,
@@ -279,6 +280,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
             "series page keeps a stable series hash",
             "series RSS feed keeps the latest episode URL",
             "series RSS feed keeps the latest episode title",
+        ),
+    ),
+    "bookwalker": SourceCanaryContract(
+        source="bookwalker",
+        seed_url="https://bookwalker.jp/series/519222/list/",
+        fixture_bundle="tests/fixtures/bookwalker/normal",
+        monitored_signals=(
+            "series page keeps book item cards",
+            "latest book UUID remains discoverable",
+            "latest book title remains readable",
         ),
     ),
 }
@@ -863,6 +874,25 @@ def _gaugau_canary(
     )
 
 
+def _bookwalker_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = BookwalkerAdapter()
+    work = adapter.normalize(contract.seed_url)
+    latest = adapter.fetch_latest(work, http_client)
+    if not latest.episode_code or not latest.episode_title:
+        raise SourceParseError("bookwalker: latest book item not found")
+
+    return (
+        (work.seed_url,),
+        (
+            CanaryObservation("latest_book_uuid", latest.episode_code),
+            CanaryObservation("latest_title", latest.episode_title),
+        ),
+    )
+
+
 CANARY_RUNNERS = {
     "comic-walker": _comic_walker_canary,
     "comic-action": _comic_action_canary,
@@ -879,6 +909,7 @@ CANARY_RUNNERS = {
     "nicovideo-manga": _nicovideo_manga_canary,
     "gaugau": _gaugau_canary,
     "takecomic": _takecomic_canary,
+    "bookwalker": _bookwalker_canary,
 }
 
 
