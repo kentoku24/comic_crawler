@@ -650,7 +650,7 @@ def _extract_bookwalker_search_candidate(block: str, *, search_url: str) -> Opti
     title = _extract_anchor_title(link_match.group(0), link_match.group(2))
     if not title:
         image_match = re.search(r"<img\b[^>]*>", block, re.I | re.S)
-        title = _extract_anchor_title(image_match.group(0), "") if image_match else ""
+        title = _extract_anchor_title("", image_match.group(0)) if image_match else ""
     return (title or canonical_seed_url, canonical_seed_url)
 
 

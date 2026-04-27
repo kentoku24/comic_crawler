@@ -144,7 +144,7 @@ def _extract_latest_episode_item(html: str) -> Optional[Tuple[str, str, str]]:
         title = _clean_text(_attribute(anchor, "data-book-title"))
         if not uuid or not title:
             continue
-        items.append((uuid, title, ""))
+        items.append((uuid, title, canonical_bookwalker_book_url(uuid)))
     return items[-1] if items else None
 
 

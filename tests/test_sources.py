@@ -2107,6 +2107,10 @@ class SourceAdapterTests(unittest.TestCase):
         self.assertEqual("bookwalker:book:b5c239d6-7f48-4d79-b2ee-c0fb0e481a35", latest["latestKey"])
         self.assertEqual("救世のアルル【分冊版】（ノヴァコミックス）", latest["seriesTitle"])
         self.assertEqual("救世のアルル【分冊版】8", latest["episodeTitle"])
+        self.assertEqual(
+            "https://bookwalker.jp/deb5c239d6-7f48-4d79-b2ee-c0fb0e481a35/",
+            latest["url"],
+        )
         self.assertEqual("2026/3/25(水) 更新", latest["nextUpdateLabel"])
 
     def _assert_fixture_matrix(self, source: str):

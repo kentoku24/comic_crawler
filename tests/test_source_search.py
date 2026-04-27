@@ -584,6 +584,43 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
+    def test_search_source_uses_bookwalker_image_alt_when_title_anchor_is_absent(self):
+        html = """
+        <html>
+          <body>
+            <ul class="m-tile-list">
+              <li class="m-tile">
+                <div class="m-book-item">
+                  <img alt="くまぐらし（MANGAバル コミックス）" />
+                  <a href="https://bookwalker.jp/series/519222/list/"
+                     class="m-book-item__title"></a>
+                </div>
+              </li>
+            </ul>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "bookwalker",
+            "くまぐらし",
+            http_client=StaticHttpClient(
+                {"https://bookwalker.jp/search/?word=%E3%81%8F%E3%81%BE%E3%81%90%E3%82%89%E3%81%97&order=score": html}
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="bookwalker",
+                    title="くまぐらし（MANGAバル コミックス）",
+                    seed_url="https://bookwalker.jp/series/519222/list/",
+                    subtitle="bookwalker",
+                )
+            ],
+            results,
+        )
+
     def test_search_source_prefers_gaugau_series_heading_over_badge_inside_thumbnail_anchor(self):
         html = """
         <html>
