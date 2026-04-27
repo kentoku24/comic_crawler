@@ -28,6 +28,17 @@ class MultiSourceSearchSource:
         return list(self.results_by_source.get(source, []))
 
 
+class FailingSourceSearchSource(MultiSourceSearchSource):
+    def __init__(self, results_by_source, failing_sources):
+        super().__init__(results_by_source)
+        self.failing_sources = set(failing_sources)
+
+    def __call__(self, source, query, *, http_client=None, limit=10):
+        if source in self.failing_sources:
+            raise RuntimeError(f"{source} search failed")
+        return super().__call__(source, query, http_client=http_client, limit=limit)
+
+
 class FakeAvailabilityResolver:
     def __init__(self):
         self.calls = []
@@ -308,6 +319,39 @@ class DiscordWhereTests(unittest.TestCase):
         self.assertIn("ComicWalker: 今すぐ無料", first_response["content"])
         self.assertIn("有効期限が切れた", second_response["content"])
 
+    def test_start_generates_unique_context_token_for_identical_searches(self):
+        search_source = MultiSourceSearchSource(
+            {
+                "comic-walker": [
+                    SearchResult(
+                        source="comic-walker",
+                        title="ニセモノの錬金術師",
+                        seed_url="https://comic-walker.com/detail/KC_004800_S",
+                    )
+                ],
+                "nicovideo-manga": [
+                    SearchResult(
+                        source="nicovideo-manga",
+                        title="ニセモノの錬金術師",
+                        seed_url="https://manga.nicovideo.jp/comic/62782",
+                    )
+                ],
+            }
+        )
+        handler = WhereCommandHandler(search_source=search_source, availability_resolver=FakeAvailabilityResolver())
+        first_response = handler.start(query="ニセモノの錬金術師", episode="1話")
+        second_response = handler.start(query="ニセモノの錬金術師", episode="1話")
+        first_select = first_response["components"][0]["components"][0]
+        second_select = second_response["components"][0]["components"][0]
+
+        self.assertNotEqual(first_select["custom_id"], second_select["custom_id"])
+
+        first_result = handler.handle_component({"custom_id": first_select["custom_id"], "values": ["0"]})
+        second_result = handler.handle_component({"custom_id": second_select["custom_id"], "values": ["0"]})
+
+        self.assertIn("ComicWalker: 今すぐ無料", first_result["content"])
+        self.assertIn("ComicWalker: 今すぐ無料", second_result["content"])
+
     def test_start_returns_no_results_when_supported_sources_have_no_candidates(self):
         handler = WhereCommandHandler(search_source=MultiSourceSearchSource({}))
 
@@ -348,6 +392,40 @@ class DiscordWhereTests(unittest.TestCase):
 
         self.assertIn("ComicWalker: 見つからない", response["content"])
         self.assertIn("ニコニコ漫画: 見つからない", response["content"])
+
+    def test_handle_component_renders_needs_check_for_failed_source_search(self):
+        search_source = FailingSourceSearchSource(
+            {
+                "nicovideo-manga": [
+                    SearchResult(
+                        source="nicovideo-manga",
+                        title="ニセモノの錬金術師",
+                        seed_url="https://manga.nicovideo.jp/comic/62782",
+                    )
+                ],
+            },
+            failing_sources={"comic-walker"},
+        )
+        resolver = FakeAvailabilityResolver()
+        handler = WhereCommandHandler(search_source=search_source, availability_resolver=resolver)
+        start_response = handler.start(query="ニセモノの錬金術師", episode="1話")
+        select = start_response["components"][0]["components"][0]
+
+        response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
+
+        self.assertIn("ComicWalker: 要確認", response["content"])
+        self.assertIn("ニコニコ漫画: 今すぐ無料", response["content"])
+        self.assertEqual(
+            [
+                {
+                    "source": "nicovideo-manga",
+                    "seed_url": "https://manga.nicovideo.jp/comic/62782",
+                    "episode": "1話",
+                    "http_client": None,
+                }
+            ],
+            resolver.calls,
+        )
 
     def test_handle_component_renders_needs_check_with_seed_url_when_resolution_fails(self):
         search_source = MultiSourceSearchSource(

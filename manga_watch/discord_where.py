@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import base64
-import hashlib
 import re
+import secrets
 import unicodedata
 from dataclasses import dataclass
 from dataclasses import field
@@ -120,11 +119,13 @@ def _context_payload(
     query: str,
     episode: str,
     results: Sequence[SearchResult],
+    failed_sources: Sequence[str] = (),
 ) -> Dict[str, object]:
     return {
         "query": query,
         "episode": episode,
         "results": [_search_result_payload(result) for result in results],
+        "failed_sources": list(failed_sources),
     }
 
 
@@ -134,6 +135,9 @@ def _context_from_payload(payload: Mapping[str, object]) -> Optional[Dict[str, o
     raw_results = payload.get("results")
     if not query or not episode or not isinstance(raw_results, list):
         return None
+    raw_failed_sources = payload.get("failed_sources", [])
+    if not isinstance(raw_failed_sources, list):
+        return None
     results: List[SearchResult] = []
     for item in raw_results:
         if not isinstance(item, Mapping):
@@ -142,18 +146,23 @@ def _context_from_payload(payload: Mapping[str, object]) -> Optional[Dict[str, o
         if result is None:
             return None
         results.append(result)
-    return {"query": query, "episode": episode, "results": results}
+    failed_sources = []
+    for source in raw_failed_sources:
+        normalized_source = _coerce_text(source)
+        if normalized_source:
+            failed_sources.append(normalized_source)
+    return {"query": query, "episode": episode, "results": results, "failed_sources": failed_sources}
 
 
 def _remember_context(context_store: WhereContextStore, payload: Mapping[str, object]) -> Optional[str]:
-    raw = repr((payload.get("query"), payload.get("episode"), payload.get("results"))).encode("utf-8")
-    digest = hashlib.sha256(raw).digest()
-    token = base64.urlsafe_b64encode(digest[:9]).decode("ascii").rstrip("=")
-    try:
-        context_store.save(token, payload)
-    except Exception:
-        return None
-    return token
+    for _ in range(3):
+        token = secrets.token_urlsafe(9)
+        try:
+            context_store.save(token, payload)
+        except Exception:
+            return None
+        return token
+    return None
 
 
 def _context_for_token(context_store: WhereContextStore, token: object) -> Optional[Dict[str, object]]:
@@ -258,7 +267,7 @@ class WhereCommandHandler:
             return {"content": WHERE_MISSING_EPISODE_MESSAGE, "components": []}
 
         results: List[SearchResult] = []
-        had_failure = False
+        failed_sources: List[str] = []
         for source_name in self.availability_sources():
             try:
                 results.extend(
@@ -270,11 +279,11 @@ class WhereCommandHandler:
                     )
                 )
             except Exception:
-                had_failure = True
+                failed_sources.append(source_name)
 
         deduped_results = _dedupe_results(results)
         if not deduped_results:
-            if had_failure:
+            if failed_sources:
                 return {"content": WHERE_FAILURE_MESSAGE, "components": []}
             return {"content": WHERE_NO_RESULTS_MESSAGE, "components": []}
 
@@ -284,6 +293,7 @@ class WhereCommandHandler:
                 query=normalized_query,
                 episode=normalized_episode,
                 results=deduped_results,
+                failed_sources=failed_sources,
             ),
         )
         if context_token is None:
@@ -345,11 +355,19 @@ class WhereCommandHandler:
         _delete_context(self.context_store, context_token)
 
         episode = str(context.get("episode") or "")
+        failed_sources = {
+            str(source or "").strip()
+            for source in context.get("failed_sources", [])
+            if str(source or "").strip()
+        }
         candidate_by_source = _select_candidates_for_title(results, selected=selected)
         availability_results: List[Mapping[str, object]] = []
         for source_name in self.availability_sources():
             candidate = candidate_by_source.get(source_name)
             if candidate is None:
+                if source_name in failed_sources:
+                    availability_results.append({"source": source_name, "status": "needs_check", "url": None})
+                    continue
                 availability_results.append({"source": source_name, "status": "not_found", "url": None})
                 continue
             try:
