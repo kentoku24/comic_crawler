@@ -65,7 +65,7 @@ from .sources.piccoma import (
     canonical_piccoma_episodes_url,
     extract_piccoma_free_episode_label,
     extract_piccoma_latest_episode,
-    extract_piccoma_series_title,
+    extract_piccoma_ld_json_product_name,
     extract_piccoma_total_episode_label,
     extract_piccoma_wait_free_label,
 )
@@ -893,10 +893,9 @@ def _piccoma_canary(
         raise RuntimeError("piccoma: productId is required")
 
     product_html = http_client.get_text(work.seed_url)
-    page_title = html_title(product_html)
-    series_title = extract_piccoma_series_title(product_html, page_title)
+    series_title = extract_piccoma_ld_json_product_name(product_html)
     if not series_title:
-        raise SourceParseError("piccoma: series title not found")
+        raise SourceParseError("piccoma: LD JSON Product.name not found")
 
     episodes_url = canonical_piccoma_episodes_url(product_id)
     episodes_html = http_client.get_text(episodes_url)

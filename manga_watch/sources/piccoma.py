@@ -41,10 +41,9 @@ def parse_piccoma_product_url(seed_url: str) -> Optional[str]:
 
 
 def extract_piccoma_series_title(html_text: str, page_title: Optional[str] = None) -> Optional[str]:
-    for match in _LD_JSON_SCRIPT.finditer(html_text or ""):
-        name = _product_name_from_ld_json(match.group(1))
-        if name:
-            return name
+    name = extract_piccoma_ld_json_product_name(html_text)
+    if name:
+        return name
 
     heading = re.search(r"<h1[^>]*>(.*?)</h1>", html_text or "", re.I | re.S)
     if heading:
@@ -56,6 +55,14 @@ def extract_piccoma_series_title(html_text: str, page_title: Optional[str] = Non
         title = re.split(r"[｜|]", page_title, maxsplit=1)[0].strip()
         if title:
             return title
+    return None
+
+
+def extract_piccoma_ld_json_product_name(html_text: str) -> Optional[str]:
+    for match in _LD_JSON_SCRIPT.finditer(html_text or ""):
+        name = _product_name_from_ld_json(match.group(1))
+        if name:
+            return name
     return None
 
 
