@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import html
+from html.parser import HTMLParser
 import json
 import re
 from typing import Iterable, Optional
@@ -16,11 +17,6 @@ _LD_JSON_SCRIPT = re.compile(
     r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
     re.I | re.S,
 )
-_EPISODE_ITEM = re.compile(
-    r'<(?:div|li)\b[^>]*data-episode_id=["\']([^"\']+)["\'][^>]*>(.*?)</(?:div|li)>',
-    re.I | re.S,
-)
-
 
 def canonical_piccoma_product_url(product_id: str) -> str:
     return f"https://piccoma.com/web/product/{product_id}?etype=episode"
@@ -88,15 +84,75 @@ def extract_piccoma_wait_free_label(html_text: str) -> Optional[str]:
 
 
 def extract_piccoma_latest_episode(episodes_html: str) -> tuple[Optional[str], Optional[str]]:
-    latest_id = None
-    latest_title = None
-    for match in _EPISODE_ITEM.finditer(episodes_html or ""):
-        episode_id = match.group(1).strip()
-        if not episode_id:
-            continue
-        latest_id = episode_id
-        latest_title = _plain_text(match.group(2)) or None
-    return latest_id, latest_title
+    parser = _PiccomaEpisodeListParser()
+    parser.feed(episodes_html or "")
+    return parser.latest_episode()
+
+
+class _PiccomaEpisodeListParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self._depth = 0
+        self._episode_list_depth: Optional[int] = None
+        self._saw_episode_list = False
+        self._active_items = []
+        self._all_items: list[tuple[str, Optional[str]]] = []
+        self._episode_list_items: list[tuple[str, Optional[str]]] = []
+
+    def handle_starttag(self, tag, attrs):
+        attrs_by_name = {name: value for name, value in attrs}
+        next_depth = self._depth + 1
+        if attrs_by_name.get("id") == "js_episodeList":
+            self._saw_episode_list = True
+            self._episode_list_depth = next_depth
+
+        episode_id = (attrs_by_name.get("data-episode_id") or "").strip()
+        if episode_id:
+            self._active_items.append(
+                {
+                    "depth": next_depth,
+                    "episode_id": episode_id,
+                    "in_episode_list": self._episode_list_depth is not None,
+                    "chunks": [],
+                }
+            )
+
+        self._depth = next_depth
+
+    def handle_startendtag(self, tag, attrs):
+        attrs_by_name = {name: value for name, value in attrs}
+        episode_id = (attrs_by_name.get("data-episode_id") or "").strip()
+        if episode_id:
+            self._append_item(episode_id, None, self._episode_list_depth is not None)
+
+    def handle_endtag(self, tag):
+        while self._active_items and self._active_items[-1]["depth"] == self._depth:
+            item = self._active_items.pop()
+            title = " ".join(item["chunks"]).strip() or None
+            self._append_item(item["episode_id"], title, item["in_episode_list"])
+
+        if self._episode_list_depth == self._depth:
+            self._episode_list_depth = None
+        self._depth = max(0, self._depth - 1)
+
+    def handle_data(self, data):
+        text = (data or "").strip()
+        if not text:
+            return
+        for item in self._active_items:
+            item["chunks"].append(text)
+
+    def latest_episode(self) -> tuple[Optional[str], Optional[str]]:
+        items = self._episode_list_items if self._saw_episode_list else self._all_items
+        if not items:
+            return None, None
+        return items[-1]
+
+    def _append_item(self, episode_id: str, title: Optional[str], in_episode_list: bool):
+        item = (episode_id, title)
+        self._all_items.append(item)
+        if in_episode_list:
+            self._episode_list_items.append(item)
 
 
 def _plain_text(html_text: str) -> str:
