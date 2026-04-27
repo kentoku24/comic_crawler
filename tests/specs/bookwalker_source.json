@@ -1,0 +1,70 @@
+{
+  "requirements": [
+    {
+      "id": "REQ-001",
+      "source": "BOOK\u2606WALKER \u3092\u30af\u30ed\u30fc\u30eb\u5bfe\u8c61\u306b\u8ffd\u52a0\u3057\u3066\u6b32\u3057\u3044",
+      "criteria": [
+        {
+          "id": "AC-001",
+          "type": "property",
+          "description": "bookwalker is registered as a concrete source adapter and registration remains complete for every concrete adapter module.",
+          "tests": [
+            "tests/test_sources.py::SourceAdapterTests::test_registry_pins_supported_sources",
+            "tests/test_sources.py::SourceAdapterTests::test_registry_covers_every_concrete_adapter_module"
+          ]
+        },
+        {
+          "id": "AC-002",
+          "type": "example",
+          "description": "bookwalker series/list URLs and book detail URLs normalize to stable work descriptors with canonical seed URLs and source-specific metadata.",
+          "tests": [
+            "tests/test_sources.py::SourceAdapterTests::test_bookwalker_normalize_accepts_series_and_product_urls"
+          ]
+        },
+        {
+          "id": "AC-003",
+          "type": "example",
+          "description": "bookwalker latest crawling extracts the latest book UUID, canonical public URL, readable title, series title, update label, and main_story classification from supported page shapes.",
+          "tests": [
+            "tests/test_sources.py::SourceAdapterTests::test_bookwalker_fetch_latest_prefers_latest_series_card",
+            "tests/test_sources.py::SourceAdapterTests::test_bookwalker_fetch_latest_reads_episode_titles_from_wauri_series",
+            "tests/test_sources.py::SourceAdapterTests::test_bookwalker_fixtures"
+          ]
+        },
+        {
+          "id": "AC-004",
+          "type": "property",
+          "description": "bookwalker has a normal fixture bundle and a source drift canary contract that is covered with the rest of the registered sources.",
+          "tests": [
+            "tests/test_source_drift.py::SourceDriftTests::test_default_contracts_cover_registered_sources",
+            "tests/test_source_drift.py::SourceDriftTests::test_canaries_pass_on_normal_fixtures"
+          ]
+        },
+        {
+          "id": "AC-005",
+          "type": "example",
+          "description": "bookwalker is exposed through search registration and parses BOOK\u2606WALKER search results into canonical series seed URLs.",
+          "tests": [
+            "tests/test_source_search.py::SourceSearchTests::test_supported_search_sources_match_registered_sources",
+            "tests/test_source_search.py::SourceSearchTests::test_search_source_parses_bookwalker_series_results",
+            "tests/test_discord_command_registration_search.py::DiscordSearchCommandRegistrationTests::test_default_command_definitions_include_search",
+            "tests/test_source_search_e2e.py::SourceSearchE2ETests::test_real_search_source_requests_include_expected_media_for_representative_titles"
+          ]
+        },
+        {
+          "id": "AC-006",
+          "type": "example",
+          "description": "bookwalker URLs accepted by the source capability surface can be added to the watchlist with normalized IDs, seed URLs, and source values.",
+          "tests": [
+            "tests/test_watchlist.py::WatchlistAddLogicTests::test_watchlist_add_accepts_bookwalker_series_url",
+            "tests/test_watchlist.py::WatchlistAddLogicTests::test_watchlist_add_accepts_bookwalker_book_detail_url"
+          ]
+        }
+      ],
+      "assumptions": [
+        "BOOK\u2606WALKER crawling support means integrating the source with the existing adapter, search, drift canary, Discord registration, and watchlist registration surfaces rather than adding a new command surface.",
+        "The representative BOOK\u2606WALKER search query is allowed to remain in the opt-in live E2E matrix because the repository already gates real network search tests behind RUN_REAL_SEARCH_E2E=1."
+      ]
+    }
+  ]
+}

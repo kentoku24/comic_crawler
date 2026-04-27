@@ -58,6 +58,7 @@ class DiscordSearchCommandRegistrationTests(unittest.TestCase):
                         {"name": "kakuyomu", "value": "kakuyomu"},
                         {"name": "gaugau", "value": "gaugau"},
                         {"name": "piccoma", "value": "piccoma"},
+                        {"name": "bookwalker", "value": "bookwalker"},
                     ],
                 },
                 {

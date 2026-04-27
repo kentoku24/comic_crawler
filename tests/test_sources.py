@@ -14,6 +14,7 @@ from manga_watch.sources import (
     fetch_latest_for_work,
     normalize_seed_url,
 )
+from manga_watch.sources.bookwalker import BookwalkerAdapter
 from manga_watch.sources.base import SourceParseError, WorkDescriptor
 from manga_watch.sources.champion_cross import ChampionCrossAdapter
 from manga_watch.sources.comic_action import ComicActionAdapter
@@ -101,6 +102,9 @@ SOURCE_CASES = {
         "broken_missing_episode",
         "broken_missing_episode_list",
     ),
+    "bookwalker": (
+        "normal",
+    ),
 }
 ADAPTERS = {adapter.source: adapter.__class__ for adapter in REGISTERED_ADAPTERS}
 ERROR_TYPES = {
@@ -165,6 +169,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "normal": "main_story",
     },
     "piccoma": {
+        "normal": "main_story",
+    },
+    "bookwalker": {
         "normal": "main_story",
     },
 }
@@ -272,6 +279,7 @@ class SourceAdapterTests(unittest.TestCase):
                 "kakuyomu",
                 "gaugau",
                 "piccoma",
+                "bookwalker",
             ),
             REGISTERED_SOURCES,
         )
@@ -354,6 +362,9 @@ class SourceAdapterTests(unittest.TestCase):
         work = PiccomaAdapter().normalize("https://piccoma.com/web/product/58170?foo=bar")
 
         self.assertEqual("https://piccoma.com/web/product/58170?etype=episode", work.seed_url)
+
+    def test_bookwalker_fixtures(self):
+        self._assert_fixture_matrix("bookwalker")
 
     def test_magapoke_normalize_accepts_episode_url(self):
         work = MagapokeAdapter().normalize(
@@ -1991,6 +2002,116 @@ class SourceAdapterTests(unittest.TestCase):
             ],
             client.calls,
         )
+
+    def test_bookwalker_normalize_accepts_series_and_product_urls(self):
+        adapter = BookwalkerAdapter()
+
+        self.assertEqual(
+            {
+                "source": "bookwalker",
+                "kind": "bookwalker",
+                "workId": "bookwalker:series:519222",
+                "seedUrl": "https://bookwalker.jp/series/519222/list/",
+                "series": "bookwalker:series:519222",
+                "seriesId": "519222",
+            },
+            adapter.normalize("https://bookwalker.jp/series/519222/list/?order=release").to_dict(),
+        )
+        self.assertEqual(
+            {
+                "source": "bookwalker",
+                "kind": "bookwalker",
+                "workId": "bookwalker:series:559081",
+                "seedUrl": "https://bookwalker.jp/series/559081/",
+                "series": "bookwalker:series:559081",
+                "seriesId": "559081",
+            },
+            adapter.normalize("https://bookwalker.jp/series/559081/").to_dict(),
+        )
+        self.assertEqual(
+            {
+                "source": "bookwalker",
+                "kind": "bookwalker",
+                "workId": "bookwalker:book:2b0ecd13-4ad0-405e-9fe9-a625ad80c74c",
+                "seedUrl": "https://bookwalker.jp/de2b0ecd13-4ad0-405e-9fe9-a625ad80c74c/",
+                "bookUuid": "2b0ecd13-4ad0-405e-9fe9-a625ad80c74c",
+            },
+            adapter.normalize("https://bookwalker.jp/de2b0ecd13-4ad0-405e-9fe9-a625ad80c74c/?sample=1").to_dict(),
+        )
+
+    def test_bookwalker_fetch_latest_prefers_latest_series_card(self):
+        adapter = BookwalkerAdapter()
+        work = adapter.normalize("https://bookwalker.jp/series/519222/list/")
+        client = StaticHttpClient(
+            {
+                "https://bookwalker.jp/series/519222/list/": """
+                <html>
+                  <head><title>くまぐらし（MANGAバル コミックス）一覧 - BOOK☆WALKER</title></head>
+                  <body>
+                    <article class="m-book-item">
+                      <a href="https://bookwalker.jp/de893cb2ba-dc87-4c1b-90cb-a1cd13d33a0f/"
+                         class="m-book-item__title"
+                         title="くまぐらし　（０６）">くまぐらし　（０６）</a>
+                      <time datetime="2026-05-14 00:00">2026/5/14(木)</time> 配信予定
+                    </article>
+                    <article class="m-book-item">
+                      <a href="https://bookwalker.jp/de2b0ecd13-4ad0-405e-9fe9-a625ad80c74c/"
+                         class="m-book-item__title"
+                         title="くまぐらし　（０５）">くまぐらし　（０５）</a>
+                    </article>
+                  </body>
+                </html>
+                """
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("bookwalker:series:519222", latest["workId"])
+        self.assertEqual("bookwalker:series:519222", latest["series"])
+        self.assertEqual("bookwalker:book:893cb2ba-dc87-4c1b-90cb-a1cd13d33a0f", latest["latestKey"])
+        self.assertEqual("くまぐらし（MANGAバル コミックス）", latest["seriesTitle"])
+        self.assertEqual("くまぐらし （０６）", latest["episodeTitle"])
+        self.assertEqual("2026/5/14(木) 配信予定", latest["nextUpdateLabel"])
+        self.assertEqual(["https://bookwalker.jp/series/519222/list/"], client.calls)
+
+    def test_bookwalker_fetch_latest_reads_episode_titles_from_wauri_series(self):
+        adapter = BookwalkerAdapter()
+        work = adapter.normalize("https://bookwalker.jp/series/559081/")
+        client = StaticHttpClient(
+            {
+                "https://bookwalker.jp/series/559081/": """
+                <html>
+                  <head><title>【話・連載】救世のアルル【分冊版】（ノヴァコミックス） - BOOK☆WALKER</title></head>
+                  <body>
+                    <p class="p-top-block__update">2026/3/25(水) 更新</p>
+                    <a data-ga-category="話読みタブリスト"
+                       data-book-uuid="7702b31c-c3c4-4382-804a-05a4461133db"
+                       data-book-title="&#x6551;&#x4E16;&#x306E;&#x30A2;&#x30EB;&#x30EB;&#x3010;&#x5206;&#x518A;&#x7248;&#x3011;1">
+                      <h3 class="o-ttsk-list-item__title">1</h3>
+                    </a>
+                    <a data-ga-category="話読みタブリスト"
+                       data-book-uuid="b5c239d6-7f48-4d79-b2ee-c0fb0e481a35"
+                       data-book-title="&#x6551;&#x4E16;&#x306E;&#x30A2;&#x30EB;&#x30EB;&#x3010;&#x5206;&#x518A;&#x7248;&#x3011;8">
+                      <h3 class="o-ttsk-list-item__title">8</h3>
+                    </a>
+                  </body>
+                </html>
+                """
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("bookwalker:series:559081", latest["workId"])
+        self.assertEqual("bookwalker:book:b5c239d6-7f48-4d79-b2ee-c0fb0e481a35", latest["latestKey"])
+        self.assertEqual("救世のアルル【分冊版】（ノヴァコミックス）", latest["seriesTitle"])
+        self.assertEqual("救世のアルル【分冊版】8", latest["episodeTitle"])
+        self.assertEqual(
+            "https://bookwalker.jp/deb5c239d6-7f48-4d79-b2ee-c0fb0e481a35/",
+            latest["url"],
+        )
+        self.assertEqual("2026/3/25(水) 更新", latest["nextUpdateLabel"])
 
     def _assert_fixture_matrix(self, source: str):
         source_dir = FIXTURES_ROOT / source

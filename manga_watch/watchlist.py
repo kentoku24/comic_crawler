@@ -164,6 +164,15 @@ SOURCE_CAPABILITIES = (
         input_labels=("product URL",),
         examples=("https://piccoma.com/web/product/58170?etype=episode",),
     ),
+    SourceCapability(
+        source="bookwalker",
+        domains=("bookwalker.jp",),
+        input_labels=("series URL", "book detail URL"),
+        examples=(
+            "https://bookwalker.jp/series/519222/list/",
+            "https://bookwalker.jp/de2b0ecd13-4ad0-405e-9fe9-a625ad80c74c/",
+        ),
+    ),
 )
 
 

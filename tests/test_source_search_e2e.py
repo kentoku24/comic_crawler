@@ -82,6 +82,12 @@ REPRESENTATIVE_SEARCH_CASES = (
         "expected_title": "ダンジョンの中のひと",
         "expected_seed_url": "https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
     },
+    {
+        "source": "bookwalker",
+        "query": "くまぐらし",
+        "expected_title": "くまぐらし（MANGAバル コミックス）",
+        "expected_seed_url": "https://bookwalker.jp/series/519222/list/",
+    },
 )
 
 
