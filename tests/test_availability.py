@@ -61,6 +61,31 @@ class AvailabilityTests(unittest.TestCase):
 
         self.assertEqual({"source": "comic-walker", "status": "not_found", "url": None}, result)
 
+    def test_comic_walker_binds_episode_label_to_same_anchor(self):
+        seed_url = "https://comic-walker.com/detail/KC_004800_S"
+        html = """
+        <html><body>
+          <a href="/detail/KC_004800_S/episodes/KC_0048000000200011_E">第2話</a>
+          <a href="/detail/KC_004800_S/episodes/KC_0048000000100012_E">第1話</a>
+        </body></html>
+        """
+
+        result = resolve_episode_availability(
+            "comic-walker",
+            seed_url,
+            "第1話",
+            http_client=StaticHttpClient({seed_url: html}),
+        )
+
+        self.assertEqual(
+            {
+                "source": "comic-walker",
+                "status": "free_now",
+                "url": "https://comic-walker.com/detail/KC_004800_S/episodes/KC_0048000000100012_E",
+            },
+            result,
+        )
+
     def test_nicovideo_manga_resolves_exact_episode_url(self):
         seed_url = "https://manga.nicovideo.jp/comic/62782"
         html = """
@@ -103,6 +128,31 @@ class AvailabilityTests(unittest.TestCase):
         )
 
         self.assertEqual({"source": "nicovideo-manga", "status": "not_found", "url": None}, result)
+
+    def test_nicovideo_manga_binds_episode_label_to_same_anchor(self):
+        seed_url = "https://manga.nicovideo.jp/comic/62782"
+        html = """
+        <html><body>
+          <a href="/watch/mg1000002">ニセモノの錬金術師 第2話 / 杉浦次郎</a>
+          <a href="/watch/mg1000001">ニセモノの錬金術師 第1話 / 杉浦次郎</a>
+        </body></html>
+        """
+
+        result = resolve_episode_availability(
+            "nicovideo-manga",
+            seed_url,
+            "第1話",
+            http_client=StaticHttpClient({seed_url: html}),
+        )
+
+        self.assertEqual(
+            {
+                "source": "nicovideo-manga",
+                "status": "free_now",
+                "url": "https://manga.nicovideo.jp/watch/mg1000001",
+            },
+            result,
+        )
 
     def test_returns_not_found_without_exact_episode(self):
         seed_url = "https://manga.nicovideo.jp/comic/62782"

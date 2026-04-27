@@ -20,7 +20,13 @@ from manga_watch.discord_search import (
     SEARCH_SELECT_CUSTOM_ID_PREFIX,
     SearchCommandHandler,
 )
-from manga_watch.discord_where import WHERE_COMMAND, WHERE_FAILURE_MESSAGE, WhereCommandHandler, is_where_component
+from manga_watch.discord_where import (
+    WHERE_COMMAND,
+    WHERE_FAILURE_MESSAGE,
+    StoredWhereContextStore,
+    WhereCommandHandler,
+    is_where_component,
+)
 from manga_watch.discord_remove import REMOVE_COMMAND, RemoveCommandHandler
 from manga_watch.discord_supertwins_manage import (
     SUPERTWINS_MANAGE_COMMAND,
@@ -840,7 +846,9 @@ def build_interaction_service_from_env(
         verification_disabled=verification.verification_disabled,
         add_handler=AddCommandHandler.from_env(),
         search_handler=SearchCommandHandler(),
-        where_handler=WhereCommandHandler(),
+        where_handler=WhereCommandHandler(
+            context_store=StoredWhereContextStore(state_path=state_path, backend=storage_backend),
+        ),
         remove_handler=RemoveCommandHandler(backend=storage_backend),
         supertwins_search_handler=SearchSupertwinsCommandHandler(backend=storage_backend),
         supertwins_manage_handler=ManageSupertwinsCommandHandler(backend=storage_backend),

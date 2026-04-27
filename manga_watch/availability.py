@@ -3,6 +3,7 @@ from __future__ import annotations
 import html
 import re
 import unicodedata
+from html.parser import HTMLParser
 from typing import Dict, Optional
 from urllib.parse import urljoin
 
@@ -101,6 +102,70 @@ def _normalize_html_text(html_text: str) -> str:
     )
 
 
+class _EpisodeAnchorParser(HTMLParser):
+    def __init__(self):
+        super().__init__(convert_charrefs=True)
+        self.links: list[tuple[str, str]] = []
+        self._current_href: Optional[str] = None
+        self._current_text: list[str] = []
+
+    def handle_starttag(self, tag: str, attrs: list[tuple[str, Optional[str]]]) -> None:
+        if tag.lower() != "a" or self._current_href is not None:
+            return
+        href = dict(attrs).get("href")
+        if not href:
+            return
+        self._current_href = href
+        self._current_text = []
+
+    def handle_data(self, data: str) -> None:
+        if self._current_href is not None:
+            self._current_text.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag.lower() != "a" or self._current_href is None:
+            return
+        self.links.append((self._current_href, "".join(self._current_text)))
+        self._current_href = None
+        self._current_text = []
+
+
+def _matching_url(value: str, url_pattern: str) -> Optional[str]:
+    match = re.search(url_pattern, value, re.I)
+    if match is None:
+        return None
+    if match.group(0) != value.strip():
+        return None
+    return match.group(0)
+
+
+def _anchor_episode_url(
+    html_text: str,
+    episode: str,
+    *,
+    base_url: str,
+    url_pattern: str,
+) -> Optional[str]:
+    parser = _EpisodeAnchorParser()
+    parser.feed(html_text)
+    for href, label in parser.links:
+        candidate_url = _matching_url(href.strip(), url_pattern)
+        if candidate_url is None:
+            continue
+        if not _contains_episode_label(label, episode):
+            continue
+        return urljoin(base_url, candidate_url)
+    return None
+
+
+def _bounded_candidate_context(text: str, start: int, end: int) -> str:
+    left_boundaries = (text.rfind("{", 0, start), text.rfind("[", 0, start), text.rfind("\n", 0, start))
+    right_candidates = [pos for pos in (text.find("}", end), text.find("]", end), text.find("\n", end)) if pos != -1]
+    left = max(left_boundaries)
+    right = min(right_candidates) if right_candidates else min(len(text), end + 200)
+    return text[max(0, left): min(len(text), right + 1)]
+
+
 def _find_episode_url(
     html_text: str,
     episode: str,
@@ -109,10 +174,17 @@ def _find_episode_url(
     url_pattern: str,
 ) -> Optional[str]:
     normalized = _normalize_html_text(html_text)
+    anchor_url = _anchor_episode_url(
+        normalized,
+        episode,
+        base_url=base_url,
+        url_pattern=url_pattern,
+    )
+    if anchor_url:
+        return anchor_url
+
     for match in re.finditer(url_pattern, normalized, re.I):
-        start = max(0, match.start() - 500)
-        end = min(len(normalized), match.end() + 500)
-        context = normalized[start:end]
+        context = _bounded_candidate_context(normalized, match.start(), match.end())
         if not _contains_episode_label(context, episode):
             continue
         return urljoin(base_url, match.group(0))

@@ -1,6 +1,9 @@
+from pathlib import Path
+import tempfile
 import unittest
 
 from manga_watch.discord_where import (
+    StoredWhereContextStore,
     WHERE_COMMAND,
     WHERE_NO_RESULTS_MESSAGE,
     WhereCommandHandler,
@@ -160,6 +163,63 @@ class DiscordWhereTests(unittest.TestCase):
         self.assertIn("https://comic-walker.com/detail/KC_004800_S/episodes/KC_0048000000100012_E", response["content"])
         self.assertIn("ニコニコ漫画: 今すぐ無料", response["content"])
         self.assertIn("https://manga.nicovideo.jp/watch/mg1000001", response["content"])
+        self.assertEqual(
+            [
+                {
+                    "source": "comic-walker",
+                    "seed_url": "https://comic-walker.com/detail/KC_004800_S",
+                    "episode": "1話",
+                    "http_client": None,
+                },
+                {
+                    "source": "nicovideo-manga",
+                    "seed_url": "https://manga.nicovideo.jp/comic/62782",
+                    "episode": "1話",
+                    "http_client": None,
+                },
+            ],
+            resolver.calls,
+        )
+
+    def test_handle_component_loads_context_from_storage_across_handler_instances(self):
+        search_source = MultiSourceSearchSource(
+            {
+                "comic-walker": [
+                    SearchResult(
+                        source="comic-walker",
+                        title="ニセモノの錬金術師",
+                        seed_url="https://comic-walker.com/detail/KC_004800_S",
+                    )
+                ],
+                "nicovideo-manga": [
+                    SearchResult(
+                        source="nicovideo-manga",
+                        title="ニセモノの錬金術師",
+                        seed_url="https://manga.nicovideo.jp/comic/62782",
+                    )
+                ],
+            }
+        )
+        resolver = FakeAvailabilityResolver()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = str(Path(tmpdir) / "state.json")
+            first_handler = WhereCommandHandler(
+                search_source=search_source,
+                context_store=StoredWhereContextStore(state_path=state_path, backend="json"),
+            )
+            start_response = first_handler.start(query="ニセモノの錬金術師", episode="1話")
+            select = start_response["components"][0]["components"][0]
+            second_handler = WhereCommandHandler(
+                availability_resolver=resolver,
+                context_store=StoredWhereContextStore(state_path=state_path, backend="json"),
+            )
+
+            response = second_handler.handle_component(
+                {"custom_id": select["custom_id"], "values": ["0"]},
+            )
+
+        self.assertIn("ComicWalker: 今すぐ無料", response["content"])
+        self.assertIn("ニコニコ漫画: 今すぐ無料", response["content"])
         self.assertEqual(
             [
                 {

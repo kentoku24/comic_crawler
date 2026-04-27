@@ -4,9 +4,9 @@ import base64
 import hashlib
 import re
 import unicodedata
-from collections import OrderedDict
 from dataclasses import dataclass
-from typing import Callable, Dict, List, Mapping, Optional, Sequence
+from dataclasses import field
+from typing import Callable, Dict, List, Mapping, Optional, Protocol, Sequence
 
 from manga_watch.availability import (
     resolve_episode_availability,
@@ -15,6 +15,7 @@ from manga_watch.availability import (
     supported_availability_sources,
 )
 from manga_watch.source_search import SearchResult, search_source
+from manga_watch.storage import load_where_session, save_where_session
 
 WHERE_COMMAND = "where"
 WHERE_SELECT_CUSTOM_ID_PREFIX = "where_select"
@@ -24,10 +25,46 @@ WHERE_FAILURE_MESSAGE = "availability 検索に失敗しました。サーバー
 WHERE_NO_RESULTS_MESSAGE = "availability 候補が見つかりませんでした。"
 WHERE_CROSS_SOURCE_MESSAGE = "availability を確認する候補です。1件選んでください。"
 DEFAULT_WHERE_SOURCE_LIMIT = 3
-MAX_WHERE_CONTEXT_CACHE_SIZE = 256
 MAX_COMPONENT_TEXT = 100
 
-_WHERE_CONTEXT_CACHE: "OrderedDict[str, Dict[str, object]]" = OrderedDict()
+
+class WhereContextStore(Protocol):
+    def save(self, token: str, payload: Mapping[str, object]) -> None:
+        ...
+
+    def load(self, token: str) -> Mapping[str, object]:
+        ...
+
+
+class MemoryWhereContextStore:
+    def __init__(self):
+        self._payloads: Dict[str, Dict[str, object]] = {}
+
+    def save(self, token: str, payload: Mapping[str, object]) -> None:
+        self._payloads[token] = dict(payload)
+
+    def load(self, token: str) -> Mapping[str, object]:
+        try:
+            return self._payloads[token]
+        except KeyError as exc:
+            raise FileNotFoundError(f"missing where session: {token}") from exc
+
+
+class StoredWhereContextStore:
+    def __init__(
+        self,
+        *,
+        state_path: Optional[str] = None,
+        backend: Optional[str] = None,
+    ):
+        self.state_path = state_path
+        self.backend = backend
+
+    def save(self, token: str, payload: Mapping[str, object]) -> None:
+        save_where_session(token, payload, self.state_path, backend=self.backend)
+
+    def load(self, token: str) -> Mapping[str, object]:
+        return load_where_session(token, self.state_path, backend=self.backend)
 
 
 def _coerce_text(value: object) -> Optional[str]:
@@ -46,25 +83,79 @@ def _truncate_component_text(text: object, *, max_length: int = MAX_COMPONENT_TE
     return normalized[: max_length - 1] + "…"
 
 
-def _remember_context(context: Dict[str, object]) -> str:
-    raw = repr((context.get("query"), context.get("episode"), context.get("results"))).encode("utf-8")
+def _search_result_payload(result: SearchResult) -> Dict[str, object]:
+    return {
+        "source": result.source,
+        "title": result.title,
+        "seed_url": result.seed_url,
+        "subtitle": result.subtitle,
+    }
+
+
+def _search_result_from_payload(payload: Mapping[str, object]) -> Optional[SearchResult]:
+    source = _coerce_text(payload.get("source"))
+    title = _coerce_text(payload.get("title"))
+    seed_url = _coerce_text(payload.get("seed_url"))
+    if not source or not title or not seed_url:
+        return None
+    return SearchResult(
+        source=source,
+        title=title,
+        seed_url=seed_url,
+        subtitle=_coerce_text(payload.get("subtitle")),
+    )
+
+
+def _context_payload(
+    *,
+    query: str,
+    episode: str,
+    results: Sequence[SearchResult],
+) -> Dict[str, object]:
+    return {
+        "query": query,
+        "episode": episode,
+        "results": [_search_result_payload(result) for result in results],
+    }
+
+
+def _context_from_payload(payload: Mapping[str, object]) -> Optional[Dict[str, object]]:
+    query = _coerce_text(payload.get("query"))
+    episode = _coerce_text(payload.get("episode"))
+    raw_results = payload.get("results")
+    if not query or not episode or not isinstance(raw_results, list):
+        return None
+    results: List[SearchResult] = []
+    for item in raw_results:
+        if not isinstance(item, Mapping):
+            return None
+        result = _search_result_from_payload(item)
+        if result is None:
+            return None
+        results.append(result)
+    return {"query": query, "episode": episode, "results": results}
+
+
+def _remember_context(context_store: WhereContextStore, payload: Mapping[str, object]) -> Optional[str]:
+    raw = repr((payload.get("query"), payload.get("episode"), payload.get("results"))).encode("utf-8")
     digest = hashlib.sha256(raw).digest()
     token = base64.urlsafe_b64encode(digest[:9]).decode("ascii").rstrip("=")
-    _WHERE_CONTEXT_CACHE[token] = context
-    _WHERE_CONTEXT_CACHE.move_to_end(token)
-    while len(_WHERE_CONTEXT_CACHE) > MAX_WHERE_CONTEXT_CACHE_SIZE:
-        _WHERE_CONTEXT_CACHE.popitem(last=False)
+    try:
+        context_store.save(token, payload)
+    except Exception:
+        return None
     return token
 
 
-def _context_for_token(token: object) -> Optional[Dict[str, object]]:
+def _context_for_token(context_store: WhereContextStore, token: object) -> Optional[Dict[str, object]]:
     normalized = _coerce_text(token)
     if not normalized:
         return None
-    context = _WHERE_CONTEXT_CACHE.get(normalized)
-    if context is not None:
-        _WHERE_CONTEXT_CACHE.move_to_end(normalized)
-    return context
+    try:
+        payload = context_store.load(normalized)
+    except (FileNotFoundError, ValueError):
+        return None
+    return _context_from_payload(payload)
 
 
 def _normalized_title(value: object) -> str:
@@ -131,6 +222,7 @@ class WhereCommandHandler:
     search_source: Callable[..., List[SearchResult]] = search_source
     availability_resolver: Callable[..., Mapping[str, object]] = resolve_episode_availability
     availability_sources: Callable[[], Sequence[str]] = supported_availability_sources
+    context_store: WhereContextStore = field(default_factory=MemoryWhereContextStore)
 
     def start(
         self,
@@ -168,12 +260,15 @@ class WhereCommandHandler:
             return {"content": WHERE_NO_RESULTS_MESSAGE, "components": []}
 
         context_token = _remember_context(
-            {
-                "query": normalized_query,
-                "episode": normalized_episode,
-                "results": deduped_results,
-            }
+            self.context_store,
+            _context_payload(
+                query=normalized_query,
+                episode=normalized_episode,
+                results=deduped_results,
+            ),
         )
+        if context_token is None:
+            return {"content": WHERE_FAILURE_MESSAGE, "components": []}
         return {
             "content": WHERE_CROSS_SOURCE_MESSAGE,
             "components": [
@@ -210,7 +305,7 @@ class WhereCommandHandler:
         if not custom_id.startswith(f"{WHERE_SELECT_CUSTOM_ID_PREFIX}:"):
             return {"content": "画面の有効期限が切れたため、もう一度 `/where` を実行してください。", "components": []}
 
-        context = _context_for_token(custom_id.partition(":")[2])
+        context = _context_for_token(self.context_store, custom_id.partition(":")[2])
         if context is None:
             return {"content": "画面の有効期限が切れたため、もう一度 `/where` を実行してください。", "components": []}
 

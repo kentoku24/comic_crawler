@@ -6,12 +6,15 @@ from unittest import mock
 from manga_watch.firestore_storage import FirestoreStorageConfig, FirestoreStorageRepository
 from manga_watch.storage import (
     delete_supertwins_search_session,
+    delete_where_session,
     load_state,
     load_supertwins_search_session,
+    load_where_session,
     load_watchlist,
     record_run_summary,
     save_state,
     save_supertwins_search_session,
+    save_where_session,
     save_watchlist,
     validate_state,
     validate_watchlist,
@@ -269,3 +272,26 @@ class FirestoreStorageTests(unittest.TestCase):
         self.assertEqual("root-2", session_b["root_work_id"])
         self.assertIn("runtime:session-b", repository.client.store["supertwins_search_sessions"])
         self.assertNotIn("runtime:session-a", repository.client.store["supertwins_search_sessions"])
+
+    def test_firestore_backend_round_trips_where_sessions_by_token(self):
+        repository = self.make_repository()
+
+        with mock.patch("manga_watch.storage.get_firestore_repository", return_value=repository):
+            save_where_session(
+                "session-a",
+                {"query": "作品A", "episode": "1話", "results": [{"source": "comic-walker"}]},
+                backend="firestore",
+            )
+            save_where_session(
+                "session-b",
+                {"query": "作品B", "episode": "2話", "results": [{"source": "nicovideo-manga"}]},
+                backend="firestore",
+            )
+            session_a = load_where_session("session-a", backend="firestore")
+            session_b = load_where_session("session-b", backend="firestore")
+            delete_where_session("session-a", backend="firestore")
+
+        self.assertEqual("作品A", session_a["query"])
+        self.assertEqual("作品B", session_b["query"])
+        self.assertIn("runtime:session-b", repository.client.store["where_sessions"])
+        self.assertNotIn("runtime:session-a", repository.client.store["where_sessions"])
