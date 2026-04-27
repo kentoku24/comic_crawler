@@ -69,7 +69,7 @@ metadata:
   series: piccoma:<product_id>
 ```
 
-`PiccomaAdapter.fetch_latest()` は canonical product URL を取得し、公開 HTML から話読みの latest を抽出して `LatestEpisode` を返す。
+`PiccomaAdapter.fetch_latest()` は canonical product URL を取得し、公開 product page から作品名と availability label を抽出する。話読みの latest は、公開 product page から参照できる episodes endpoint `https://piccoma.com/web/product/<product_id>/episodes?etype=E` を取得し、episode list の安定識別子から抽出して `LatestEpisode` を返す。
 
 `LatestEpisode` の主な値は次の方針にする。
 
@@ -86,7 +86,7 @@ extra:
   totalEpisodeLabel: optional
 ```
 
-公開 HTML から個別 episode URL が安定して取得できる場合は `url` に使ってよい。ただし、取れない場合は product URL のままにする。存在しない episode URL を推測して作らない。
+公開 HTML から個別 episode URL が安定して取得できる場合は `url` に使ってよい。ただし、2026-04-27 の live probe では episode anchor は `href="#"` で、安定値は `data-episode_id` だったため、`url` は product URL のままにする。存在しない episode URL を推測して作らない。
 
 ### Registry and watchlist
 
@@ -107,7 +107,7 @@ examples: https://piccoma.com/web/product/58170?etype=episode
 
 `manga_watch/source_search.py` に `piccoma` を opt-in 追加する。
 
-`_SOURCE_SEARCH_CONFIG` にはピッコマの検索 URL と allowed domain を追加する。検索 URL は実装時に公開 web の現在形を live probe して確定する。検索ページが HTML anchor だけで十分に取れる場合は generic extractor を使う。作品カード構造の専用処理が必要な場合は `_search_piccoma()` を追加する。
+`_SOURCE_SEARCH_CONFIG` にはピッコマの公開検索 endpoint と allowed domain を追加する。2026-04-27 の live probe では検索 HTML に product anchors はなく、公開 AJAX JSON endpoint `https://piccoma.com/web/search/result_ajax/list?tab_type=T&word=<query>&page=1` の `products[].id` / `products[].title` が安定していた。`_search_piccoma()` はこの JSON を読み、product id から canonical seed URL を組み立てる。
 
 検索結果は次の形に正規化する。
 
@@ -138,8 +138,8 @@ SearchResult(
 
 1. checker が watchlist entry から `WorkDescriptor` を復元する
 2. registry が `PiccomaAdapter.fetch_latest()` を呼ぶ
-3. adapter が canonical product page を取得する
-4. parser が話読み領域から latest identifier と labels を抽出する
+3. adapter が canonical product page と public episodes endpoint を取得する
+4. parser が product page から作品名 / availability label を抽出し、episodes endpoint から latest identifier と episode title label を抽出する
 5. `LatestEpisode` が existing state と比較される
 6. 差分があれば既存 Discord notification / backlog / status flow に流れる
 
@@ -164,7 +164,7 @@ SearchResult(
 
 HTTP timeout、429、5xx は既存 `RequestsHttpClient` の retry に乗せる。
 
-product page が取得できたが product id、作品名、話読み latest が見つからない場合は `SourceParseError` にする。これは既存 checker / runner の source failure として degraded に流れる。
+product page または public episodes endpoint が取得できたが product id、作品名、話読み latest が見つからない場合は `SourceParseError` にする。これは既存 checker / runner の source failure として degraded に流れる。
 
 次の欠損は fatal にしない。
 
@@ -189,11 +189,11 @@ product page が取得できたが product id、作品名、話読み latest が
 次の fixture bundle を追加する。
 
 - `tests/fixtures/piccoma/normal/`
-  - product page から作品名、話読み latest、公開 availability metadata を抽出できる
+  - product page から作品名と公開 availability metadata、episodes endpoint から話読み latest を抽出できる
 - `tests/fixtures/piccoma/broken_missing_episode/`
-  - product page は取れるが話読み latest が見つからず `SourceParseError` になる
-- `tests/fixtures/source-search/piccoma/01-search.html`
-  - 検索ページから title と product URL を抽出できる
+  - product page / episodes endpoint は取れるが話読み latest が見つからず `SourceParseError` になる
+- `tests/fixtures/source-search/piccoma/01-search.json`
+  - 公開検索 JSON から title と product id を抽出できる
 
 fixture には parser が読む HTML / JSON 断片を残す。Cookie、token、viewer id、tracking query、個人情報は含めない。
 
@@ -235,6 +235,7 @@ fixture には parser が読む HTML / JSON 断片を残す。Cookie、token、v
 
 - product page が公開 HTML として取得できる
 - 作品名が取得できる
+- public episodes endpoint が取得できる
 - 話読み latest identifier が取得できる
 - availability label が取れる場合は observation に出す
 
@@ -245,13 +246,13 @@ live canary の URL は実装時に公開ページで安定している代表作
 必須 verification:
 
 ```bash
-.venv/bin/python -m unittest tests.test_sources tests.test_watchlist tests.test_source_drift tests.test_source_search
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_sources tests.test_watchlist tests.test_source_drift tests.test_source_search
 ```
 
 影響が広い場合の追加 verification:
 
 ```bash
-.venv/bin/python -m unittest tests.test_discord_search tests.test_discord_supertwins tests.test_discord_interactions_search
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_discord_search tests.test_discord_supertwins tests.test_discord_interactions_search
 ```
 
 real network search e2e は既存通り env opt-in にする。unit test の合格条件にはしない。
@@ -260,11 +261,14 @@ real network search e2e は既存通り env opt-in にする。unit test の合�
 
 実装前に live probe で次を確定する。
 
-1. ピッコマ検索 URL と query parameter
-2. product page 内で話読み latest を表す最も安定した DOM / JSON signal
-3. `episode_title` として使える公開 label の形
-4. availability metadata label の exact key naming
-5. 個別 episode URL を公開 HTML から安定取得できるか
+2026-04-27 の live probe で次を確定した。
+
+1. ピッコマ検索 URL は `https://piccoma.com/web/search/result_ajax/list?tab_type=T&word=<query>&page=1`
+2. 作品名 signal は product page の `application/ld+json` `Product.name`
+3. 話読み latest signal は `https://piccoma.com/web/product/<product_id>/episodes?etype=E` の `#js_episodeList` と `data-episode_id`
+4. `episode_title` として使える公開 label は episodes list の最新 item の表示 title
+5. availability metadata label は product page の text extraction から `totalEpisodeLabel`, `waitFreeLabel`, `freeEpisodeLabel` として扱う
+6. 個別 episode URL は安定しておらず、episode anchors は `href="#"` のため推測生成しない
 
 これらは spec の scope を広げるためではなく、公開 HTML adapter の parser contract を固定するために確認する。
 
@@ -279,4 +283,3 @@ real network search e2e は既存通り env opt-in にする。unit test の合�
 - ログイン後情報、購入済み状態、アプリ専用情報を扱わないことが README または source docs に明記されている
 - source drift canary がピッコマの公開 HTML signal を監視する
 - fixture regression と source search tests が追加されている
-

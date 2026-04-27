@@ -4,7 +4,7 @@
 
 **Goal:** Add Piccoma as a supported `comic_crawler` source for public unauthenticated episode tracking, `/search`, and `/supertwins-search`.
 
-**Architecture:** Add a focused `PiccomaAdapter` that normalizes Piccoma product URLs and extracts episode-reading latest data from public product pages. Register the adapter through the existing source registry, watchlist capability table, source drift canary, and `source_search.py` opt-in search surface so existing Discord flows pick it up without UX rewrites.
+**Architecture:** Add a focused `PiccomaAdapter` that normalizes Piccoma product URLs, extracts title/availability from public product pages, and extracts episode-reading latest data from Piccoma's public episodes endpoint. Register the adapter through the existing source registry, watchlist capability table, source drift canary, and `source_search.py` opt-in search surface so existing Discord flows pick it up without UX rewrites.
 
 **Tech Stack:** Python stdlib (`re`, `html`, `urllib.parse`, `unittest`), existing `manga_watch` source adapter interfaces, existing fixture-based regression tests.
 
@@ -21,17 +21,19 @@ Base: `origin/main` at `a1c591f`
 - Create `manga_watch/sources/piccoma.py`: URL canonicalization, public product-page parsing helpers, and `PiccomaAdapter`.
 - Modify `manga_watch/sources/registry.py`: import and register `PiccomaAdapter`.
 - Modify `manga_watch/watchlist.py`: add Piccoma to `SOURCE_CAPABILITIES`.
-- Modify `manga_watch/source_search.py`: add Piccoma search config and a Piccoma-specific search parser if generic anchor extraction is too broad.
+- Modify `manga_watch/source_search.py`: add Piccoma public AJAX search config and JSON parser.
 - Modify `manga_watch/source_drift.py`: import Piccoma helpers, add canary contract, canary runner, and runner map entry.
+- Modify `manga_watch/update_classification.py`: include Piccoma's `第N審` chapter labels as main-story numbering if live fixtures use that label form.
 - Modify `tests/test_sources.py`: add Piccoma fixture cases, imports, registry expectation, normalize and helper tests.
+- Modify `tests/test_update_classification.py`: add `第N審` main-story coverage if `update_classification.py` changes.
 - Modify `tests/test_watchlist.py`: add Piccoma `watchlist add`, duplicate, and unsupported URL type coverage.
 - Modify `tests/test_source_search.py`: add Piccoma to supported source expectation and search parsing tests.
 - Modify `tests/test_source_drift.py`: existing source coverage should include Piccoma once registry and canary contract are added; add targeted Piccoma canary assertions if needed.
 - Modify `tests/test_source_search_e2e.py`: add optional real-network Piccoma representative case after choosing a stable query.
 - Modify `README.md`: document Piccoma support and the explicit public-only / no-login / no-purchase-state scope.
-- Create `tests/fixtures/piccoma/normal/manifest.json` and `01-product.html`: normal crawl fixture.
-- Create `tests/fixtures/piccoma/broken_missing_episode/manifest.json` and `01-product.html`: parse-error fixture.
-- Create `tests/fixtures/source-search/piccoma/01-search.html`: search fixture.
+- Create `tests/fixtures/piccoma/normal/manifest.json`, `01-product.html`, and `02-episodes.html`: normal crawl fixture.
+- Create `tests/fixtures/piccoma/broken_missing_episode/manifest.json`, `01-product.html`, and `02-episodes.html`: parse-error fixture.
+- Create `tests/fixtures/source-search/piccoma/01-search.json`: search fixture.
 
 ## Implementation Notes
 
@@ -41,6 +43,15 @@ Base: `origin/main` at `a1c591f`
 - `LatestEpisode.url` may stay as the product URL unless a stable public episode URL is present in HTML.
 - Fatal parse errors: product id missing, product page title missing, or episode-reading latest identifier missing.
 - Non-fatal missing fields: free episode label, wait-free label, total episode label, individual episode URL.
+- Python commands in this worktree should use `/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python`; `.venv/bin/python` does not exist inside `.worktrees/piccoma-design`.
+- Task 1 live probe froze these public contracts:
+  - product canary URL: `https://piccoma.com/web/product/58170?etype=episode`
+  - episodes endpoint: `https://piccoma.com/web/product/58170/episodes?etype=E`
+  - search endpoint: `https://piccoma.com/web/search/result_ajax/list?tab_type=T&word={query}&page=1`
+  - title signal: product page `application/ld+json` `Product.name`
+  - latest signal: episodes endpoint `#js_episodeList` item order and `data-episode_id`
+  - latest observed id/title: `6212936` / `第134審 (2)`
+  - individual episode anchors are `href="#"`, so do not infer episode URLs
 - Commit after each task unless the task only probes live HTML and does not change tracked files.
 
 ### Task 1: Live Piccoma Contract Probe
@@ -56,7 +67,7 @@ Base: `origin/main` at `a1c591f`
 Run:
 
 ```bash
-.venv/bin/python - <<'PY'
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python - <<'PY'
 from manga_watch.sources.base import RequestsHttpClient
 url = "https://piccoma.com/web/product/58170?etype=episode"
 html = RequestsHttpClient().get_text(url)
@@ -74,13 +85,14 @@ Expected: output confirms the page is fetchable and shows at least one stable ti
 Run small probes against the current public site to identify the exact search endpoint.
 
 ```bash
-.venv/bin/python - <<'PY'
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python - <<'PY'
 from urllib.parse import quote_plus
 from manga_watch.sources.base import RequestsHttpClient
 
 client = RequestsHttpClient()
 query = quote_plus("九条の大罪")
 urls = [
+    f"https://piccoma.com/web/search/result_ajax/list?tab_type=T&word={query}&page=1",
     f"https://piccoma.com/web/search?word={query}",
     f"https://piccoma.com/web/search?q={query}",
     f"https://piccoma.com/web/search/result?word={query}",
@@ -96,7 +108,7 @@ for url in urls:
 PY
 ```
 
-Expected: one URL gives a public HTML response with query results and `/web/product/<id>` links.
+Expected: the `result_ajax/list` URL gives public JSON with `status: 0`, `products[].id`, and `products[].title`.
 
 - [ ] **Step 3: Freeze parser contract notes**
 
@@ -118,10 +130,13 @@ Expected: implementation can proceed without guessing selectors.
 
 **Files:**
 - Modify: `tests/test_sources.py`
+- Modify: `tests/test_update_classification.py`
 - Create: `tests/fixtures/piccoma/normal/manifest.json`
 - Create: `tests/fixtures/piccoma/normal/01-product.html`
+- Create: `tests/fixtures/piccoma/normal/02-episodes.html`
 - Create: `tests/fixtures/piccoma/broken_missing_episode/manifest.json`
 - Create: `tests/fixtures/piccoma/broken_missing_episode/01-product.html`
+- Create: `tests/fixtures/piccoma/broken_missing_episode/02-episodes.html`
 
 - [ ] **Step 1: Add Piccoma fixture cases**
 
@@ -146,6 +161,16 @@ Add import placeholder:
 
 ```python
 from manga_watch.sources.piccoma import PiccomaAdapter
+```
+
+Add `第N審` classification coverage to `tests/test_update_classification.py`:
+
+```python
+def test_piccoma_court_number_label_is_main_story(self):
+    decision = classify_update(episode_title="第134審 (2)")
+
+    self.assertEqual("main_story", decision.update_type)
+    self.assertTrue(decision.default_notify)
 ```
 
 - [ ] **Step 2: Add failing registry expectation**
@@ -192,26 +217,38 @@ def test_piccoma_normalize_canonicalizes_query_variants(self):
 
 Use sanitized HTML shaped like the live contract. Keep only parser-needed fragments.
 
-Example fixture body if the live page exposes text-only labels:
+Example `01-product.html` fixture body, shaped from the live contract:
 
 ```html
 <html>
-  <head><title>九条の大罪｜41話 待てば¥0｜無料漫画ならピッコマ</title></head>
+  <head>
+    <title>九条の大罪｜41話 待てば¥0｜無料漫画ならピッコマ</title>
+    <script type="application/ld+json">
+      {"@type":"Product","name":"九条の大罪"}
+    </script>
+  </head>
   <body>
-    <h1>九条の大罪</h1>
     <section data-testid="episode-tab">
       <span>話読み</span>
       <a href="/web/product/58170?etype=episode">全 313 話</a>
       <p>77話分無料</p>
-      <p>41 話分</p>
-      <ol>
-        <li>第1審 (1) ¥0</li>
-        <li>第1審 (2) ¥0</li>
-        <li>第313審 待てば¥0</li>
-      </ol>
+      <p>41 話分</p><span>待てば¥0</span>
     </section>
   </body>
 </html>
+```
+
+Example `02-episodes.html` fixture body:
+
+```html
+<div id="js_episodeList" data-product_id="58170">
+  <div class="episode-item" data-episode_id="6212935">
+    <a href="#">第134審 (1)</a>
+  </div>
+  <div class="episode-item" data-episode_id="6212936">
+    <a href="#">第134審 (2)</a>
+  </div>
+</div>
 ```
 
 `manifest.json`:
@@ -219,7 +256,7 @@ Example fixture body if the live page exposes text-only labels:
 ```json
 {
   "seedUrl": "https://piccoma.com/web/product/58170?etype=episode",
-  "work": {
+  "expectedWork": {
     "source": "piccoma",
     "kind": "piccoma",
     "workId": "piccoma:58170",
@@ -231,16 +268,20 @@ Example fixture body if the live page exposes text-only labels:
     {
       "url": "https://piccoma.com/web/product/58170?etype=episode",
       "response": "01-product.html"
+    },
+    {
+      "url": "https://piccoma.com/web/product/58170/episodes?etype=E",
+      "response": "02-episodes.html"
     }
   ],
-  "latest": {
+  "expectedLatest": {
     "source": "piccoma",
     "workId": "piccoma:58170",
-    "latestKey": "piccoma:58170:episode:313",
+    "latestKey": "piccoma:58170:episode:6212936",
     "url": "https://piccoma.com/web/product/58170?etype=episode",
     "series": "piccoma:58170",
     "seriesTitle": "九条の大罪",
-    "episodeTitle": "第313話",
+    "episodeTitle": "第134審 (2)",
     "pageTitle": "九条の大罪｜41話 待てば¥0｜無料漫画ならピッコマ",
     "update_type": "main_story",
     "classification_reason": "episode_title matched main-story numbering",
@@ -254,14 +295,14 @@ Example fixture body if the live page exposes text-only labels:
 
 - [ ] **Step 5: Create broken fixture**
 
-Use product title but omit episode-reading latest signal.
+Use product title but omit episode-reading latest signal from `02-episodes.html`.
 
 `manifest.json` expected error:
 
 ```json
 {
   "seedUrl": "https://piccoma.com/web/product/58170?etype=episode",
-  "work": {
+  "expectedWork": {
     "source": "piccoma",
     "kind": "piccoma",
     "workId": "piccoma:58170",
@@ -273,9 +314,13 @@ Use product title but omit episode-reading latest signal.
     {
       "url": "https://piccoma.com/web/product/58170?etype=episode",
       "response": "01-product.html"
+    },
+    {
+      "url": "https://piccoma.com/web/product/58170/episodes?etype=E",
+      "response": "02-episodes.html"
     }
   ],
-  "error": {
+  "expectedError": {
     "type": "SourceParseError",
     "message": "piccoma: latest episode identifier not found"
   }
@@ -287,7 +332,7 @@ Use product title but omit episode-reading latest signal.
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_sources
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_sources
 ```
 
 Expected: FAIL because `manga_watch.sources.piccoma` does not exist or `piccoma` is not registered.
@@ -297,8 +342,10 @@ Expected: FAIL because `manga_watch.sources.piccoma` does not exist or `piccoma`
 **Files:**
 - Create: `manga_watch/sources/piccoma.py`
 - Modify: `manga_watch/sources/registry.py`
+- Modify: `manga_watch/update_classification.py`
 - Modify: `manga_watch/sources/__init__.py` only if imports need export changes; likely not needed
 - Test: `tests/test_sources.py`
+- Test: `tests/test_update_classification.py`
 
 - [ ] **Step 1: Create adapter module**
 
@@ -308,9 +355,9 @@ Skeleton:
 
 ```python
 import html
+import json
 import re
 from typing import Optional
-from urllib.parse import urlsplit
 
 from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, WorkDescriptor
 from .util import html_title
@@ -322,6 +369,10 @@ _PRODUCT_URL = re.compile(
 
 def canonical_piccoma_product_url(product_id: str) -> str:
     return f"https://piccoma.com/web/product/{product_id}?etype=episode"
+
+
+def canonical_piccoma_episodes_url(product_id: str) -> str:
+    return f"https://piccoma.com/web/product/{product_id}/episodes?etype=E"
 
 
 def extract_piccoma_product_id(seed_url: str) -> Optional[str]:
@@ -348,6 +399,15 @@ def _plain_text(html_text: str) -> str:
 
 
 def extract_piccoma_series_title(html_text: str, page_title: Optional[str] = None) -> Optional[str]:
+    for match in re.finditer(r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>', html_text or "", re.I | re.S):
+        try:
+            payload = json.loads(html.unescape(match.group(1)))
+        except json.JSONDecodeError:
+            continue
+        if isinstance(payload, dict):
+            name = str(payload.get("name") or "").strip()
+            if name:
+                return name
     match = re.search(r"<h1[^>]*>(.*?)</h1>", html_text or "", re.I | re.S)
     if match:
         title = _plain_text(match.group(1))
@@ -380,18 +440,17 @@ def extract_piccoma_wait_free_label(html_text: str) -> Optional[str]:
     return re.sub(r"\s+", " ", match.group(1)).strip() if match else None
 
 
-def extract_piccoma_latest_episode_identifier(html_text: str, total_label: Optional[str]) -> Optional[str]:
-    if total_label:
-        match = re.search(r"(\d+)", total_label)
-        if match:
-            return match.group(1)
-    text = _plain_text(html_text)
-    numbers = [int(value) for value in re.findall(r"第\s*(\d+)\s*(?:話|審)", text)]
-    return str(max(numbers)) if numbers else None
+def extract_piccoma_latest_episode(episodes_html: str) -> tuple[Optional[str], Optional[str]]:
+    latest_id = None
+    latest_title = None
+    for match in re.finditer(r'<[^>]+data-episode_id=["\']([^"\']+)["\'][^>]*>(.*?)</(?:div|li)>', episodes_html or "", re.I | re.S):
+        latest_id = match.group(1).strip()
+        latest_title = _plain_text(match.group(2)) or None
+    return latest_id, latest_title
 
 
-def piccoma_episode_title(identifier: str) -> str:
-    return f"第{identifier}話"
+def piccoma_episode_title(identifier: str, title: Optional[str]) -> str:
+    return title or f"episode:{identifier}"
 ```
 
 Minimum behavior:
@@ -402,14 +461,13 @@ def extract_piccoma_total_episode_label(html_text: str) -> Optional[str]:
     match = re.search(r"全\s*(\d+)\s*話", text)
     return f"全 {match.group(1)} 話" if match else None
 
-def extract_piccoma_latest_episode_identifier(html_text: str, total_label: Optional[str]) -> Optional[str]:
-    if total_label:
-        match = re.search(r"(\d+)", total_label)
-        if match:
-            return match.group(1)
-    text = _plain_text(html_text)
-    numbers = [int(value) for value in re.findall(r"第\s*(\d+)\s*(?:話|審)", text)]
-    return str(max(numbers)) if numbers else None
+def extract_piccoma_latest_episode(episodes_html: str) -> tuple[Optional[str], Optional[str]]:
+    latest_id = None
+    latest_title = None
+    for match in re.finditer(r'<[^>]+data-episode_id=["\']([^"\']+)["\'][^>]*>(.*?)</(?:div|li)>', episodes_html or "", re.I | re.S):
+        latest_id = match.group(1).strip()
+        latest_title = _plain_text(match.group(2)) or None
+    return latest_id, latest_title
 ```
 
 - [ ] **Step 3: Implement `PiccomaAdapter`**
@@ -444,7 +502,8 @@ class PiccomaAdapter(SourceAdapter):
         if not series_title:
             raise SourceParseError(f"{self.source}: series title not found")
         total_label = extract_piccoma_total_episode_label(html_text)
-        latest_identifier = extract_piccoma_latest_episode_identifier(html_text, total_label)
+        episodes_html = http_client.get_text(canonical_piccoma_episodes_url(product_id))
+        latest_identifier, latest_title = extract_piccoma_latest_episode(episodes_html)
         if not latest_identifier:
             raise SourceParseError(f"{self.source}: latest episode identifier not found")
         extra = {}
@@ -462,7 +521,7 @@ class PiccomaAdapter(SourceAdapter):
             url=product_url,
             series=work.metadata.get("series"),
             series_title=series_title,
-            episode_title=piccoma_episode_title(latest_identifier),
+            episode_title=piccoma_episode_title(latest_identifier, latest_title),
             page_title=page_title,
             extra=extra,
         )
@@ -478,20 +537,28 @@ from .piccoma import PiccomaAdapter
 
 Add `PiccomaAdapter()` to `REGISTERED_ADAPTERS` after `GaugauAdapter()` unless live design chooses another registry position.
 
-- [ ] **Step 5: Run tests**
+- [ ] **Step 5: Classify Piccoma `第N審` labels as main story**
+
+Modify `manga_watch/update_classification.py`:
+
+```python
+re.compile(r"第\s*\d+\s*(?:話|回|限目|章|幕|審)"),
+```
+
+- [ ] **Step 6: Run tests**
 
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_sources
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_sources tests.test_update_classification
 ```
 
 Expected: PASS for Piccoma source tests. If existing unrelated tests fail, capture exact failure before changing unrelated files.
 
-- [ ] **Step 6: Commit**
+- [ ] **Step 7: Commit**
 
 ```bash
-git add manga_watch/sources/piccoma.py manga_watch/sources/registry.py tests/test_sources.py tests/fixtures/piccoma
+git add manga_watch/sources/piccoma.py manga_watch/sources/registry.py manga_watch/update_classification.py tests/test_sources.py tests/test_update_classification.py tests/fixtures/piccoma
 git commit -m "feat: add piccoma source adapter"
 ```
 
@@ -571,7 +638,7 @@ Use unsupported URL: `https://piccoma.com/web/event/58170`.
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_watchlist
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_watchlist
 ```
 
 Expected: FAIL because Piccoma is not in `SOURCE_CAPABILITIES`.
@@ -594,7 +661,7 @@ SourceCapability(
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_watchlist
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_watchlist
 ```
 
 Expected: PASS.
@@ -611,7 +678,7 @@ git commit -m "feat: support piccoma watchlist add"
 **Files:**
 - Modify: `manga_watch/source_search.py`
 - Modify: `tests/test_source_search.py`
-- Create: `tests/fixtures/source-search/piccoma/01-search.html`
+- Create: `tests/fixtures/source-search/piccoma/01-search.json`
 
 - [ ] **Step 1: Add failing supported-source expectation**
 
@@ -619,19 +686,19 @@ In `tests/test_source_search.py`, add `"piccoma"` after `"gaugau"` in `test_supp
 
 - [ ] **Step 2: Add search fixture and parser test**
 
-Create `tests/fixtures/source-search/piccoma/01-search.html` from sanitized live search HTML.
+Create `tests/fixtures/source-search/piccoma/01-search.json` from sanitized live search JSON.
 
 Test:
 
 ```python
 def test_search_source_parses_piccoma_results(self):
-    html = (FIXTURES_ROOT / "piccoma" / "01-search.html").read_text(encoding="utf-8")
-    request_url = "https://piccoma.com/web/search?word=" + quote_plus("九条の大罪")
+    json_text = (FIXTURES_ROOT / "piccoma" / "01-search.json").read_text(encoding="utf-8")
+    request_url = "https://piccoma.com/web/search/result_ajax/list?tab_type=T&word=" + quote_plus("九条の大罪") + "&page=1"
 
     results = search_source(
         "piccoma",
         "九条の大罪",
-        http_client=StaticHttpClient({request_url: html}),
+        http_client=StaticHttpClient({request_url: json_text}),
     )
 
     self.assertEqual(
@@ -647,7 +714,19 @@ def test_search_source_parses_piccoma_results(self):
     )
 ```
 
-Adjust `request_url` to the live-probe search URL template.
+Fixture body:
+
+```json
+{
+  "status": 0,
+  "products": [
+    {
+      "id": 58170,
+      "title": "九条の大罪"
+    }
+  ]
+}
+```
 
 - [ ] **Step 3: Add noise-link test**
 
@@ -655,17 +734,12 @@ Add a test proving external links and non-product Piccoma links are ignored.
 
 ```python
 def test_search_source_piccoma_ignores_non_product_links(self):
-    html = """
-    <html><body>
-      <a href="https://piccoma.com/web/event/1">event</a>
-      <a href="https://example.com/web/product/58170">external</a>
-    </body></html>
-    """
-    request_url = "https://piccoma.com/web/search?word=" + quote_plus("九条の大罪")
+    json_text = '{"status": 0, "products": [{"id": "", "title": "missing"}, {"id": 58170, "title": ""}]}'
+    request_url = "https://piccoma.com/web/search/result_ajax/list?tab_type=T&word=" + quote_plus("九条の大罪") + "&page=1"
 
     self.assertEqual(
         [],
-        search_source("piccoma", "九条の大罪", http_client=StaticHttpClient({request_url: html})),
+        search_source("piccoma", "九条の大罪", http_client=StaticHttpClient({request_url: json_text})),
     )
 ```
 
@@ -674,7 +748,7 @@ def test_search_source_piccoma_ignores_non_product_links(self):
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_source_search
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_source_search
 ```
 
 Expected: FAIL because search config does not contain `piccoma`.
@@ -685,30 +759,37 @@ Add to `_SOURCE_SEARCH_CONFIG` with the live-probe URL:
 
 ```python
 "piccoma": {
-    "search_url": "https://piccoma.com/web/search?word={query}",
+    "search_url": "https://piccoma.com/web/search/result_ajax/list?tab_type=T&word={query}&page=1",
     "allowed_domains": ("piccoma.com", "www.piccoma.com"),
 },
 ```
 
-- [ ] **Step 6: Implement `_search_piccoma` if generic extractor is insufficient**
+- [ ] **Step 6: Implement `_search_piccoma` JSON parser**
 
 Use existing helper functions:
 
 ```python
+import json
+
 def _search_piccoma(query: str, http_client: HttpClient, *, limit: int) -> List[SearchResult]:
     search_url = str(_SOURCE_SEARCH_CONFIG["piccoma"]["search_url"]).format(query=quote_plus(query))
-    html_text = http_client.get_text(search_url)
+    raw_text = http_client.get_text(search_url)
+    payload = json.loads(raw_text)
+    products = payload.get("products", []) if isinstance(payload, dict) else []
     results: List[SearchResult] = []
     seen_seed_urls = set()
-    for match in re.finditer(r'<a\b[^>]*href="([^"]*/web/product/\d+[^"]*)"[^>]*>(.*?)</a>', html_text, re.I | re.S):
-        resolved_url = _resolve_result_url(match.group(1), search_url=search_url)
-        if not resolved_url or not _is_allowed_domain(resolved_url, ("piccoma.com", "www.piccoma.com")):
+    for product in products:
+        if not isinstance(product, dict):
             continue
-        canonical_seed_url = _canonical_seed_url_for_source("piccoma", resolved_url)
+        product_id = str(product.get("id") or "").strip()
+        title = str(product.get("title") or "").strip()
+        if not product_id or not title:
+            continue
+        canonical_seed_url = _canonical_seed_url_for_source(
+            "piccoma",
+            f"https://piccoma.com/web/product/{product_id}?etype=episode",
+        )
         if not canonical_seed_url or canonical_seed_url in seen_seed_urls:
-            continue
-        title = _extract_anchor_title(match.group(0), match.group(2))
-        if not title:
             continue
         seen_seed_urls.add(canonical_seed_url)
         results.append(SearchResult("piccoma", title, canonical_seed_url, "piccoma"))
@@ -728,7 +809,7 @@ _SEARCHERS["piccoma"] = _search_piccoma
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_source_search
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_source_search
 ```
 
 Expected: PASS.
@@ -751,7 +832,7 @@ git commit -m "feat: add piccoma source search"
 Run existing canary tests first:
 
 ```bash
-.venv/bin/python -m unittest tests.test_source_drift
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_source_drift
 ```
 
 Expected: FAIL after Piccoma registry addition because `DEFAULT_SOURCE_CANARY_CONTRACTS` has no `piccoma`.
@@ -763,8 +844,9 @@ In `manga_watch/source_drift.py`:
 ```python
 from .sources.piccoma import (
     PiccomaAdapter,
+    canonical_piccoma_episodes_url,
     extract_piccoma_free_episode_label,
-    extract_piccoma_latest_episode_identifier,
+    extract_piccoma_latest_episode,
     extract_piccoma_series_title,
     extract_piccoma_total_episode_label,
     extract_piccoma_wait_free_label,
@@ -783,6 +865,7 @@ Add to `DEFAULT_SOURCE_CANARY_CONTRACTS`:
     monitored_signals=(
         "product page is publicly fetchable",
         "product page exposes the series title",
+        "public episodes endpoint is fetchable",
         "episode-reading latest identifier is discoverable",
         "public availability labels remain readable when present",
     ),
@@ -803,13 +886,17 @@ def _piccoma_canary(contract: SourceCanaryContract, http_client: HttpClient) -> 
     if not series_title:
         raise SourceParseError("piccoma: series title not found")
     total_label = extract_piccoma_total_episode_label(html_text)
-    latest_identifier = extract_piccoma_latest_episode_identifier(html_text, total_label)
+    episodes_url = canonical_piccoma_episodes_url(work.metadata.get("productId") or "")
+    episodes_html = http_client.get_text(episodes_url)
+    latest_identifier, latest_title = extract_piccoma_latest_episode(episodes_html)
     if not latest_identifier:
         raise SourceParseError("piccoma: latest episode identifier not found")
     observations = [
         CanaryObservation("series_title", series_title),
         CanaryObservation("latest_episode_identifier", latest_identifier),
     ]
+    if latest_title:
+        observations.append(CanaryObservation("latest_episode_title", latest_title))
     for name, value in (
         ("free_episode_label", extract_piccoma_free_episode_label(html_text)),
         ("wait_free_label", extract_piccoma_wait_free_label(html_text)),
@@ -817,7 +904,7 @@ def _piccoma_canary(contract: SourceCanaryContract, http_client: HttpClient) -> 
     ):
         if value:
             observations.append(CanaryObservation(name, value))
-    return ((work.seed_url,), tuple(observations))
+    return ((work.seed_url, episodes_url), tuple(observations))
 ```
 
 Add to `CANARY_RUNNERS`:
@@ -831,7 +918,7 @@ Add to `CANARY_RUNNERS`:
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_source_drift
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_source_drift
 ```
 
 Expected: PASS.
@@ -869,7 +956,7 @@ Piccoma support uses only unauthenticated public web product pages. It does not 
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_watchlist tests.test_source_search tests.test_sources
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_watchlist tests.test_source_search tests.test_sources
 ```
 
 Expected: PASS.
@@ -911,7 +998,7 @@ Example:
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_source_search
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_source_search
 ```
 
 Expected: PASS. Do not require real E2E unless explicitly requested.
@@ -935,7 +1022,7 @@ If no stable representative is chosen, skip this task and mention it in final ha
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_sources tests.test_watchlist tests.test_source_drift tests.test_source_search
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_sources tests.test_watchlist tests.test_source_drift tests.test_source_search
 ```
 
 Expected: PASS.
@@ -945,7 +1032,7 @@ Expected: PASS.
 Run:
 
 ```bash
-.venv/bin/python -m unittest tests.test_discord_search tests.test_discord_supertwins tests.test_discord_interactions_search
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m unittest tests.test_discord_search tests.test_discord_supertwins tests.test_discord_interactions_search
 ```
 
 Expected: PASS.
@@ -955,7 +1042,7 @@ Expected: PASS.
 Run:
 
 ```bash
-.venv/bin/python -m manga_watch.source_drift --source piccoma
+/Users/kentoku.matsunami/Documents/GitHub/comic_crawler/.venv/bin/python -m manga_watch.source_drift --source piccoma
 ```
 
 Expected: `piccoma: OK`. If network is unavailable, record that live canary was not run.
