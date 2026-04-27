@@ -181,6 +181,40 @@ class DiscordWhereTests(unittest.TestCase):
             resolver.calls,
         )
 
+    def test_handle_component_uses_selected_candidate_when_same_source_titles_collide(self):
+        search_source = MultiSourceSearchSource(
+            {
+                "comic-walker": [
+                    SearchResult(
+                        source="comic-walker",
+                        title="同名作品",
+                        seed_url="https://comic-walker.com/detail/first",
+                    ),
+                    SearchResult(
+                        source="comic-walker",
+                        title="同名作品",
+                        seed_url="https://comic-walker.com/detail/selected",
+                    ),
+                ],
+                "nicovideo-manga": [
+                    SearchResult(
+                        source="nicovideo-manga",
+                        title="同名作品",
+                        seed_url="https://manga.nicovideo.jp/comic/selected",
+                    )
+                ],
+            }
+        )
+        resolver = FakeAvailabilityResolver()
+        handler = WhereCommandHandler(search_source=search_source, availability_resolver=resolver)
+        start_response = handler.start(query="同名作品", episode="1話")
+        select = start_response["components"][0]["components"][0]
+
+        handler.handle_component({"custom_id": select["custom_id"], "values": ["1"]})
+
+        self.assertEqual("https://comic-walker.com/detail/selected", resolver.calls[0]["seed_url"])
+        self.assertEqual("https://manga.nicovideo.jp/comic/selected", resolver.calls[1]["seed_url"])
+
     def test_handle_component_loads_context_from_storage_across_handler_instances(self):
         search_source = MultiSourceSearchSource(
             {
@@ -237,6 +271,42 @@ class DiscordWhereTests(unittest.TestCase):
             ],
             resolver.calls,
         )
+
+    def test_handle_component_deletes_storage_context_after_selection(self):
+        search_source = MultiSourceSearchSource(
+            {
+                "comic-walker": [
+                    SearchResult(
+                        source="comic-walker",
+                        title="ニセモノの錬金術師",
+                        seed_url="https://comic-walker.com/detail/KC_004800_S",
+                    )
+                ],
+                "nicovideo-manga": [
+                    SearchResult(
+                        source="nicovideo-manga",
+                        title="ニセモノの錬金術師",
+                        seed_url="https://manga.nicovideo.jp/comic/62782",
+                    )
+                ],
+            }
+        )
+        resolver = FakeAvailabilityResolver()
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = str(Path(tmpdir) / "state.json")
+            handler = WhereCommandHandler(
+                search_source=search_source,
+                availability_resolver=resolver,
+                context_store=StoredWhereContextStore(state_path=state_path, backend="json"),
+            )
+            start_response = handler.start(query="ニセモノの錬金術師", episode="1話")
+            select = start_response["components"][0]["components"][0]
+
+            first_response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
+            second_response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
+
+        self.assertIn("ComicWalker: 今すぐ無料", first_response["content"])
+        self.assertIn("有効期限が切れた", second_response["content"])
 
     def test_start_returns_no_results_when_supported_sources_have_no_candidates(self):
         handler = WhereCommandHandler(search_source=MultiSourceSearchSource({}))

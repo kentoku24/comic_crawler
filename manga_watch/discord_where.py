@@ -15,7 +15,7 @@ from manga_watch.availability import (
     supported_availability_sources,
 )
 from manga_watch.source_search import SearchResult, search_source
-from manga_watch.storage import load_where_session, save_where_session
+from manga_watch.storage import delete_where_session, load_where_session, save_where_session
 
 WHERE_COMMAND = "where"
 WHERE_SELECT_CUSTOM_ID_PREFIX = "where_select"
@@ -35,6 +35,9 @@ class WhereContextStore(Protocol):
     def load(self, token: str) -> Mapping[str, object]:
         ...
 
+    def delete(self, token: str) -> None:
+        ...
+
 
 class MemoryWhereContextStore:
     def __init__(self):
@@ -48,6 +51,9 @@ class MemoryWhereContextStore:
             return self._payloads[token]
         except KeyError as exc:
             raise FileNotFoundError(f"missing where session: {token}") from exc
+
+    def delete(self, token: str) -> None:
+        self._payloads.pop(token, None)
 
 
 class StoredWhereContextStore:
@@ -65,6 +71,9 @@ class StoredWhereContextStore:
 
     def load(self, token: str) -> Mapping[str, object]:
         return load_where_session(token, self.state_path, backend=self.backend)
+
+    def delete(self, token: str) -> None:
+        delete_where_session(token, self.state_path, backend=self.backend)
 
 
 def _coerce_text(value: object) -> Optional[str]:
@@ -181,7 +190,7 @@ def _select_candidates_for_title(
     selected: SearchResult,
 ) -> Dict[str, SearchResult]:
     selected_title = _normalized_title(selected.title)
-    candidates: Dict[str, SearchResult] = {}
+    candidates: Dict[str, SearchResult] = {selected.source: selected}
     for result in results:
         if result.source in candidates:
             continue
@@ -190,6 +199,16 @@ def _select_candidates_for_title(
         candidates[result.source] = result
     candidates.setdefault(selected.source, selected)
     return candidates
+
+
+def _delete_context(context_store: WhereContextStore, token: object) -> None:
+    normalized = _coerce_text(token)
+    if not normalized:
+        return
+    try:
+        context_store.delete(normalized)
+    except Exception:
+        pass
 
 
 def _episode_display_label(episode: object) -> str:
@@ -305,7 +324,8 @@ class WhereCommandHandler:
         if not custom_id.startswith(f"{WHERE_SELECT_CUSTOM_ID_PREFIX}:"):
             return {"content": "画面の有効期限が切れたため、もう一度 `/where` を実行してください。", "components": []}
 
-        context = _context_for_token(self.context_store, custom_id.partition(":")[2])
+        context_token = custom_id.partition(":")[2]
+        context = _context_for_token(self.context_store, context_token)
         if context is None:
             return {"content": "画面の有効期限が切れたため、もう一度 `/where` を実行してください。", "components": []}
 
@@ -321,6 +341,8 @@ class WhereCommandHandler:
         selected = results[selected_index]
         if not isinstance(selected, SearchResult):
             return {"content": "選択された候補が見つかりませんでした。", "components": []}
+
+        _delete_context(self.context_store, context_token)
 
         episode = str(context.get("episode") or "")
         candidate_by_source = _select_candidates_for_title(results, selected=selected)
