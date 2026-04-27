@@ -63,8 +63,8 @@ from .sources.nicovideo_manga import (
 from .sources.piccoma import (
     PiccomaAdapter,
     canonical_piccoma_episodes_url,
+    extract_piccoma_episode_list_latest_episode,
     extract_piccoma_free_episode_label,
-    extract_piccoma_latest_episode,
     extract_piccoma_ld_json_product_name,
     extract_piccoma_total_episode_label,
     extract_piccoma_wait_free_label,
@@ -899,9 +899,9 @@ def _piccoma_canary(
 
     episodes_url = canonical_piccoma_episodes_url(product_id)
     episodes_html = http_client.get_text(episodes_url)
-    latest_episode_id, latest_episode_title = extract_piccoma_latest_episode(episodes_html)
+    latest_episode_id, latest_episode_title = extract_piccoma_episode_list_latest_episode(episodes_html)
     if not latest_episode_id:
-        raise SourceParseError("piccoma: latest episode identifier not found")
+        raise SourceParseError("piccoma: #js_episodeList latest episode identifier not found")
 
     observations = [
         CanaryObservation("canonical_seed_url", work.seed_url),

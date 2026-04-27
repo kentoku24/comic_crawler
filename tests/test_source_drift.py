@@ -155,6 +155,31 @@ class SourceDriftTests(unittest.TestCase):
         self.assertEqual("SourceParseError", result.error_type)
         self.assertIn("LD JSON Product.name not found", result.message)
 
+    def test_piccoma_canary_requires_episode_list_latest_identifier(self):
+        manifest, client = load_fixture_http_client("piccoma", "normal")
+        episodes_without_list = """
+        <div class="episode-recommendation" data-episode_id="9999999">
+          <a href="#">おすすめ回</a>
+        </div>
+        """
+        client.steps[1] = {
+            "url": manifest["steps"][1]["url"],
+            "body": episodes_without_list,
+        }
+        contract = DEFAULT_SOURCE_CANARY_CONTRACTS["piccoma"]
+        contract = contract.__class__(
+            source=contract.source,
+            seed_url=manifest["seedUrl"],
+            fixture_bundle=contract.fixture_bundle,
+            monitored_signals=contract.monitored_signals,
+        )
+
+        result = run_source_canary(contract, http_client=client)
+
+        self.assertEqual("drift", result.status)
+        self.assertEqual("SourceParseError", result.error_type)
+        self.assertIn("#js_episodeList latest episode identifier not found", result.message)
+
     def test_main_returns_non_zero_when_a_canary_fails(self):
         failing_result = SourceCanaryResult(
             source="comic-walker",

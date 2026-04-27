@@ -96,6 +96,12 @@ def extract_piccoma_latest_episode(episodes_html: str) -> tuple[Optional[str], O
     return parser.latest_episode()
 
 
+def extract_piccoma_episode_list_latest_episode(episodes_html: str) -> tuple[Optional[str], Optional[str]]:
+    parser = _PiccomaEpisodeListParser()
+    parser.feed(episodes_html or "")
+    return parser.latest_episode_from_episode_list()
+
+
 class _PiccomaEpisodeListParser(HTMLParser):
     def __init__(self):
         super().__init__(convert_charrefs=True)
@@ -154,6 +160,11 @@ class _PiccomaEpisodeListParser(HTMLParser):
         if not items:
             return None, None
         return items[-1]
+
+    def latest_episode_from_episode_list(self) -> tuple[Optional[str], Optional[str]]:
+        if not self._episode_list_items:
+            return None, None
+        return self._episode_list_items[-1]
 
     def _append_item(self, episode_id: str, title: Optional[str], in_episode_list: bool):
         item = (episode_id, title)
