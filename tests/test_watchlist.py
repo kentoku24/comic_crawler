@@ -627,6 +627,53 @@ class WatchlistAddLogicTests(unittest.TestCase):
 
         self.assertEqual("unsupported_url_type", cm.exception.kind)
 
+    def test_watchlist_add_accepts_bookwalker_series_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://bookwalker.jp/series/519222/list/?order=release",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient({}),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("bookwalker:series:519222", payload["entry"]["id"])
+        self.assertEqual(
+            "https://bookwalker.jp/series/519222/list/",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("bookwalker", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
+    def test_watchlist_add_accepts_bookwalker_book_detail_url(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://bookwalker.jp/de2b0ecd13-4ad0-405e-9fe9-a625ad80c74c/?sample=1",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient({}),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual(
+            "bookwalker:book:2b0ecd13-4ad0-405e-9fe9-a625ad80c74c",
+            payload["entry"]["id"],
+        )
+        self.assertEqual(
+            "https://bookwalker.jp/de2b0ecd13-4ad0-405e-9fe9-a625ad80c74c/",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("bookwalker", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
     def test_watchlist_add_reports_unsupported_source(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"

@@ -99,6 +99,7 @@ class SourceSearchTests(unittest.TestCase):
                 "kakuyomu",
                 "gaugau",
                 "piccoma",
+                "bookwalker",
             ),
             supported_search_sources(),
         )
@@ -532,6 +533,89 @@ class SourceSearchTests(unittest.TestCase):
                     title="ダンジョンの中のひと",
                     seed_url="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
                     subtitle="gaugau",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_parses_bookwalker_series_results(self):
+        html = """
+        <html>
+          <body>
+            <ul class="m-tile-list">
+              <li class="m-tile">
+                <div class="m-book-item">
+                  <a href="https://bookwalker.jp/series/519222/list/"
+                     class="m-thumb__image"
+                     data-series-id="519222">
+                    <img alt="くまぐらし（MANGAバル コミックス）" />
+                  </a>
+                  <p class="m-book-item__title">
+                    <a href="https://bookwalker.jp/series/519222/list/"
+                       class="m-book-item__title"
+                       title="くまぐらし（MANGAバル コミックス）">くまぐらし（MANGAバル コミックス）</a>
+                  </p>
+                  <a href="https://bookwalker.jp/de893cb2ba-dc87-4c1b-90cb-a1cd13d33a0f/"
+                     data-action-label="最新巻を見る">最新刊を見る</a>
+                </div>
+              </li>
+            </ul>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "bookwalker",
+            "くまぐらし",
+            http_client=StaticHttpClient(
+                {"https://bookwalker.jp/search/?word=%E3%81%8F%E3%81%BE%E3%81%90%E3%82%89%E3%81%97&order=score": html}
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="bookwalker",
+                    title="くまぐらし（MANGAバル コミックス）",
+                    seed_url="https://bookwalker.jp/series/519222/list/",
+                    subtitle="bookwalker",
+                )
+            ],
+            results,
+        )
+
+    def test_search_source_uses_bookwalker_image_alt_when_title_anchor_is_absent(self):
+        html = """
+        <html>
+          <body>
+            <ul class="m-tile-list">
+              <li class="m-tile">
+                <div class="m-book-item">
+                  <img alt="くまぐらし（MANGAバル コミックス）" />
+                  <a href="https://bookwalker.jp/series/519222/list/"
+                     class="m-book-item__title"></a>
+                </div>
+              </li>
+            </ul>
+          </body>
+        </html>
+        """
+
+        results = search_source(
+            "bookwalker",
+            "くまぐらし",
+            http_client=StaticHttpClient(
+                {"https://bookwalker.jp/search/?word=%E3%81%8F%E3%81%BE%E3%81%90%E3%82%89%E3%81%97&order=score": html}
+            ),
+        )
+
+        self.assertEqual(
+            [
+                SearchResult(
+                    source="bookwalker",
+                    title="くまぐらし（MANGAバル コミックス）",
+                    seed_url="https://bookwalker.jp/series/519222/list/",
+                    subtitle="bookwalker",
                 )
             ],
             results,
