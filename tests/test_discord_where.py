@@ -492,6 +492,41 @@ class DiscordWhereTests(unittest.TestCase):
         self.assertIn("BOOK☆WALKER: 要確認", response["content"])
         self.assertIn("https://bookwalker.jp/series/519222/list/", response["content"])
 
+    def test_handle_component_renders_needs_check_with_seed_url_for_uncertain_result(self):
+        search_source = MultiSourceSearchSource(
+            {
+                "piccoma": [
+                    SearchResult(
+                        source="piccoma",
+                        title="くまぐらし",
+                        seed_url="https://piccoma.com/web/product/123",
+                    )
+                ],
+            }
+        )
+        resolver = StaticAvailabilityResolver(
+            {
+                "piccoma": {
+                    "source": "piccoma",
+                    "status": "needs_check",
+                    "url": "https://piccoma.com/web/product/123",
+                },
+            }
+        )
+        handler = WhereCommandHandler(
+            search_source=search_source,
+            availability_resolver=resolver,
+            availability_sources=lambda: ("piccoma",),
+        )
+        start_response = handler.start(query="くまぐらし", episode="第1話")
+        select = start_response["components"][0]["components"][0]
+
+        response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
+
+        self.assertIn("ピッコマ: 要確認", response["content"])
+        self.assertIn("https://piccoma.com/web/product/123", response["content"])
+        self.assertNotIn("ピッコマ: 見つからない", response["content"])
+
 
 if __name__ == "__main__":
     unittest.main()
