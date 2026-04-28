@@ -11,7 +11,21 @@ from manga_watch.sources.base import HttpClient, RequestsHttpClient
 
 AVAILABILITY_SOURCE_LABELS = {
     "comic-walker": "ComicWalker",
+    "comic-action": "webアクション",
+    "comic-earthstar": "コミック アース・スター",
+    "comicborder": "コミックボーダー",
+    "comic-trail": "コミックトレイル",
+    "kuragebunch": "くらげバンチ",
+    "shonenjumpplus": "少年ジャンプ＋",
+    "sunday-webry": "サンデーうぇぶり",
+    "champion-cross": "Champion Cross",
+    "magapoke": "マガポケ",
+    "firecross": "ファイアCROSS",
+    "takecomic": "タケコミ",
     "nicovideo-manga": "ニコニコ漫画",
+    "gaugau": "がうがうモンスター",
+    "piccoma": "ピッコマ",
+    "bookwalker": "BOOK☆WALKER",
 }
 AVAILABILITY_STATUS_LABELS = {
     "free_now": "今すぐ無料",
@@ -20,10 +34,35 @@ AVAILABILITY_STATUS_LABELS = {
     "unsupported": "未対応",
 }
 SUPPORTED_AVAILABILITY_SOURCES = tuple(AVAILABILITY_SOURCE_LABELS)
+EPISODE_RESOLVABLE_SOURCES = frozenset({"comic-walker", "nicovideo-manga"})
+AVAILABILITY_SOURCE_CAPABILITIES = {
+    source: {
+        "searchable": True,
+        "episode_resolvable": source in EPISODE_RESOLVABLE_SOURCES,
+        "free_status_resolvable": source in EPISODE_RESOLVABLE_SOURCES,
+        "needs_check_reason": None
+        if source in EPISODE_RESOLVABLE_SOURCES
+        else "availability resolver is not implemented for this source",
+    }
+    for source in SUPPORTED_AVAILABILITY_SOURCES
+}
 
 
 def supported_availability_sources() -> tuple[str, ...]:
     return SUPPORTED_AVAILABILITY_SOURCES
+
+
+def availability_capability(source: str) -> Dict[str, object]:
+    normalized_source = str(source or "").strip()
+    capability = AVAILABILITY_SOURCE_CAPABILITIES.get(normalized_source)
+    if capability is None:
+        return {
+            "searchable": False,
+            "episode_resolvable": False,
+            "free_status_resolvable": False,
+            "needs_check_reason": "unsupported availability source",
+        }
+    return dict(capability)
 
 
 def resolve_episode_availability(
@@ -36,6 +75,8 @@ def resolve_episode_availability(
     normalized_source = str(source or "").strip()
     if normalized_source not in SUPPORTED_AVAILABILITY_SOURCES:
         return _result(normalized_source, "unsupported", None)
+    if normalized_source not in EPISODE_RESOLVABLE_SOURCES:
+        return _result(normalized_source, "needs_check", seed_url)
 
     client = http_client or RequestsHttpClient()
     html_text = client.get_text(seed_url)

@@ -1,6 +1,6 @@
 import unittest
 
-from manga_watch.availability import resolve_episode_availability, supported_availability_sources
+from manga_watch.availability import availability_capability, resolve_episode_availability, supported_availability_sources
 
 
 class StaticHttpClient:
@@ -15,8 +15,74 @@ class StaticHttpClient:
 
 class AvailabilityTests(unittest.TestCase):
     def test_supported_availability_sources_are_manga_sources_only(self):
-        self.assertEqual(("comic-walker", "nicovideo-manga"), supported_availability_sources())
+        self.assertEqual(
+            (
+                "comic-walker",
+                "comic-action",
+                "comic-earthstar",
+                "comicborder",
+                "comic-trail",
+                "kuragebunch",
+                "shonenjumpplus",
+                "sunday-webry",
+                "champion-cross",
+                "magapoke",
+                "firecross",
+                "takecomic",
+                "nicovideo-manga",
+                "gaugau",
+                "piccoma",
+                "bookwalker",
+            ),
+            supported_availability_sources(),
+        )
         self.assertNotIn("kakuyomu", supported_availability_sources())
+
+    def test_unimplemented_manga_source_returns_needs_check_without_fetch(self):
+        result = resolve_episode_availability(
+            "bookwalker",
+            "https://bookwalker.jp/series/519222/list/",
+            "第1話",
+            http_client=StaticHttpClient({}),
+        )
+
+        self.assertEqual(
+            {
+                "source": "bookwalker",
+                "status": "needs_check",
+                "url": "https://bookwalker.jp/series/519222/list/",
+            },
+            result,
+        )
+
+    def test_availability_capability_marks_resolvable_and_needs_check_sources(self):
+        self.assertEqual(
+            {
+                "searchable": True,
+                "episode_resolvable": True,
+                "free_status_resolvable": True,
+                "needs_check_reason": None,
+            },
+            availability_capability("comic-walker"),
+        )
+        self.assertEqual(
+            {
+                "searchable": True,
+                "episode_resolvable": False,
+                "free_status_resolvable": False,
+                "needs_check_reason": "availability resolver is not implemented for this source",
+            },
+            availability_capability("bookwalker"),
+        )
+        self.assertEqual(
+            {
+                "searchable": False,
+                "episode_resolvable": False,
+                "free_status_resolvable": False,
+                "needs_check_reason": "unsupported availability source",
+            },
+            availability_capability("kakuyomu"),
+        )
 
     def test_comic_walker_resolves_exact_episode_url(self):
         seed_url = "https://comic-walker.com/detail/KC_004800_S"
