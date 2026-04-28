@@ -8,6 +8,7 @@ from manga_watch.discord_where import (
     WHERE_NO_RESULTS_MESSAGE,
     WhereCommandHandler,
 )
+from manga_watch.availability import supported_availability_sources
 from manga_watch.source_search import SearchResult
 
 
@@ -114,12 +115,17 @@ class DiscordWhereTests(unittest.TestCase):
 
         response = handler.start(query="ニセモノの錬金術師", episode="第1話")
 
-        self.assertEqual(
-            [
-                {"source": "comic-walker", "query": "ニセモノの錬金術師", "http_client": None, "limit": 3},
-                {"source": "nicovideo-manga", "query": "ニセモノの錬金術師", "http_client": None, "limit": 3},
-            ],
-            search_source.calls,
+        self.assertEqual(list(supported_availability_sources()), [call["source"] for call in search_source.calls])
+        self.assertTrue(
+            all(
+                {
+                    "query": "ニセモノの錬金術師",
+                    "http_client": None,
+                    "limit": 3,
+                }.items()
+                <= call.items()
+                for call in search_source.calls
+            )
         )
         self.assertIn("候補", response["content"])
         select = response["components"][0]["components"][0]
@@ -464,6 +470,27 @@ class DiscordWhereTests(unittest.TestCase):
 
         self.assertIn("ComicWalker: 要確認", response["content"])
         self.assertIn("https://comic-walker.com/detail/KC_004800_S", response["content"])
+
+    def test_handle_component_renders_needs_check_for_unimplemented_source_candidate(self):
+        search_source = MultiSourceSearchSource(
+            {
+                "bookwalker": [
+                    SearchResult(
+                        source="bookwalker",
+                        title="くまぐらし",
+                        seed_url="https://bookwalker.jp/series/519222/list/",
+                    )
+                ],
+            }
+        )
+        handler = WhereCommandHandler(search_source=search_source)
+        start_response = handler.start(query="くまぐらし", episode="第1話")
+        select = start_response["components"][0]["components"][0]
+
+        response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
+
+        self.assertIn("BOOK☆WALKER: 要確認", response["content"])
+        self.assertIn("https://bookwalker.jp/series/519222/list/", response["content"])
 
 
 if __name__ == "__main__":
