@@ -181,6 +181,11 @@ class RunServiceTests(unittest.TestCase):
         - It starts ThreadingHTTPServer on 127.0.0.1 with an ephemeral port.
         - The request is sent via http.client to that local server only.
         - fetch_dispatcher is a no-op stub, so no external backend launch occurs.
+        - DB access is not required:
+          - `latest_handler` is an inline lambda that returns a fixed string.
+          - command registration / watchlist / storage initialization is not executed.
+        - Fixture test data is not required because request/response payloads are
+          built inline in this test.
         """
 
         class NoopFetchDispatcher:
