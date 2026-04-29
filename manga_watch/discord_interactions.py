@@ -3,7 +3,7 @@ from __future__ import annotations
 import json
 import os
 from dataclasses import dataclass
-from typing import Callable, Dict, Mapping, Optional, Protocol
+from typing import Callable, Dict, Mapping, Optional, Protocol, Tuple
 
 import google.auth
 import requests
@@ -11,7 +11,7 @@ from google.auth.transport.requests import AuthorizedSession
 from nacl.exceptions import BadSignatureError
 from nacl.signing import VerifyKey
 
-from manga_watch.discord_add import ADD_COMMAND, AddCommandHandler
+from manga_watch.discord_add import ADD_COMMAND, ADD_FAILURE_MESSAGE, AddCommandHandler
 from manga_watch.discord_fetch import FETCH_COMMAND, handle_fetch_trigger
 from manga_watch.discord_latest import LATEST_COMMAND, handle_latest_query, validated_timezone_name
 from manga_watch.discord_search import (
@@ -65,6 +65,9 @@ DEFAULT_CLOUD_RUN_REGION = "asia-northeast1"
 DEFAULT_GOOGLE_AUTH_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 INVALID_SIGNATURE_MESSAGE = "invalid request signature"
 FETCH_DISPATCH_FAILURE_MESSAGE = "fetch の起動に失敗しました。Cloud Run logs を確認してください。"
+LATEST_FAILURE_MESSAGE = "latest の応答生成に失敗しました。サーバーログを確認してください。"
+REMOVE_FAILURE_MESSAGE = "削除に失敗しました。あとでもう一度試してください。"
+SUPERTWINS_FAILURE_MESSAGE = "supertwins 操作に失敗しました。あとでもう一度試してください。"
 
 
 def _coerce_text(value: object) -> Optional[str]:
@@ -436,52 +439,190 @@ class DiscordInteractionService:
     def _handle_application_command(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
         command_name = self._command_name(payload)
         if command_name == LATEST_COMMAND:
-            content = self.latest_handler(
-                LATEST_COMMAND,
-                watchlist_path=self.watchlist_path,
-                state_path=self.state_path,
-                timezone_name=self.timezone_name,
+            def build_latest_payload() -> Mapping[str, object]:
+                content = self.latest_handler(
+                    LATEST_COMMAND,
+                    watchlist_path=self.watchlist_path,
+                    state_path=self.state_path,
+                    timezone_name=self.timezone_name,
+                )
+                content = str(content or "").strip()
+                if not content:
+                    return {"content": LATEST_FAILURE_MESSAGE, "components": []}
+                return {"content": content}
+
+            def fallback_latest_response() -> InteractionHttpResponse:
+                content = self.latest_handler(
+                    LATEST_COMMAND,
+                    watchlist_path=self.watchlist_path,
+                    state_path=self.state_path,
+                    timezone_name=self.timezone_name,
+                )
+                if not content:
+                    return text_response(500, "empty interaction response")
+                return interaction_message_response(content)
+
+            return self._handle_deferred_channel_message(
+                payload,
+                ephemeral=False,
+                build_response_payload=build_latest_payload,
+                fallback_response=fallback_latest_response,
+                failure_payload={"content": LATEST_FAILURE_MESSAGE, "components": []},
             )
-            if not content:
-                return text_response(500, "empty interaction response")
-            return interaction_message_response(content)
         if command_name == FETCH_COMMAND:
-            try:
-                content = str(self.fetch_dispatcher.dispatch().get("message") or "").strip()
-            except Exception:
-                return interaction_message_response(FETCH_DISPATCH_FAILURE_MESSAGE)
-            if not content:
-                return text_response(500, "empty interaction response")
-            return interaction_message_response(content)
-        if command_name == ADD_COMMAND and self.add_handler is not None:
-            response_payload = self.add_handler.start(
-                url=self._command_option(payload, "url"),
-                watchlist_path=self.watchlist_path,
+            def build_fetch_payload() -> Mapping[str, object]:
+                try:
+                    content = str(self.fetch_dispatcher.dispatch().get("message") or "").strip()
+                except Exception:
+                    return {"content": FETCH_DISPATCH_FAILURE_MESSAGE, "components": []}
+                if not content:
+                    return {"content": FETCH_DISPATCH_FAILURE_MESSAGE, "components": []}
+                return {"content": content}
+
+            def fallback_fetch_response() -> InteractionHttpResponse:
+                try:
+                    content = str(self.fetch_dispatcher.dispatch().get("message") or "").strip()
+                except Exception:
+                    return interaction_message_response(FETCH_DISPATCH_FAILURE_MESSAGE)
+                if not content:
+                    return text_response(500, "empty interaction response")
+                return interaction_message_response(content)
+
+            return self._handle_deferred_channel_message(
+                payload,
+                ephemeral=False,
+                build_response_payload=build_fetch_payload,
+                fallback_response=fallback_fetch_response,
+                failure_payload={"content": FETCH_DISPATCH_FAILURE_MESSAGE, "components": []},
             )
-            return interaction_message_response(str(response_payload.get("content") or "").strip())
+        if command_name == ADD_COMMAND and self.add_handler is not None:
+            def build_add_payload() -> Mapping[str, object]:
+                return self.add_handler.start(
+                    url=self._command_option(payload, "url"),
+                    watchlist_path=self.watchlist_path,
+                )
+
+            def fallback_add_response() -> InteractionHttpResponse:
+                response_payload = self.add_handler.start(
+                    url=self._command_option(payload, "url"),
+                    watchlist_path=self.watchlist_path,
+                )
+                return interaction_message_response(str(response_payload.get("content") or "").strip())
+
+            return self._handle_deferred_channel_message(
+                payload,
+                ephemeral=False,
+                build_response_payload=build_add_payload,
+                fallback_response=fallback_add_response,
+                failure_payload={"content": ADD_FAILURE_MESSAGE, "components": []},
+            )
         if command_name == SEARCH_COMMAND and self.search_handler is not None:
             return self._handle_deferred_search_command(payload)
         if command_name == WHERE_COMMAND and self.where_handler is not None:
             return self._handle_deferred_where_command(payload)
         if command_name == REMOVE_COMMAND and self.remove_handler is not None:
-            payload = self.remove_handler.start(
-                watchlist_path=self.watchlist_path,
-                state_path=self.state_path,
+            def build_remove_payload() -> Mapping[str, object]:
+                return self.remove_handler.start(
+                    watchlist_path=self.watchlist_path,
+                    state_path=self.state_path,
+                )
+
+            def fallback_remove_response() -> InteractionHttpResponse:
+                response_payload = self.remove_handler.start(
+                    watchlist_path=self.watchlist_path,
+                    state_path=self.state_path,
+                )
+                return interaction_ephemeral_response(response_payload)
+
+            return self._handle_deferred_channel_message(
+                payload,
+                ephemeral=True,
+                build_response_payload=build_remove_payload,
+                fallback_response=fallback_remove_response,
+                failure_payload={"content": REMOVE_FAILURE_MESSAGE, "components": []},
             )
-            return interaction_ephemeral_response(payload)
         if command_name == SUPERTWINS_SEARCH_COMMAND and self.supertwins_search_handler is not None:
-            response_payload = self.supertwins_search_handler.start(
-                watchlist_path=self.watchlist_path,
-                state_path=self.state_path,
+            def build_supertwins_search_payload() -> Mapping[str, object]:
+                return self.supertwins_search_handler.start(
+                    watchlist_path=self.watchlist_path,
+                    state_path=self.state_path,
+                )
+
+            def fallback_supertwins_search_response() -> InteractionHttpResponse:
+                response_payload = self.supertwins_search_handler.start(
+                    watchlist_path=self.watchlist_path,
+                    state_path=self.state_path,
+                )
+                return interaction_ephemeral_response(response_payload)
+
+            return self._handle_deferred_channel_message(
+                payload,
+                ephemeral=True,
+                build_response_payload=build_supertwins_search_payload,
+                fallback_response=fallback_supertwins_search_response,
+                failure_payload={"content": SUPERTWINS_FAILURE_MESSAGE, "components": []},
             )
-            return interaction_ephemeral_response(response_payload)
         if command_name == SUPERTWINS_MANAGE_COMMAND and self.supertwins_manage_handler is not None:
-            response_payload = self.supertwins_manage_handler.start(
-                watchlist_path=self.watchlist_path,
-                state_path=self.state_path,
+            def build_supertwins_manage_payload() -> Mapping[str, object]:
+                return self.supertwins_manage_handler.start(
+                    watchlist_path=self.watchlist_path,
+                    state_path=self.state_path,
+                )
+
+            def fallback_supertwins_manage_response() -> InteractionHttpResponse:
+                response_payload = self.supertwins_manage_handler.start(
+                    watchlist_path=self.watchlist_path,
+                    state_path=self.state_path,
+                )
+                return interaction_ephemeral_response(response_payload)
+
+            return self._handle_deferred_channel_message(
+                payload,
+                ephemeral=True,
+                build_response_payload=build_supertwins_manage_payload,
+                fallback_response=fallback_supertwins_manage_response,
+                failure_payload={"content": SUPERTWINS_FAILURE_MESSAGE, "components": []},
             )
-            return interaction_ephemeral_response(response_payload)
         return text_response(400, f"unsupported command: {command_name or '(missing)'}")
+
+    def _handle_deferred_channel_message(
+        self,
+        payload: Mapping[str, object],
+        *,
+        ephemeral: bool,
+        build_response_payload: Callable[[], Mapping[str, object]],
+        fallback_response: Callable[[], InteractionHttpResponse],
+        failure_payload: Mapping[str, object],
+    ) -> InteractionHttpResponse:
+        callback_fields = self._callback_fields(payload)
+        if callback_fields is None or self.interaction_callback_client is None:
+            return fallback_response()
+        interaction_id, application_id, interaction_token = callback_fields
+
+        try:
+            self.interaction_callback_client.defer_channel_message(
+                interaction_id=interaction_id,
+                interaction_token=interaction_token,
+                ephemeral=ephemeral,
+            )
+        except Exception:
+            return fallback_response()
+
+        response_payload = failure_payload
+        try:
+            response_payload = build_response_payload()
+        except Exception:
+            pass
+
+        try:
+            self.interaction_callback_client.edit_original_response(
+                application_id=application_id,
+                interaction_token=interaction_token,
+                data=response_payload,
+            )
+        except Exception:
+            pass
+        return empty_response(202)
 
     def _handle_deferred_search_command(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
         interaction_id = _coerce_text(payload.get("id"))
@@ -557,6 +698,8 @@ class DiscordInteractionService:
         elif self.remove_handler is not None and (
             custom_id == "remove_select" or custom_id.startswith("remove_")
         ):
+            if self.interaction_callback_client is not None:
+                return self._handle_deferred_remove_component(payload, data)
             response_payload = self.remove_handler.handle_component(
                 data,
                 watchlist_path=self.watchlist_path,
@@ -571,6 +714,8 @@ class DiscordInteractionService:
                 state_path=self.state_path,
             )
         elif self.supertwins_manage_handler is not None and is_supertwins_manage_component(custom_id):
+            if self.interaction_callback_client is not None:
+                return self._handle_deferred_supertwins_manage_component(payload, data)
             response_payload = self.supertwins_manage_handler.handle_component(
                 data,
                 watchlist_path=self.watchlist_path,
@@ -582,6 +727,109 @@ class DiscordInteractionService:
             INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
             response_payload,
         )
+
+    def _handle_deferred_remove_component(
+        self,
+        payload: Mapping[str, object],
+        data: Mapping[str, object],
+    ) -> InteractionHttpResponse:
+        if self.remove_handler is None:
+            return text_response(400, "unsupported interaction type")
+
+        def build_remove_component_payload() -> Mapping[str, object]:
+            return self.remove_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+
+        def fallback_remove_component_response() -> InteractionHttpResponse:
+            response_payload = self.remove_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+            return interaction_payload_response(
+                INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
+                response_payload,
+            )
+
+        return self._handle_deferred_component_update(
+            payload,
+            build_response_payload=build_remove_component_payload,
+            fallback_response=fallback_remove_component_response,
+            failure_payload={"content": REMOVE_FAILURE_MESSAGE, "components": []},
+        )
+
+    def _handle_deferred_supertwins_manage_component(
+        self,
+        payload: Mapping[str, object],
+        data: Mapping[str, object],
+    ) -> InteractionHttpResponse:
+        if self.supertwins_manage_handler is None:
+            return text_response(400, "unsupported interaction type")
+
+        def build_supertwins_manage_component_payload() -> Mapping[str, object]:
+            return self.supertwins_manage_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+
+        def fallback_supertwins_manage_component_response() -> InteractionHttpResponse:
+            response_payload = self.supertwins_manage_handler.handle_component(
+                data,
+                watchlist_path=self.watchlist_path,
+                state_path=self.state_path,
+            )
+            return interaction_payload_response(
+                INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE,
+                response_payload,
+            )
+
+        return self._handle_deferred_component_update(
+            payload,
+            build_response_payload=build_supertwins_manage_component_payload,
+            fallback_response=fallback_supertwins_manage_component_response,
+            failure_payload={"content": SUPERTWINS_FAILURE_MESSAGE, "components": []},
+        )
+
+    def _handle_deferred_component_update(
+        self,
+        payload: Mapping[str, object],
+        *,
+        build_response_payload: Callable[[], Mapping[str, object]],
+        fallback_response: Callable[[], InteractionHttpResponse],
+        failure_payload: Mapping[str, object],
+    ) -> InteractionHttpResponse:
+        callback_fields = self._callback_fields(payload)
+        if callback_fields is None or self.interaction_callback_client is None:
+            return fallback_response()
+        interaction_id, application_id, interaction_token = callback_fields
+
+        try:
+            self.interaction_callback_client.defer_component(
+                interaction_id=interaction_id,
+                interaction_token=interaction_token,
+            )
+        except Exception:
+            return fallback_response()
+
+        response_payload = failure_payload
+        try:
+            response_payload = build_response_payload()
+        except Exception:
+            pass
+
+        try:
+            self.interaction_callback_client.edit_original_response(
+                application_id=application_id,
+                interaction_token=interaction_token,
+                data=response_payload,
+            )
+        except Exception:
+            pass
+        return empty_response(202)
 
     def _handle_deferred_where_command(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
         interaction_id = _coerce_text(payload.get("id"))
@@ -753,6 +1001,15 @@ class DiscordInteractionService:
         if not signature or not timestamp:
             return False
         return self.verifier.verify(signature=signature, timestamp=timestamp, body=body)
+
+    @staticmethod
+    def _callback_fields(payload: Mapping[str, object]) -> Optional[Tuple[str, str, str]]:
+        interaction_id = _coerce_text(payload.get("id"))
+        application_id = _coerce_text(payload.get("application_id"))
+        interaction_token = _coerce_text(payload.get("token"))
+        if not interaction_id or not application_id or not interaction_token:
+            return None
+        return interaction_id, application_id, interaction_token
 
     @staticmethod
     def _command_name(payload: Mapping[str, object]) -> str:
