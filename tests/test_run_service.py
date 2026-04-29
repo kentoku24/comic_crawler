@@ -1,9 +1,13 @@
+import http.client
+import json
 import os
+import threading
 import unittest
 from unittest import mock
 
 from nacl_test_support import SigningKey
 
+from manga_watch.discord_interactions import DiscordInteractionService, DiscordRequestVerifier
 from manga_watch import run_service
 
 
@@ -168,6 +172,52 @@ class RunServiceTests(unittest.TestCase):
                 exit_code = run_service.main()
 
         self.assertEqual(2, exit_code)
+
+    def test_http_server_accepts_signed_discord_post(self):
+        class NoopFetchDispatcher:
+            def dispatch(self):
+                return {"message": "ok"}
+
+        signing_key = SigningKey.generate()
+        public_key = signing_key.verify_key.encode().hex()
+        service = DiscordInteractionService(
+            timezone_name="Asia/Tokyo",
+            fetch_dispatcher=NoopFetchDispatcher(),
+            verifier=DiscordRequestVerifier(public_key),
+            latest_handler=lambda *_args, **_kwargs: "最新話です",
+        )
+        server = run_service.ThreadingHTTPServer(("127.0.0.1", 0), run_service.build_request_handler(service))
+        thread = threading.Thread(target=server.serve_forever, daemon=True)
+        thread.start()
+        try:
+            payload = {"type": 2, "data": {"name": "latest"}}
+            body = json.dumps(payload, separators=(",", ":")).encode("utf-8")
+            timestamp = "1700000000"
+            signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
+
+            conn = http.client.HTTPConnection("127.0.0.1", server.server_port, timeout=5)
+            conn.request(
+                "POST",
+                "/",
+                body=body,
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Signature-Ed25519": signature,
+                    "X-Signature-Timestamp": timestamp,
+                },
+            )
+            response = conn.getresponse()
+            response_body = response.read()
+            conn.close()
+        finally:
+            server.shutdown()
+            server.server_close()
+            thread.join(timeout=2)
+
+        self.assertEqual(200, response.status)
+        parsed = json.loads(response_body)
+        self.assertEqual(4, parsed["type"])
+        self.assertIn("最新話です", parsed["data"]["content"])
 
 
 if __name__ == "__main__":
