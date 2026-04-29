@@ -174,6 +174,15 @@ class RunServiceTests(unittest.TestCase):
         self.assertEqual(2, exit_code)
 
     def test_http_server_accepts_signed_discord_post(self):
+        """Pseudo-E2E for HTTP entrypoint using only local in-process components.
+
+        Notes for CI (GitHub Actions):
+        - This test does NOT call Discord API or Cloud Run/GCP endpoints.
+        - It starts ThreadingHTTPServer on 127.0.0.1 with an ephemeral port.
+        - The request is sent via http.client to that local server only.
+        - fetch_dispatcher is a no-op stub, so no external backend launch occurs.
+        """
+
         class NoopFetchDispatcher:
             def dispatch(self):
                 return {"message": "ok"}
