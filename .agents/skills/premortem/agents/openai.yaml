@@ -1,0 +1,4 @@
+interface:
+  display_name: "Premortem"
+  short_description: "Stress-test plans by working backward from failure"
+  default_prompt: "Use $premortem to stress-test this plan before committing to it."
