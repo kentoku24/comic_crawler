@@ -21,7 +21,8 @@ GCP の deploy / run / verify の source of truth は [`doc/gcp-deploy.md`](doc/
 
 - Cloud Run Job `comic-crawler-job`: 定期クロールと手動実行の実体
 - Cloud Run Service `comic-crawler-service`: Discord interaction endpoint
-- Cloud Scheduler helper: `python3 scripts/print_cloud_scheduler_job.py create|update --schedule "<cron>"`
+- Cloud Scheduler helper (Cloud Run Job): `python3 scripts/print_cloud_scheduler_job.py create|update --schedule "<cron>"`
+- Keep-warm helper (Cloud Run Service): `python3 scripts/print_keep_warm_scheduler_job.py create|update --service-url "<service-url>"` (default schedule: `*/5 * * * *`)
 - Scheduler force-run: `gcloud scheduler jobs run comic-crawler-scheduled-run --project=star-light-breaker --location=asia-northeast1`
 
 root の受け入れ仕様書は Git 上の実ファイル名を `spec.md` にしていますが、文書名と cross-document 参照では `SPEC.md` と表記します。これは macOS などの case-insensitive filesystem で path 衝突を避けるためです。canonical docs や新しい issue / PR で `SPEC.md` と書かれている場合は、この `spec.md` を指します。旧 single-file spec への過去の言及は reference 扱いで、source of truth ではありません。

@@ -353,6 +353,13 @@ gcloud scheduler jobs create http comic-crawler-service-keep-warm \
   --http-method=GET
 ```
 
+helper script で command shape を固定したい場合は以下。
+
+```bash
+python3 scripts/print_keep_warm_scheduler_job.py create \
+  --service-url "${SERVICE_URL}"
+```
+
 補足:
 
 - この ping は cold start 発生率を下げるための best effort であり、`min instances=1` ほどの保証はない
