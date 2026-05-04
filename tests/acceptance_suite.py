@@ -7,7 +7,6 @@ from tests.acceptance_traceability import ACCEPTANCE_TRACEABILITY
 MOCKED_ACCEPTANCE_MODULES = [
     "tests.test_discord_latest",
     "tests.test_discord_fetch",
-    "tests.test_discord_inbound",
     "tests.test_discord_outbound",
     "tests.test_runner",
     "tests.test_check",

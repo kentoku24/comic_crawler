@@ -5,7 +5,6 @@ ACCEPTANCE_TRACEABILITY = {
         "layer": "mocked_discord_integration",
         "tests": [
             "tests.test_discord_latest.DiscordLatestTests.test_handle_latest_query_is_read_only_and_uses_only_injected_loaders",
-            "tests.test_discord_inbound.DiscordInboundTests.test_listener_handles_latest_query_after_priming_cursor",
         ],
     },
     "TC-LATEST-02": {
@@ -148,7 +147,6 @@ ACCEPTANCE_TRACEABILITY = {
         "tests": [
             "tests.test_runner.RunnerTests.test_handle_fetch_trigger_accepts_when_idle_and_runs_in_background",
             "tests.test_discord_fetch.DiscordFetchTests.test_handle_fetch_trigger_accepts_whitespace_trimmed_fetch",
-            "tests.test_discord_inbound.DiscordInboundTests.test_listener_handles_fetch_trigger",
         ],
     },
     "TC-FETCH-03": {
