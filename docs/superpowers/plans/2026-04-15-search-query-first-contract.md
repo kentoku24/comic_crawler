@@ -45,7 +45,6 @@ Run:
 - Verify: `tests/test_discord_command_registration_search.py`
 - Verify: `tests/test_discord_interactions_search.py`
 - Verify: `tests/test_discord_search.py`
-- Verify: `tests/test_discord_inbound.py`
 
 - [ ] **Step 1: Re-run focused tests until green**
 - [ ] **Step 2: Run the nearby regression suite to confirm no contract regressions**
@@ -57,5 +56,4 @@ Run:
   tests.test_discord_command_registration_search \
   tests.test_discord_interactions_search \
   tests.test_discord_search \
-  tests.test_discord_inbound
 ```

@@ -360,8 +360,6 @@ GCP production runtime の deploy / rollback はこの compose 手順ではな�
 - `DISCORD_GUILD_ID`: slash command を test guild scope で登録したいときの guild id。未指定なら global command を更新する
 - `DISCORD_MAIN_CHANNEL_ID`: daily notification の送信先 channel id
 - `DISCORD_RUN_REPORT_CHANNEL_ID`: run report の送信先 channel id
-- `DISCORD_INBOUND_ENABLED`: local fallback の polling inbound を有効化する。既定値は `true`
-- `DISCORD_COMMAND_POLL_INTERVAL`: local fallback の inbound polling 間隔（秒）。既定値は `5`
 - `DISCORD_APPLICATION_PUBLIC_KEY`: Cloud Run Service の Discord interaction verification に使う public key
 - `MANGA_WATCH_GITHUB_TOKEN`: `/add` で未対応媒体を受けたときに GitHub Issue を自動作成するための token
 - `MANGA_WATCH_GITHUB_REPOSITORY`: 未対応媒体の対応候補 Issue を作る GitHub repository。例: `kentoku24/comic_crawler`
