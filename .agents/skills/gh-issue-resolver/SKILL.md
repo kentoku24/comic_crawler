@@ -22,6 +22,32 @@ description: >
 
 この skill は、Issue を起点に実装を進め、PR を更新し、`$gh-pr-reviewer` と `$merger` の gate 完了まで到達させるための実行ループである。実装は原則 `maker` が担い、親セッションが統合と進行を担う。
 
+関連 skill まで含めた end-to-end の流れは次のとおり。`gh-issue-resolver` 自体が直接担当するのは Step 2 と Step 3 だが、実際の運用では Step 1 の issue readiness と組み合わせて使う。
+
+```mermaid
+flowchart LR
+    A["任意のテキスト入力<br/>例: XXXを実現したい"] --> B["`$gh-issue-reviewer`<br/>Issue を作成 / 整形"]
+    B --> C{"Issue review は<br/>APPROVE か?"}
+    C -- no --> B
+    C -- yes --> D["`$gh-issue-resolver #1234`<br/>Issue Brief 抽出 / maker packet 分割"]
+    D --> E["実装 / verification / PR 作成 or 更新"]
+    E --> F["別 agent の `$gh-pr-reviewer`"]
+    F --> G{"PR review は<br/>APPROVE か?"}
+    G -- no --> D
+    G -- yes --> H["別 agent の `$merger`"]
+    H --> I{"merge-ready か?"}
+    I -- no --> D
+    I -- yes --> J{"`merge:true` が<br/>明示されているか?"}
+    J -- no --> K["ready_to_merge"]
+    J -- yes --> L["`$merger` が自動 merge 実行"]
+```
+
+この workflow を 3 行で言い換えると次になる。
+
+1. `gh-issue-reviewer` に任意のテキストを渡して、実装可能な Issue と review record を作る。
+2. `$gh-issue-resolver #1234` で、Issue が `gh-pr-reviewer` / `merger` を通る状態になるまで、実装→PR更新→review対応を繰り返す。
+3. 最後に `$merger` が merge-ready 性を判定し、`merge:true` が明示されている場合だけ自動 merge まで実行する。
+
 Issue を`maker` が実装し、親セッションが結果を統合して PR を作成または更新し、その PR を `$gh-pr-reviewer` が PR Reviewer gate として判定し、`$merger` が final gate として「人が今マージしてよい状態か」を判定する。`gh-pr-reviewer` または merger が `NG` を返した場合は、その指摘を次 cycle の maker packet に変換して再実装または PR 状態の修正を行う。
 
 この skill は **PR を作って終わらず、`gh-pr-reviewer` `APPROVE` で終わらない**。デフォルトの完了条件は、PR が更新済みで、`$gh-pr-reviewer` と `$merger` の両方から PR 上に `APPROVE` コメントが残り、PR が merge-ready と説明できる状態に到達することだ。`merge:<branch>` を明示した packet だけは、`$merger` が `APPROVE` 後にその branch を merge target とする PR を実際に merge してよい。merge 指定がないときは merge しない。
@@ -40,6 +66,7 @@ Issue を`maker` が実装し、親セッションが結果を統合して PR �
 - Issue body または comment から、既存の `$gh-issue-reviewer` または legacy `$spacex-chief-engineer` review 内容を確認できる。
 - Issue に、少なくとも最低限の scope と acceptance criteria がある。
 - 実装を 1 つ以上の bounded packet に分けられる。
+- Issue body が最新の `$gh-issue-reviewer` comment 後に大きく書き換わっていない。書き換わっている場合は、maker loop の前に `$gh-issue-reviewer` を再実行する。
 
 次に当てはまる場合は、この skill を使わずに止める。
 
@@ -47,6 +74,7 @@ Issue を`maker` が実装し、親セッションが結果を統合して PR �
 - `$gh-issue-reviewer` または legacy `$spacex-chief-engineer` review 済みである根拠を確認できない。
 - 変更が極小で、single-pass 実装のほうが安全で速い。
 - Issue 自体が探索段階で、accepted scope が未確定。
+- 「全媒体」「全 source」「全環境」などの広い表現があり、具体的な対象リスト、対象外、fallback semantics が Issue 本文または reviewer comment に無い。
 
 ## Parent Session Responsibilities
 
@@ -131,6 +159,16 @@ heartbeat には少なくとも次を含める。
 
 `$gh-issue-reviewer` または legacy `$spacex-chief-engineer` review 済みの証拠が見つからなければ、maker loop を開始しない。その場合は「先に issue readiness review が必要」として停止する。
 
+Issue body が最新の issue review 後に実質的に変更されている場合も、maker loop を開始しない。たとえば scope が「2 source MVP」から「全媒体」へ広がった、対象外が変わった、受け入れ条件が増えた、などの場合は最新本文に対する `$gh-issue-reviewer` comment を Issue に残してから再開する。
+
+広い対象語を含む Issue では、Issue Brief に `Capability Matrix` を必ず含める。
+
+- 「全媒体」「全 source」「全 provider」: 具体的な source list、対象外、各 source の capability、fallback を列挙する。
+- 「全環境」: 具体的な env list、対象外、検証可否、fallback を列挙する。
+- 「全機能」: 具体的な feature list、対象外、互換性制約を列挙する。
+
+Capability Matrix が作れない場合は、Issue scope が implementation-ready ではないので `$gh-issue-reviewer` に戻す。
+
 ### 2. Maker work packet に分割する
 
 - Issue Brief をもとに、独立した実装単位へ分割する。
@@ -197,11 +235,15 @@ PR Reviewer への packet には次を含める。
 - 今回求める gate 判定
 - PR に残すべき gate comment 形式
 
+review thread が存在する PR では、PR Reviewer gate 前に `Review Thread Inventory` を作る。各 thread について URL、指摘内容、検証した結論、修正コードまたはテスト、resolved 状態を整理する。resolved かどうかだけで「対応済み」と言わない。
+
 別 agent の PR Reviewer を起動できない場合:
 
 - 親セッションは PR 作成・evidence 整理までは進めてよい。
 - ただし `APPROVE` 扱いで完了してはいけない。
 - 状態は `gh-pr-reviewer gate pending` または `degraded: gh-pr-reviewer unavailable` として止める。
+
+PR Reviewer agent が 1 回 timeout した場合は、同じ agent に checkpoint を要求する。2 回連続で timeout した場合は、その agent を閉じ、`Bounded Gate Packet` に切り替える。Bounded Gate Packet では、PR URL、head、changed files、Issue scope、test evidence、必須 comment 形式だけを渡し、成果物を「APPROVE/NG と PR comment URL」に絞る。
 
 ### 6. `gh-pr-reviewer` `APPROVE` 後に `$merger` を実行する
 
@@ -233,6 +275,8 @@ merger への packet には次を含める。
 - 親セッションは `gh-pr-reviewer` gate 完了までは進めてよい。
 - ただし完了扱いにしてはいけない。
 - 状態は `merger gate pending` または `degraded: merger unavailable` として止める。
+
+merger agent も 1 回 timeout した場合は checkpoint を要求し、2 回連続で timeout した場合は閉じて `Bounded Gate Packet` に切り替える。Bounded merger packet は、PR state、draft state、mergeStateStatus、最新 `$gh-pr-reviewer` comment、review thread 状態、checks、`merge:true | false` だけを確認させる。
 
 ### 7. `gh-pr-reviewer` または merger が `NG` なら戻る
 
