@@ -1,5 +1,6 @@
 import html
 import re
+import xml.etree.ElementTree as ET
 from typing import Optional, Tuple
 
 from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, WorkDescriptor
@@ -75,11 +76,45 @@ def extract_comic_action_series_id_from_seed_url(seed_url: str) -> Optional[str]
 def extract_comic_action_episode_url_from_feed(feed_text: str) -> Optional[str]:
     if not feed_text:
         return None
-    decoded = html.unescape(feed_text)
-    match = re.search(r"https?://(?:www\.)?comic-action\.com/episode/(\d+)", decoded)
-    if not match:
+
+    try:
+        root = ET.fromstring(html.unescape(feed_text))
+    except ET.ParseError:
         return None
-    return canonical_comic_action_episode_url(match.group(1))
+
+    channel = _first_child_named(root, "channel")
+    if channel is not None:
+        for item in _children_named(channel, "item"):
+            latest_url = parse_comic_action_episode_url(_child_text(item, "link"))
+            if latest_url:
+                return latest_url
+        return None
+
+    for entry in _children_named(root, "entry"):
+        for link in _children_named(entry, "link"):
+            latest_url = parse_comic_action_episode_url((link.get("href") or "").strip())
+            if latest_url:
+                return latest_url
+    return None
+
+
+def _local_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _children_named(element: ET.Element, name: str) -> Tuple[ET.Element, ...]:
+    return tuple(child for child in element if _local_name(child.tag) == name)
+
+
+def _first_child_named(element: ET.Element, name: str) -> Optional[ET.Element]:
+    for child in _children_named(element, name):
+        return child
+    return None
+
+
+def _child_text(element: ET.Element, name: str) -> str:
+    child = _first_child_named(element, name)
+    return (child.text or "").strip() if child is not None else ""
 
 
 def extract_comic_action_next_update_label(html_text: str) -> Optional[str]:

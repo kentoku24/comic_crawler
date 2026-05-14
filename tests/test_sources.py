@@ -874,6 +874,53 @@ class SourceAdapterTests(unittest.TestCase):
             client.calls,
         )
 
+    def test_comic_action_fetch_latest_ignores_rss_channel_link(self):
+        adapter = ComicActionAdapter()
+        work = adapter.normalize("https://comic-action.com/rss/series/13933686331663374228")
+        client = StaticHttpClient(
+            {
+                "https://comic-action.com/rss/series/13933686331663374228": """
+                <rss version="2.0">
+                  <channel>
+                    <title>webアクション（ダンジョンの中のひと）</title>
+                    <link>https://comic-action.com/episode/13933686331665056851</link>
+                    <item>
+                      <title>第52話</title>
+                      <link>https://comic-action.com/episode/12207421983607886776</link>
+                      <description>ダンジョンの中のひと</description>
+                    </item>
+                    <item>
+                      <title>第51話</title>
+                      <link>https://comic-action.com/episode/2551460910007760899</link>
+                      <description>ダンジョンの中のひと</description>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://comic-action.com/episode/12207421983607886776": """
+                <html>
+                  <head>
+                    <title>第52話 / ダンジョンの中のひと - 双見酔 | webアクション</title>
+                  </head>
+                  <body></body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("https://comic-action.com/episode/12207421983607886776", latest["latestKey"])
+        self.assertEqual("第52話", latest["episodeTitle"])
+        self.assertEqual("ダンジョンの中のひと", latest["seriesTitle"])
+        self.assertEqual(
+            [
+                "https://comic-action.com/rss/series/13933686331663374228",
+                "https://comic-action.com/episode/12207421983607886776",
+            ],
+            client.calls,
+        )
+
     def test_comic_action_fetch_latest_extracts_next_update_label_from_latest_page(self):
         adapter = ComicActionAdapter()
         work = adapter.normalize("https://comic-action.com/episode/111")
