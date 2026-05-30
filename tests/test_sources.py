@@ -363,6 +363,21 @@ class SourceAdapterTests(unittest.TestCase):
 
         self.assertEqual("https://piccoma.com/web/product/58170?etype=episode", work.seed_url)
 
+    def test_piccoma_fetch_latest_exposes_numeric_availability_counts(self):
+        _case_dir, _manifest, client = load_fixture_case("piccoma", "normal")
+        work = PiccomaAdapter().normalize("https://piccoma.com/web/product/58170?etype=episode")
+
+        latest = PiccomaAdapter().fetch_latest(work, client).to_dict()
+
+        client.assert_consumed()
+        self.assertEqual("77話分無料", latest["freeEpisodeLabel"])
+        self.assertEqual(77, latest["freeEpisodeCount"])
+        self.assertEqual("41 話分", latest["waitFreeLabel"])
+        self.assertEqual(41, latest["waitFreeEpisodeCount"])
+        self.assertEqual(118, latest["waitFreeReadableEpisodeCount"])
+        self.assertEqual("全 313 話", latest["totalEpisodeLabel"])
+        self.assertEqual(313, latest["totalEpisodeCount"])
+
     def test_bookwalker_fixtures(self):
         self._assert_fixture_matrix("bookwalker")
 

@@ -62,6 +62,7 @@ class RequestsHttpClient:
         max_requests_per_host: int = MAX_REQUESTS_PER_HOST,
         session: Optional[requests.Session] = None,
         session_factory: Optional[Callable[[], requests.Session]] = None,
+        headers_for_url: Optional[Callable[[str], Mapping[str, str]]] = None,
         sleep: Callable[[float], None] = time.sleep,
     ):
         self.user_agent = user_agent
@@ -71,6 +72,7 @@ class RequestsHttpClient:
         self.max_requests_per_host = max(1, max_requests_per_host)
         self._shared_session = session
         self._session_factory = session_factory or requests.Session
+        self.headers_for_url = headers_for_url
         self._thread_local = threading.local()
         self._host_limiters: Dict[str, threading.BoundedSemaphore] = {}
         self._host_limiter_lock = threading.Lock()
@@ -99,9 +101,12 @@ class RequestsHttpClient:
         for attempt in range(self.retry_count + 1):
             try:
                 with self._limiter_for(url):
+                    headers = {"User-Agent": self.user_agent}
+                    if self.headers_for_url is not None:
+                        headers.update(self.headers_for_url(url))
                     response = self._session().get(
                         url,
-                        headers={"User-Agent": self.user_agent},
+                        headers=headers,
                         timeout=self.timeout,
                     )
                 if self._is_retryable_status(response.status_code) and attempt < self.retry_count:
@@ -202,7 +207,7 @@ class LatestEpisode:
     update_type: Optional[str] = None
     classification_reason: Optional[str] = None
     default_notify: Optional[bool] = None
-    extra: Mapping[str, str] = field(default_factory=dict)
+    extra: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         decision = classify_update(

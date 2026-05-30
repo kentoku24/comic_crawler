@@ -15,6 +15,12 @@ from manga_watch.discord_interactions import (
     build_manual_run_request_body,
 )
 from manga_watch.discord_add import AddCommandHandler
+from manga_watch.discord_piccoma_cookie import (
+    PICCOMA_COOKIE_COMMAND,
+    PICCOMA_COOKIE_INPUT_CUSTOM_ID,
+    PICCOMA_COOKIE_SET_MODAL_CUSTOM_ID,
+    PiccomaCookieCommandHandler,
+)
 from manga_watch.discord_remove import REMOVE_COMMAND
 from manga_watch.runner import FETCH_ACCEPTED_MESSAGE, RunCoordinator, RunnerConfig
 
@@ -88,6 +94,7 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         latest_handler=None,
         add_handler=None,
         remove_handler=None,
+        piccoma_cookie_handler=None,
         signing_key=None,
     ):
         signing_key = signing_key or SigningKey.generate()
@@ -102,6 +109,7 @@ class DiscordInteractionServiceTests(unittest.TestCase):
             latest_handler=latest_handler or (lambda *_args, **_kwargs: "保存済みの最新話一覧です"),
             add_handler=resolved_add_handler,
             remove_handler=remove_handler,
+            piccoma_cookie_handler=piccoma_cookie_handler,
         )
         return service, signing_key
 
@@ -305,6 +313,62 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         self.assertEqual(7, payload["type"])
         self.assertEqual("updated", payload["data"]["content"])
         self.assertEqual("remove_select", remove_handler.calls[0]["custom_id"])
+
+    def test_piccoma_cookie_set_command_returns_secret_input_modal(self):
+        handler = PiccomaCookieCommandHandler(secret_saver=lambda _cookie: None)
+        service, signing_key = self.make_service(piccoma_cookie_handler=handler)
+        headers, body = self.signed_command_request(
+            PICCOMA_COOKIE_COMMAND,
+            signing_key,
+            options=[{"name": "set", "type": 1}],
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        payload = json.loads(response.body)
+        self.assertEqual(9, payload["type"])
+        self.assertEqual(PICCOMA_COOKIE_SET_MODAL_CUSTOM_ID, payload["data"]["custom_id"])
+        self.assertEqual(
+            PICCOMA_COOKIE_INPUT_CUSTOM_ID,
+            payload["data"]["components"][0]["components"][0]["custom_id"],
+        )
+        self.assertNotIn("allowed_mentions", payload["data"])
+
+    def test_piccoma_cookie_modal_submit_saves_secret_without_echoing_cookie(self):
+        saved = []
+        handler = PiccomaCookieCommandHandler(secret_saver=saved.append)
+        service, signing_key = self.make_service(piccoma_cookie_handler=handler)
+        cookie_header = "sessionid=secret-one; csrf=secret-two"
+        headers, body = self.signed_request(
+            {
+                "type": 5,
+                "data": {
+                    "custom_id": PICCOMA_COOKIE_SET_MODAL_CUSTOM_ID,
+                    "components": [
+                        {
+                            "type": 1,
+                            "components": [
+                                {
+                                    "type": 4,
+                                    "custom_id": PICCOMA_COOKIE_INPUT_CUSTOM_ID,
+                                    "value": cookie_header,
+                                }
+                            ],
+                        }
+                    ],
+                },
+            },
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        payload = json.loads(response.body)
+        self.assertEqual([cookie_header], saved)
+        self.assertEqual(4, payload["type"])
+        self.assertEqual(64, payload["data"]["flags"])
+        self.assertIn("保存しました", payload["data"]["content"])
+        self.assertNotIn("secret-one", payload["data"]["content"])
 
 
 class FetchDispatcherTests(unittest.TestCase):

@@ -9,6 +9,7 @@ import requests
 from manga_watch.discord_add import ADD_COMMAND
 from manga_watch.discord_fetch import FETCH_COMMAND
 from manga_watch.discord_latest import LATEST_COMMAND
+from manga_watch.discord_piccoma_cookie import PICCOMA_COOKIE_COMMAND, PICCOMA_COOKIE_SET_SUBCOMMAND
 from manga_watch.discord_search import SEARCH_COMMAND
 from manga_watch.discord_where import WHERE_COMMAND
 from manga_watch.source_search import searchable_source_choices
@@ -114,6 +115,17 @@ def default_interaction_commands() -> List[Dict[str, object]]:
         {
             "name": SUPERTWINS_MANAGE_COMMAND,
             "description": "既存の supertwins を確認して誤登録を解除します。",
+        },
+        {
+            "name": PICCOMA_COOKIE_COMMAND,
+            "description": "ピッコマ認証 cookie を更新します。",
+            "options": [
+                {
+                    "type": 1,
+                    "name": PICCOMA_COOKIE_SET_SUBCOMMAND,
+                    "description": "Secret Manager に cookie を保存します。",
+                }
+            ],
         },
     ]
 

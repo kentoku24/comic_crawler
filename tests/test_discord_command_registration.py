@@ -4,6 +4,7 @@ from unittest import mock
 
 from manga_watch.discord_fetch import FETCH_COMMAND
 from manga_watch.discord_latest import LATEST_COMMAND
+from manga_watch.discord_piccoma_cookie import PICCOMA_COOKIE_COMMAND
 from manga_watch.discord_remove import REMOVE_COMMAND
 from manga_watch.discord_search import SEARCH_COMMAND
 from manga_watch.discord_supertwins_manage import SUPERTWINS_MANAGE_COMMAND
@@ -57,6 +58,7 @@ class DiscordCommandRegistrationTests(unittest.TestCase):
                 REMOVE_COMMAND,
                 SUPERTWINS_SEARCH_COMMAND,
                 SUPERTWINS_MANAGE_COMMAND,
+                PICCOMA_COOKIE_COMMAND,
             ],
             [command["name"] for command in commands],
         )
@@ -83,6 +85,18 @@ class DiscordCommandRegistrationTests(unittest.TestCase):
             commands[7]["description"],
         )
         self.assertNotIn("options", commands[7])
+        piccoma_cookie_command = commands[8]
+        self.assertEqual("ピッコマ認証 cookie を更新します。", piccoma_cookie_command["description"])
+        self.assertEqual(
+            [
+                {
+                    "type": 1,
+                    "name": "set",
+                    "description": "Secret Manager に cookie を保存します。",
+                }
+            ],
+            piccoma_cookie_command["options"],
+        )
 
     def test_ensure_registered_from_env_uses_guild_registration_when_guild_id_is_present(self):
         from manga_watch.discord_command_registration import ensure_commands_registered_from_env

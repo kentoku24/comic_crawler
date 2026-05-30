@@ -1,6 +1,7 @@
 import hashlib
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -34,43 +35,58 @@ def normalize_update_snapshot(snapshot: object) -> Dict[str, object]:
         return {}
 
     normalized: Dict[str, object] = {}
+    known_keys = set()
 
     source = _coerce_text(snapshot.get("source"))
+    known_keys.add("source")
     if source:
         normalized["source"] = source
 
     latest_key = _snapshot_latest_key(snapshot)
+    known_keys.update({"latest_key", "latestKey"})
     if latest_key:
         normalized["latest_key"] = latest_key
 
     series_title = _coerce_text(
         snapshot.get("series_title") or snapshot.get("seriesTitle") or snapshot.get("series")
     )
+    known_keys.update({"series_title", "seriesTitle", "series"})
     if series_title:
         normalized["series_title"] = series_title
 
     episode_title = _coerce_text(snapshot.get("episode_title") or snapshot.get("episodeTitle"))
+    known_keys.update({"episode_title", "episodeTitle"})
     if episode_title:
         normalized["episode_title"] = episode_title
 
     episode_code = _coerce_text(snapshot.get("episode_code") or snapshot.get("episodeCode"))
+    known_keys.update({"episode_code", "episodeCode"})
     if episode_code:
         normalized["episode_code"] = episode_code
 
     url = _coerce_text(snapshot.get("url"))
+    known_keys.add("url")
     if url:
         normalized["url"] = url
 
     update_type = _coerce_text(snapshot.get("update_type"))
+    known_keys.add("update_type")
     if update_type:
         normalized["update_type"] = update_type
 
     classification_reason = _coerce_text(snapshot.get("classification_reason"))
+    known_keys.add("classification_reason")
     if classification_reason:
         normalized["classification_reason"] = classification_reason
 
+    known_keys.add("default_notify")
     if "default_notify" in snapshot and snapshot.get("default_notify") is not None:
         normalized["default_notify"] = bool(snapshot.get("default_notify"))
+
+    for key, value in snapshot.items():
+        if key in known_keys or value is None:
+            continue
+        normalized[_camel_to_snake(str(key))] = value
 
     return normalized
 
@@ -121,6 +137,10 @@ def derive_event_id(work_id: str, latest_key: str) -> str:
 
 def detected_at_for_timestamp(unix_ts: float) -> str:
     return datetime.fromtimestamp(unix_ts, tz=timezone.utc).isoformat().replace("+00:00", "Z")
+
+
+def _camel_to_snake(value: str) -> str:
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", value).lower()
 
 
 @dataclass(frozen=True)

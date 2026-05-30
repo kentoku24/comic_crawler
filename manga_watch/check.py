@@ -19,6 +19,8 @@ from manga_watch.sources import (
     normalize_seed_url,
 )
 from manga_watch.sources.base import SourceParseError
+from manga_watch.piccoma_cookie import piccoma_cookie_headers_for_url, resolve_piccoma_cookie
+from manga_watch.piccoma_tracking import sync_piccoma_authenticated_tracking
 from manga_watch.sources.champion_cross import (
     extract_champion_cross_series_hash,
     extract_champion_cross_series_hash_from_seed_url,
@@ -51,6 +53,10 @@ DEFAULT_NOTIFICATION_POLICY = {
     "mode": NOTIFICATION_POLICY_MODE_ALL,
     "allowed_update_types": None,
 }
+PICCOMA_WAIT_FREE_UPDATE_TYPE = "availability"
+PICCOMA_WAIT_FREE_EVENT_KIND = "piccoma_wait_free_recovered"
+PICCOMA_WAIT_FREE_TRACKING_KEYS = ("piccoma_tracking", "piccomaTracking")
+PICCOMA_WAIT_FREE_KEYS = ("wait_free", "waitFree")
 EPISODE_NUMBER_PATTERNS = (
     re.compile(r"第\s*(\d+)\s*話"),
     re.compile(r"\bEpisode\s+(\d+)\b", re.IGNORECASE),
@@ -201,6 +207,20 @@ def merge_latest_metadata(
     latest: Mapping[str, object],
 ) -> Dict[str, object]:
     merged = dict(previous_latest)
+    replace_when_changed_keys = {
+        "freeEpisodeLabel",
+        "freeEpisodeCount",
+        "waitFreeLabel",
+        "waitFreeEpisodeCount",
+        "waitFreeReadableEpisodeCount",
+        "totalEpisodeLabel",
+        "totalEpisodeCount",
+        "piccomaReadEpisodeNumber",
+        "piccomaReadEpisodeId",
+        "piccomaNextEpisodeNumber",
+        "piccomaNextEpisodeId",
+        "piccomaWaitFreeNextRecoveryAt",
+    }
     for key, value in latest.items():
         if value is None:
             continue
@@ -212,6 +232,10 @@ def merge_latest_metadata(
             "classification_reason",
         ):
             if value and value != merged.get(key):
+                merged[key] = value
+            continue
+        if key in replace_when_changed_keys:
+            if value != merged.get(key):
                 merged[key] = value
             continue
         if key == "default_notify":
@@ -390,6 +414,181 @@ def sync_history_event(
         )
     )
     return updated_history, True
+
+
+def _optional_int(value: object) -> Optional[int]:
+    if value is None:
+        return None
+    if isinstance(value, bool):
+        return None
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _nested_mapping(payload: Mapping[str, object], keys: Sequence[str]) -> Optional[Mapping[str, object]]:
+    for key in keys:
+        value = payload.get(key)
+        if isinstance(value, Mapping):
+            return value
+    return None
+
+
+def _first_present(payload: Mapping[str, object], *keys: str) -> object:
+    for key in keys:
+        if key in payload:
+            return payload.get(key)
+    return None
+
+
+def piccoma_wait_free_config(entry: Mapping[str, object]) -> Optional[Mapping[str, object]]:
+    tracking = _nested_mapping(entry, PICCOMA_WAIT_FREE_TRACKING_KEYS)
+    if tracking is None:
+        return None
+    wait_free = _nested_mapping(tracking, PICCOMA_WAIT_FREE_KEYS)
+    if wait_free is None or not bool(wait_free.get("enabled")):
+        return None
+    return wait_free
+
+
+def piccoma_wait_free_readable_limit(latest: Mapping[str, object]) -> Optional[int]:
+    explicit_limit = _optional_int(
+        _first_present(latest, "waitFreeReadableEpisodeCount", "wait_free_readable_episode_count")
+    )
+    if explicit_limit is not None:
+        return explicit_limit
+
+    free_count = _optional_int(_first_present(latest, "freeEpisodeCount", "free_episode_count"))
+    wait_free_count = _optional_int(
+        _first_present(latest, "waitFreeEpisodeCount", "wait_free_episode_count")
+    )
+    if free_count is None or wait_free_count is None:
+        return None
+    return free_count + wait_free_count
+
+
+def build_piccoma_wait_free_recovery_update(
+    item_id: str,
+    latest: Mapping[str, object],
+    wait_free: Mapping[str, object],
+    *,
+    seen_at: int,
+    notification_policy: Optional[Mapping[str, object]],
+) -> Optional[Dict[str, object]]:
+    if str(latest.get("source") or "") != "piccoma":
+        return None
+
+    effective_wait_free = _effective_piccoma_wait_free_config(wait_free, latest)
+    read_episode_number = _optional_int(
+        _first_present(effective_wait_free, "read_episode_number", "readEpisodeNumber")
+    )
+    next_recovery_at = _optional_int(_first_present(effective_wait_free, "next_recovery_at", "nextRecoveryAt"))
+    readable_limit = piccoma_wait_free_readable_limit(latest)
+    if read_episode_number is None or next_recovery_at is None or readable_limit is None:
+        return None
+    if seen_at < next_recovery_at:
+        return None
+    if read_episode_number >= readable_limit:
+        return None
+
+    next_readable_episode_number = read_episode_number + 1
+    latest_id = latest_id_for_state(latest)
+    event_id = f"{item_id}:wait-free:{next_recovery_at}:episode:{next_readable_episode_number}"
+    series_title = latest.get("seriesTitle") or latest.get("series_title")
+    url = latest.get("url")
+    event_latest: Dict[str, object] = {
+        "source": "piccoma",
+        "workId": item_id,
+        "latestKey": event_id,
+        "episodeTitle": f"待てば¥0 復活: {next_readable_episode_number}話",
+        "url": url,
+        "update_type": PICCOMA_WAIT_FREE_UPDATE_TYPE,
+        "classification_reason": "piccoma wait-free recovery reached next_recovery_at",
+        "default_notify": True,
+        "availabilityType": PICCOMA_WAIT_FREE_EVENT_KIND,
+        "readEpisodeNumber": read_episode_number,
+        "nextReadableEpisodeNumber": next_readable_episode_number,
+        "waitFreeReadableEpisodeCount": readable_limit,
+        "waitFreeRecoveredAt": next_recovery_at,
+    }
+    if series_title:
+        event_latest["seriesTitle"] = series_title
+    if latest_id:
+        event_latest["baseLatestKey"] = latest_id
+
+    update = {"id": item_id, "from": dict(latest), "to": event_latest}
+    update["notification"] = notification_metadata(
+        event_latest,
+        notification_policy=notification_policy,
+    )
+    update.update(update_event_metadata(event_latest))
+    return update
+
+
+def _effective_piccoma_wait_free_config(
+    wait_free: Mapping[str, object],
+    latest: Mapping[str, object],
+) -> Dict[str, object]:
+    effective = dict(wait_free)
+    authenticated_read = _optional_int(
+        _first_present(latest, "piccomaReadEpisodeNumber", "piccoma_read_episode_number")
+    )
+    if authenticated_read is not None:
+        effective["read_episode_number"] = authenticated_read
+
+    authenticated_recovery_at = _optional_int(
+        _first_present(latest, "piccomaWaitFreeNextRecoveryAt", "piccoma_wait_free_next_recovery_at")
+    )
+    if authenticated_recovery_at is not None:
+        effective["next_recovery_at"] = authenticated_recovery_at
+    return effective
+
+
+def apply_piccoma_wait_free_tracking(
+    item_id: str,
+    entry: Mapping[str, object],
+    state_entry: Mapping[str, object],
+    latest: Mapping[str, object],
+    *,
+    seen_at: int,
+    history_retention: int,
+) -> Tuple[Dict[str, object], Optional[Dict[str, object]]]:
+    wait_free = piccoma_wait_free_config(entry)
+    if wait_free is None:
+        return dict(state_entry), None
+
+    update = build_piccoma_wait_free_recovery_update(
+        item_id,
+        latest,
+        wait_free,
+        seen_at=seen_at,
+        notification_policy=entry.get("notification_policy"),
+    )
+    if update is None:
+        return dict(state_entry), None
+
+    event_latest = update["to"]
+    event_id = latest_id_for_state(event_latest)
+    history = list(state_entry.get("history", []) or [])
+    if any(str(event.get("event_id")) == event_id for event in history if isinstance(event, Mapping)):
+        return dict(state_entry), None
+
+    unread_event_ids = unread_event_ids_in_order(history, unread_state_for_entry(state_entry))
+    history.append(
+        {
+            "event_id": event_id,
+            "seen_at": seen_at,
+            "latest": latest_runtime_to_storage(event_latest),
+        }
+    )
+    unread_event_ids.append(event_id)
+    history, unread_event_ids = trim_history(history, unread_event_ids, history_retention)
+
+    next_entry = dict(state_entry)
+    next_entry["history"] = history
+    next_entry["unread"] = {"event_ids": unread_event_ids}
+    return next_entry, update
 
 
 def apply_item_transition(
@@ -672,6 +871,7 @@ def _check_watchlist_entry(
     *,
     adapters: Optional[Sequence[SourceAdapter]],
     http_client: Optional[HttpClient],
+    piccoma_authenticated_tracking_enabled: bool = False,
 ) -> SourceResult:
     item_id = str(entry["id"])
     seed_url = str(entry["seed_url"])
@@ -681,6 +881,11 @@ def _check_watchlist_entry(
         ensure_watchlist_contract(entry, item)
         item["workId"] = item_id
         latest = compute_latest(item, adapters=adapters, http_client=http_client)
+        if piccoma_authenticated_tracking_enabled and str(item.get("source") or "") == "piccoma":
+            try:
+                latest = sync_piccoma_authenticated_tracking(item, latest, http_client)
+            except Exception:
+                pass
         return SourceResult(url=seed_url, item_id=item_id, latest=latest)
     except Exception as exc:
         phase = "normalize" if item is None else "fetch_latest"
@@ -697,12 +902,18 @@ def _collect_source_results(
     adapters: Optional[Sequence[SourceAdapter]],
     http_client: Optional[HttpClient],
     max_workers: int,
+    piccoma_authenticated_tracking_enabled: bool = False,
 ) -> List[SourceResult]:
     if not entries:
         return []
     if len(entries) == 1 or max_workers == 1:
         return [
-            _check_watchlist_entry(entry, adapters=adapters, http_client=http_client)
+            _check_watchlist_entry(
+                entry,
+                adapters=adapters,
+                http_client=http_client,
+                piccoma_authenticated_tracking_enabled=piccoma_authenticated_tracking_enabled,
+            )
             for entry in entries
         ]
 
@@ -715,12 +926,20 @@ def _collect_source_results(
                 entry,
                 adapters=adapters,
                 http_client=http_client,
+                piccoma_authenticated_tracking_enabled=piccoma_authenticated_tracking_enabled,
             )] = index
 
         for future, index in futures.items():
             ordered_results[index] = future.result()
 
     return [result for result in ordered_results if result is not None]
+
+
+def _resolve_piccoma_cookie_for_check() -> Optional[str]:
+    try:
+        return resolve_piccoma_cookie()
+    except Exception:
+        return None
 
 
 def run_check(
@@ -753,11 +972,17 @@ def run_check(
 
     works_state = state.setdefault("works", {})
     now = int(time.time())
+    piccoma_cookie = _resolve_piccoma_cookie_for_check()
     effective_http_client = http_client or RequestsHttpClient(
         timeout=http_config.request_timeout,
         retry_count=http_config.retry_count,
         retry_backoff=http_config.retry_backoff,
         max_requests_per_host=http_config.max_workers_per_host,
+        headers_for_url=(
+            (lambda url: piccoma_cookie_headers_for_url(url, piccoma_cookie))
+            if piccoma_cookie
+            else None
+        ),
     )
     enabled_entries = [entry for entry in watchlist["works"] if entry["enabled"]]
     source_results = _collect_source_results(
@@ -765,6 +990,7 @@ def run_check(
         adapters=adapters,
         http_client=effective_http_client,
         max_workers=http_config.max_workers,
+        piccoma_authenticated_tracking_enabled=bool(piccoma_cookie),
     )
 
     for entry, source_result in zip(enabled_entries, source_results):
@@ -789,6 +1015,17 @@ def run_check(
         works_state[source_result.item_id] = next_entry
         if update is not None:
             updates.append(update)
+        wait_free_entry, wait_free_update = apply_piccoma_wait_free_tracking(
+            source_result.item_id,
+            entry,
+            next_entry,
+            source_result.latest or {},
+            seen_at=now,
+            history_retention=history_retention,
+        )
+        works_state[source_result.item_id] = wait_free_entry
+        if wait_free_update is not None:
+            updates.append(wait_free_update)
 
     state["last_run_at"] = now
     try:

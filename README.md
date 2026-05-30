@@ -154,6 +154,7 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 
 - `main_story`: 既定で通知する
 - `unknown`: fail-open で既定通知する
+- `availability`: Piccoma などの閲覧可能状態変化。既定で通知する
 - `bonus`: 既定では notifier backend に通知しない
 - `announcement`: 既定では notifier backend に通知しない
 
@@ -161,11 +162,11 @@ python3 -m manga_watch.backlog --mark-read KC_003913_S
 
 watchlist の `notification_policy` は classification default の上に適用されます。
 
-- `allowed_update_types` に明示できる値は `main_story`, `bonus`, `announcement`, `unknown` のみ
+- `allowed_update_types` に明示できる値は `main_story`, `bonus`, `announcement`, `availability`, `unknown` のみ
 - typo や未対応値を入れた watchlist は validation error として reject する
 - `allowed_update_types` が `null` でないときは mode より優先する
 - `mode=all`: `default_notify` を無視して全 `update_type` を通知する
-- `mode=important_only`: `main_story` と `unknown` だけを通知する
+- `mode=important_only`: `main_story`, `availability`, `unknown` だけを通知する
 - `mode=mute`: どの `update_type` も通知しない
 
 checker / state / run report には suppressed update も残ります。machine-readable な checker 出力では `updates[].notification.should_notify=false` で「更新はあったが通知しない」を区別できます。
@@ -236,7 +237,29 @@ runner が backend に送る update event は次の schema です。
 | BOOK☆WALKER | series URL, book detail URL | `https://bookwalker.jp/series/<series_id>/list/` または `https://bookwalker.jp/de<book_uuid>/` | `bookwalker:series:<series_id>` または `bookwalker:book:<book_uuid>` | 最新 book UUID |
 
 Phase 1 では source ごとの capability 差を隠しません。作品追加で受け付ける URL 種別は上の表だけです。内部の source capability / normalize 契約もこの表を source of truth とします。
-ピッコマは public unauthenticated episode-reading pages だけを対象にし、login / purchase state / app-only APIs / inferred episode URL は扱いません。Piccoma episode anchors が安定しない場合、latest URL は product URL のままです。
+ピッコマの latest 検出は public product / episodes page を source of truth とし、latest URL は product URL のままです。`PICCOMA_COOKIE` または `PICCOMA_COOKIE_SECRET_VERSION` がある場合だけ、同じ product page を認証 cookie 付きで補助取得し、読了位置と `待てば¥0` 復活時刻を `piccoma_tracking.wait_free` の判定に使います。認証補助取得に失敗しても通常の latest 巡回は失敗扱いにしません。
+
+Piccoma の `待てば¥0` reminder は watchlist 側で明示した `piccoma_tracking.wait_free.enabled` が true の作品だけ対象です。`read_episode_number` / `next_recovery_at` は手動設定できますが、認証 cookie から読了位置や復活時刻を取れた場合はそちらを優先します。
+
+```json
+{
+  "id": "piccoma:58170",
+  "source": "piccoma",
+  "seed_url": "https://piccoma.com/web/product/58170?etype=episode",
+  "enabled": true,
+  "hidden": false,
+  "notification_policy": {"mode": "important_only", "allowed_update_types": null},
+  "piccoma_tracking": {
+    "wait_free": {
+      "enabled": true,
+      "read_episode_number": 117,
+      "next_recovery_at": 1780000000
+    }
+  }
+}
+```
+
+`next_recovery_at` 到達後、`read_episode_number + 1` が public page から取れる `freeEpisodeCount + waitFreeEpisodeCount` の範囲内なら `availability` event を通知します。認証済み読了位置または手動 `read_episode_number` がその範囲の終端以上なら、次は購入が必要な区間として通知しません。
 
 `Supported sources` にまだ入っていない host/domain の legacy/current 判定や successor mapping は、runtime contract を直接広げる前に `doc/` 配下の triage note へ残します。`comic-valkyrie.com -> comic-brise.com` の判定根拠は [`doc/source-triage-comic-valkyrie-comic-brise.md`](doc/source-triage-comic-valkyrie-comic-brise.md) を参照してください。
 
@@ -369,6 +392,9 @@ GCP production runtime の deploy / rollback はこの compose 手順ではな�
 - `MANGA_WATCH_GCP_PROJECT`: `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のときに使う GCP project
 - `MANGA_WATCH_CLOUD_RUN_REGION`: `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のときに使う Cloud Run region。既定値は `asia-northeast1`
 - `MANGA_WATCH_CLOUD_RUN_JOB_NAME`: `MANGA_WATCH_FETCH_BACKEND=cloud-run-job` のときに起動する Job 名。既定値は `comic-crawler-job`
+- `PICCOMA_COOKIE`: Piccoma の認証済み Cookie header。直接 env に置く場合だけ使う
+- `PICCOMA_COOKIE_SECRET_VERSION`: Piccoma cookie を Secret Manager から読む version resource name。例: `projects/<project>/secrets/comic-crawler-piccoma-cookie/versions/latest`
+- `PICCOMA_COOKIE_SECRET_NAME`: `/piccoma-cookie set` が新しい secret version を追加する Secret Manager secret resource name。未指定時は `PICCOMA_COOKIE_SECRET_VERSION` から `/versions/...` を除いて使う
 - `TZ`: スケジュール計算の timezone。既定値は `Asia/Tokyo`
 - `CRAWL_SCHEDULE`: cron 形式。既定値は `0 19 * * *`
 - `CRAWL_INTERVAL`: 秒単位の固定間隔。`CRAWL_SCHEDULE` と同時指定は不可
@@ -412,11 +438,11 @@ export DISCORD_RUN_REPORT_CHANNEL_ID=...
 ```
 
 Discord main channel では trim 後に本文がちょうど `latest` のメッセージで保存済み最新話一覧を返し、`fetch` のメッセージで手動巡回を受け付けます。Discord interaction endpoint では slash command として `/add url:<作品URL>` も受け付け、shared add logic で対応できる URL のみクロール対象へ追加します。`MANGA_WATCH_GITHUB_TOKEN` と `MANGA_WATCH_GITHUB_REPOSITORY` が設定されている場合、`unsupported_source` は追加失敗のまま GitHub Issue を自動作成し、「対応候補として記録した」と返信します。
-Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/search` `/where` `/remove` `/supertwins-search` `/supertwins-manage` を扱います。`/search` は媒体ごとに作品検索を行い、選択した結果を visible または hidden で watchlist に追加します。`champion-cross` / `kakuyomu` / `comic-walker` / `bookwalker` は媒体内検索を使い、`piccoma` は public AJAX search endpoint を使います。それ以外の対応 source (`comic-action` / `comic-earthstar` / `comicborder` / `comic-trail` / `kuragebunch` / `shonenjumpplus` / `sunday-webry` / `magapoke` / `firecross` / `takecomic` / `nicovideo-manga`) は site index 検索を使います。`/where query:<作品名> episode:<話数>` は watchlist 登録を前提にせず、availability 対応 source (`comic-walker` / `nicovideo-manga`) を横断検索し、既存の検索結果選択 UI で作品を選んだあと、指定話の読める URL と公開ページ上の availability を返します。
+Cloud Run Service の interaction endpoint では slash command として `/latest` `/fetch` `/add` `/search` `/where` `/remove` `/supertwins-search` `/supertwins-manage` `/piccoma-cookie set` を扱います。`/piccoma-cookie set` は modal で受け取った Cookie header を Secret Manager の新しい version として保存し、cookie 値は返信に出しません。`/search` は媒体ごとに作品検索を行い、選択した結果を visible または hidden で watchlist に追加します。`champion-cross` / `kakuyomu` / `comic-walker` / `bookwalker` は媒体内検索を使い、`piccoma` は public AJAX search endpoint を使います。それ以外の対応 source (`comic-action` / `comic-earthstar` / `comicborder` / `comic-trail` / `kuragebunch` / `shonenjumpplus` / `sunday-webry` / `magapoke` / `firecross` / `takecomic` / `nicovideo-manga`) は site index 検索を使います。`/where query:<作品名> episode:<話数>` は watchlist 登録を前提にせず、availability 対応 source (`comic-walker` / `nicovideo-manga`) を横断検索し、既存の検索結果選択 UI で作品を選んだあと、指定話の読める URL と公開ページ上の availability を返します。
 `/supertwins-search` は既存 watchlist 作品を起点に他媒体候補を探し、選択した候補を hidden で watchlist に追加しつつ state 上の `supertwins.groups` に登録します。既存 duplicate が選ばれた場合も、その entry を hidden 化したうえで group に追加します。`/supertwins-manage` は group と member を選択して、hidden のまま残す / hidden を解除する / subscription を削除する、の 3 アクションを扱います。削除だけは confirm を返します。`/remove` は ephemeral な select menu と confirm/cancel button を返し、watchlist と state から対象作品を完全削除します。
 Discord 実機補助確認は test guild / test channel だけで `.venv/bin/python -m manga_watch.discord_real_e2e --case all --json` を実行します。これは primary gate ではなく、差異が出たときは先に mocked acceptance (`manga_watch.run_mocked_acceptance`) と formatter / builder を確認します。
 
-Cloud Run Service の Discord interaction endpoint をローカルで起動する場合は、署名検証用の public key に加えて command registration 用の bot token を入れて `python -m manga_watch.run_service` を使います。service startup では `/latest` `/fetch` `/add` `/search` `/where` `/remove` `/supertwins-search` `/supertwins-manage` の command 定義を Discord へ idempotent に登録し、登録に失敗した場合は fail-fast で起動を中断します。`DISCORD_GUILD_ID` を入れると guild command、未指定なら global command を更新します。
+Cloud Run Service の Discord interaction endpoint をローカルで起動する場合は、署名検証用の public key に加えて command registration 用の bot token を入れて `python -m manga_watch.run_service` を使います。service startup では `/latest` `/fetch` `/add` `/search` `/where` `/remove` `/supertwins-search` `/supertwins-manage` `/piccoma-cookie` の command 定義を Discord へ idempotent に登録し、登録に失敗した場合は fail-fast で起動を中断します。`DISCORD_GUILD_ID` を入れると guild command、未指定なら global command を更新します。
 
 ```bash
 export DISCORD_BOT_TOKEN=...
