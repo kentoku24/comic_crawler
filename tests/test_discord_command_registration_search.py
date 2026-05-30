@@ -2,6 +2,7 @@ import unittest
 
 from manga_watch.discord_fetch import FETCH_COMMAND
 from manga_watch.discord_latest import LATEST_COMMAND
+from manga_watch.discord_piccoma_cookie import PICCOMA_COOKIE_COMMAND
 from manga_watch.discord_remove import REMOVE_COMMAND
 from manga_watch.discord_search import SEARCH_COMMAND
 from manga_watch.discord_where import WHERE_COMMAND
@@ -23,6 +24,7 @@ class DiscordSearchCommandRegistrationTests(unittest.TestCase):
                 REMOVE_COMMAND,
                 "supertwins-search",
                 "supertwins-manage",
+                PICCOMA_COOKIE_COMMAND,
             ],
             [command["name"] for command in commands],
         )

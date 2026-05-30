@@ -28,6 +28,9 @@ secret は direct env を優先し、未設定時だけ `*_SECRET_VERSION` を�
 - `DISCORD_BOT_TOKEN` or `DISCORD_BOT_TOKEN_SECRET_VERSION`
 - `MANGA_WATCH_WEBHOOK_URL` or `MANGA_WATCH_WEBHOOK_URL_SECRET_VERSION`
 - `DISCORD_APPLICATION_PUBLIC_KEY` or `DISCORD_APPLICATION_PUBLIC_KEY_SECRET_VERSION`
+- `PICCOMA_COOKIE` or `PICCOMA_COOKIE_SECRET_VERSION`
+
+`/piccoma-cookie set` で cookie を更新する Cloud Run Service には `PICCOMA_COOKIE_SECRET_NAME` または `PICCOMA_COOKIE_SECRET_VERSION` も設定する。`PICCOMA_COOKIE_SECRET_NAME` は version ではなく `projects/<project>/secrets/<secret>` を指す。
 
 `*_SECRET_VERSION` は Secret Manager の version resource name をそのまま入れる。
 

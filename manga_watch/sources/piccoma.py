@@ -90,6 +90,15 @@ def extract_piccoma_wait_free_label(html_text: str) -> Optional[str]:
     return re.sub(r"\s+", " ", match.group(1)).strip()
 
 
+def _count_from_episode_label(label: Optional[str]) -> Optional[int]:
+    if not label:
+        return None
+    match = re.search(r"(\d+)", label)
+    if not match:
+        return None
+    return int(match.group(1))
+
+
 def extract_piccoma_latest_episode(episodes_html: str) -> tuple[Optional[str], Optional[str]]:
     parser = _PiccomaEpisodeListParser()
     parser.feed(episodes_html or "")
@@ -263,13 +272,29 @@ class PiccomaAdapter(SourceAdapter):
         if not latest_identifier:
             raise SourceParseError(f"{self.source}: latest episode identifier not found")
 
+        free_episode_label = extract_piccoma_free_episode_label(product_html)
+        wait_free_label = extract_piccoma_wait_free_label(product_html)
+        total_episode_label = extract_piccoma_total_episode_label(product_html)
+        free_episode_count = _count_from_episode_label(free_episode_label)
+        wait_free_episode_count = _count_from_episode_label(wait_free_label)
+        total_episode_count = _count_from_episode_label(total_episode_label)
+
         extra = {}
         for key, value in (
-            ("freeEpisodeLabel", extract_piccoma_free_episode_label(product_html)),
-            ("waitFreeLabel", extract_piccoma_wait_free_label(product_html)),
-            ("totalEpisodeLabel", extract_piccoma_total_episode_label(product_html)),
+            ("freeEpisodeLabel", free_episode_label),
+            ("freeEpisodeCount", free_episode_count),
+            ("waitFreeLabel", wait_free_label),
+            ("waitFreeEpisodeCount", wait_free_episode_count),
+            (
+                "waitFreeReadableEpisodeCount",
+                free_episode_count + wait_free_episode_count
+                if free_episode_count is not None and wait_free_episode_count is not None
+                else None,
+            ),
+            ("totalEpisodeLabel", total_episode_label),
+            ("totalEpisodeCount", total_episode_count),
         ):
-            if value:
+            if value is not None:
                 extra[key] = value
 
         return LatestEpisode(

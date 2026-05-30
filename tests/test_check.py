@@ -1211,6 +1211,280 @@ class CheckTests(unittest.TestCase):
         self.assertEqual(["ep-2"], state["works"]["work-1"]["unread"]["event_ids"])
         self.assertEqual(["ep-2"], [event["event_id"] for event in state["works"]["work-1"]["history"]])
 
+    def test_run_check_emits_piccoma_wait_free_recovery_without_replacing_latest(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            state_path = Path(tmpdir) / "state.json"
+            entry = watchlist_entry(
+                work_id="piccoma:58170",
+                source="piccoma",
+                seed_url="https://piccoma.com/web/product/58170?etype=episode",
+                notification_policy={"mode": "important_only", "allowed_update_types": None},
+            )
+            entry["piccoma_tracking"] = {
+                "wait_free": {
+                    "enabled": True,
+                    "read_episode_number": 117,
+                    "next_recovery_at": 2000,
+                }
+            }
+            write_watchlist(watchlist_path, [entry])
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "works": {
+                            "piccoma:58170": {
+                                "latest": {
+                                    "source": "piccoma",
+                                    "work_id": "piccoma:58170",
+                                    "latest_key": "piccoma:58170:episode:6212936",
+                                    "series_title": "九条の大罪",
+                                    "episode_title": "第134審 (2)",
+                                    "url": "https://piccoma.com/web/product/58170?etype=episode",
+                                    "free_episode_count": 77,
+                                    "wait_free_episode_count": 41,
+                                    "wait_free_readable_episode_count": 118,
+                                },
+                                "history": [],
+                                "unread": {"event_ids": []},
+                                "health": {
+                                    "last_checked_at": 1000,
+                                    "last_success_at": 1000,
+                                    "consecutive_failures": 0,
+                                },
+                            }
+                        },
+                        "last_run_at": 1000,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            latest = {
+                "source": "piccoma",
+                "workId": "piccoma:58170",
+                "latestKey": "piccoma:58170:episode:6212936",
+                "seriesTitle": "九条の大罪",
+                "episodeTitle": "第134審 (2)",
+                "url": "https://piccoma.com/web/product/58170?etype=episode",
+                "freeEpisodeCount": 77,
+                "waitFreeEpisodeCount": 41,
+                "waitFreeReadableEpisodeCount": 118,
+                "update_type": "main_story",
+                "default_notify": True,
+            }
+
+            with mock.patch.dict(os.environ, {"MANGA_WATCH_STATE": str(state_path)}, clear=False):
+                with mock.patch("manga_watch.check.time.time", return_value=2001):
+                    with mock.patch(
+                        "manga_watch.check.normalize_item",
+                        return_value={
+                            "source": "piccoma",
+                            "workId": "piccoma:58170",
+                            "seedUrl": "https://piccoma.com/web/product/58170?etype=episode",
+                        },
+                    ):
+                        with mock.patch("manga_watch.check.compute_latest", return_value=latest):
+                            result = check.run_check(str(watchlist_path))
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual(1, len(result["updates"]))
+        update = result["updates"][0]
+        self.assertEqual("availability", update["update_type"])
+        self.assertTrue(update["default_notify"])
+        self.assertTrue(update["notification"]["should_notify"])
+        self.assertEqual("mode=important_only allows availability", update["notification"]["reason"])
+        self.assertEqual("待てば¥0 復活: 118話", update["to"]["episodeTitle"])
+        self.assertEqual(118, update["to"]["nextReadableEpisodeNumber"])
+        self.assertEqual(118, update["to"]["waitFreeReadableEpisodeCount"])
+        self.assertEqual(2000, update["to"]["waitFreeRecoveredAt"])
+        self.assertEqual(
+            "piccoma:58170:episode:6212936",
+            state["works"]["piccoma:58170"]["latest"]["latest_key"],
+        )
+        self.assertEqual(
+            ["piccoma:58170:wait-free:2000:episode:118"],
+            state["works"]["piccoma:58170"]["unread"]["event_ids"],
+        )
+        self.assertEqual(
+            ["piccoma:58170:wait-free:2000:episode:118"],
+            [event["event_id"] for event in state["works"]["piccoma:58170"]["history"]],
+        )
+
+    def test_run_check_suppresses_piccoma_wait_free_recovery_at_readable_boundary(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            state_path = Path(tmpdir) / "state.json"
+            entry = watchlist_entry(
+                work_id="piccoma:58170",
+                source="piccoma",
+                seed_url="https://piccoma.com/web/product/58170?etype=episode",
+            )
+            entry["piccoma_tracking"] = {
+                "wait_free": {
+                    "enabled": True,
+                    "read_episode_number": 118,
+                    "next_recovery_at": 2000,
+                }
+            }
+            write_watchlist(watchlist_path, [entry])
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "works": {
+                            "piccoma:58170": {
+                                "latest": {
+                                    "source": "piccoma",
+                                    "work_id": "piccoma:58170",
+                                    "latest_key": "piccoma:58170:episode:6212936",
+                                    "series_title": "九条の大罪",
+                                    "episode_title": "第134審 (2)",
+                                    "url": "https://piccoma.com/web/product/58170?etype=episode",
+                                },
+                                "history": [],
+                                "unread": {"event_ids": []},
+                                "health": {
+                                    "last_checked_at": 1000,
+                                    "last_success_at": 1000,
+                                    "consecutive_failures": 0,
+                                },
+                            }
+                        },
+                        "last_run_at": 1000,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            latest = {
+                "source": "piccoma",
+                "workId": "piccoma:58170",
+                "latestKey": "piccoma:58170:episode:6212936",
+                "seriesTitle": "九条の大罪",
+                "episodeTitle": "第134審 (2)",
+                "url": "https://piccoma.com/web/product/58170?etype=episode",
+                "freeEpisodeCount": 77,
+                "waitFreeEpisodeCount": 41,
+                "waitFreeReadableEpisodeCount": 118,
+            }
+
+            with mock.patch.dict(os.environ, {"MANGA_WATCH_STATE": str(state_path)}, clear=False):
+                with mock.patch("manga_watch.check.time.time", return_value=2001):
+                    with mock.patch(
+                        "manga_watch.check.normalize_item",
+                        return_value={
+                            "source": "piccoma",
+                            "workId": "piccoma:58170",
+                            "seedUrl": "https://piccoma.com/web/product/58170?etype=episode",
+                        },
+                    ):
+                        with mock.patch("manga_watch.check.compute_latest", return_value=latest):
+                            result = check.run_check(str(watchlist_path))
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual([], result["updates"])
+        self.assertEqual([], state["works"]["piccoma:58170"]["history"])
+        self.assertEqual([], state["works"]["piccoma:58170"]["unread"]["event_ids"])
+
+    def test_run_check_uses_authenticated_piccoma_read_position_for_wait_free_boundary(self):
+        class StaticTextClient:
+            def __init__(self):
+                self.calls = []
+
+            def get_text(self, url):
+                self.calls.append(url)
+                return """
+                <a class="js_readContinue"
+                   data-current_episode_id="6212935"
+                   data-current_order_value="118"
+                   data-next_episode_id="6212936"
+                   data-next_order_value="119">続きから読む</a>
+                """
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            state_path = Path(tmpdir) / "state.json"
+            entry = watchlist_entry(
+                work_id="piccoma:58170",
+                source="piccoma",
+                seed_url="https://piccoma.com/web/product/58170?etype=episode",
+            )
+            entry["piccoma_tracking"] = {
+                "wait_free": {
+                    "enabled": True,
+                    "read_episode_number": 117,
+                    "next_recovery_at": 2000,
+                }
+            }
+            write_watchlist(watchlist_path, [entry])
+            state_path.write_text(
+                json.dumps(
+                    {
+                        "version": 2,
+                        "works": {
+                            "piccoma:58170": {
+                                "latest": {
+                                    "source": "piccoma",
+                                    "work_id": "piccoma:58170",
+                                    "latest_key": "piccoma:58170:episode:6212936",
+                                    "url": "https://piccoma.com/web/product/58170?etype=episode",
+                                },
+                                "history": [],
+                                "unread": {"event_ids": []},
+                                "health": {
+                                    "last_checked_at": 1000,
+                                    "last_success_at": 1000,
+                                    "consecutive_failures": 0,
+                                },
+                            }
+                        },
+                        "last_run_at": 1000,
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            latest = {
+                "source": "piccoma",
+                "workId": "piccoma:58170",
+                "latestKey": "piccoma:58170:episode:6212936",
+                "seriesTitle": "九条の大罪",
+                "episodeTitle": "第134審 (2)",
+                "url": "https://piccoma.com/web/product/58170?etype=episode",
+                "freeEpisodeCount": 77,
+                "waitFreeEpisodeCount": 41,
+                "waitFreeReadableEpisodeCount": 118,
+            }
+            auth_client = StaticTextClient()
+
+            with mock.patch.dict(
+                os.environ,
+                {
+                    "MANGA_WATCH_STATE": str(state_path),
+                    "PICCOMA_COOKIE": "sessionid=secret-one",
+                },
+                clear=False,
+            ):
+                with mock.patch("manga_watch.check.time.time", return_value=2001):
+                    with mock.patch(
+                        "manga_watch.check.normalize_item",
+                        return_value={
+                            "source": "piccoma",
+                            "workId": "piccoma:58170",
+                            "seedUrl": "https://piccoma.com/web/product/58170?etype=episode",
+                        },
+                    ):
+                        with mock.patch("manga_watch.check.compute_latest", return_value=latest):
+                            result = check.run_check(str(watchlist_path), http_client=auth_client)
+                state = json.loads(state_path.read_text(encoding="utf-8"))
+
+        self.assertEqual([], result["updates"])
+        self.assertEqual([], state["works"]["piccoma:58170"]["history"])
+        self.assertEqual(118, state["works"]["piccoma:58170"]["latest"]["piccoma_read_episode_number"])
+        self.assertEqual(["https://piccoma.com/web/product/58170?etype=episode"], auth_client.calls)
+
     def test_apply_item_transition_silently_merges_metadata_when_latest_key_is_stable(self):
         previous = {
             "latest": {

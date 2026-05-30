@@ -14,6 +14,12 @@ from nacl.signing import VerifyKey
 from manga_watch.discord_add import ADD_COMMAND, AddCommandHandler
 from manga_watch.discord_fetch import FETCH_COMMAND, handle_fetch_trigger
 from manga_watch.discord_latest import LATEST_COMMAND, handle_latest_query, validated_timezone_name
+from manga_watch.discord_piccoma_cookie import (
+    PICCOMA_COOKIE_COMMAND,
+    PICCOMA_COOKIE_SET_MODAL_CUSTOM_ID,
+    PICCOMA_COOKIE_SET_SUBCOMMAND,
+    PiccomaCookieCommandHandler,
+)
 from manga_watch.discord_search import (
     SEARCH_COMMAND,
     SEARCH_FAILURE_MESSAGE,
@@ -50,10 +56,12 @@ from manga_watch.storage import DEFAULT_WATCHLIST_PATH, get_state_path, storage_
 INTERACTION_TYPE_PING = 1
 INTERACTION_TYPE_APPLICATION_COMMAND = 2
 INTERACTION_TYPE_MESSAGE_COMPONENT = 3
+INTERACTION_TYPE_MODAL_SUBMIT = 5
 INTERACTION_RESPONSE_TYPE_PONG = 1
 INTERACTION_RESPONSE_TYPE_CHANNEL_MESSAGE = 4
 INTERACTION_RESPONSE_TYPE_DEFERRED_UPDATE_MESSAGE = 6
 INTERACTION_RESPONSE_TYPE_UPDATE_MESSAGE = 7
+INTERACTION_RESPONSE_TYPE_MODAL = 9
 EPHEMERAL_MESSAGE_FLAG = 64
 DEFAULT_HTTP_TIMEOUT = 15
 DEFAULT_INTERACTION_PATH = "/"
@@ -383,6 +391,10 @@ def interaction_ephemeral_response(data: Mapping[str, object]) -> InteractionHtt
     )
 
 
+def interaction_modal_response(data: Mapping[str, object]) -> InteractionHttpResponse:
+    return json_response(200, {"type": INTERACTION_RESPONSE_TYPE_MODAL, "data": dict(data)})
+
+
 @dataclass
 class DiscordInteractionService:
     timezone_name: str
@@ -399,6 +411,7 @@ class DiscordInteractionService:
     remove_handler: Optional[RemoveCommandHandler] = None
     supertwins_search_handler: Optional[SearchSupertwinsCommandHandler] = None
     supertwins_manage_handler: Optional[ManageSupertwinsCommandHandler] = None
+    piccoma_cookie_handler: Optional[PiccomaCookieCommandHandler] = None
     interaction_callback_client: Optional[InteractionCallbackClient] = None
 
     def handle_request(
@@ -431,6 +444,8 @@ class DiscordInteractionService:
             return self._handle_application_command(payload)
         if interaction_type == INTERACTION_TYPE_MESSAGE_COMPONENT:
             return self._handle_message_component(payload)
+        if interaction_type == INTERACTION_TYPE_MODAL_SUBMIT:
+            return self._handle_modal_submit(payload)
         return text_response(400, "unsupported interaction type")
 
     def _handle_application_command(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
@@ -481,7 +496,20 @@ class DiscordInteractionService:
                 state_path=self.state_path,
             )
             return interaction_ephemeral_response(response_payload)
+        if command_name == PICCOMA_COOKIE_COMMAND and self.piccoma_cookie_handler is not None:
+            if self._command_subcommand(payload) != PICCOMA_COOKIE_SET_SUBCOMMAND:
+                return text_response(400, f"unsupported command: {command_name or '(missing)'}")
+            return interaction_modal_response(self.piccoma_cookie_handler.build_set_modal())
         return text_response(400, f"unsupported command: {command_name or '(missing)'}")
+
+    def _handle_modal_submit(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
+        data = payload.get("data")
+        if not isinstance(data, Mapping):
+            return text_response(400, "invalid interaction payload")
+        custom_id = str(data.get("custom_id") or "").strip()
+        if custom_id == PICCOMA_COOKIE_SET_MODAL_CUSTOM_ID and self.piccoma_cookie_handler is not None:
+            return interaction_ephemeral_response(self.piccoma_cookie_handler.handle_modal_submit(data))
+        return text_response(400, "unsupported interaction type")
 
     def _handle_deferred_search_command(self, payload: Mapping[str, object]) -> InteractionHttpResponse:
         interaction_id = _coerce_text(payload.get("id"))
@@ -779,6 +807,21 @@ class DiscordInteractionService:
             return _coerce_text(option.get("value"))
         return None
 
+    @staticmethod
+    def _command_subcommand(payload: Mapping[str, object]) -> Optional[str]:
+        data = payload.get("data")
+        if not isinstance(data, Mapping):
+            return None
+        options = data.get("options")
+        if not isinstance(options, list):
+            return None
+        for option in options:
+            if not isinstance(option, Mapping):
+                continue
+            if int(option.get("type") or 0) == 1:
+                return _coerce_text(option.get("name"))
+        return None
+
 
 def interaction_timezone_name_from_env() -> str:
     return validated_timezone_name(os.environ.get("TZ", "Asia/Tokyo"))
@@ -852,5 +895,6 @@ def build_interaction_service_from_env(
         remove_handler=RemoveCommandHandler(backend=storage_backend),
         supertwins_search_handler=SearchSupertwinsCommandHandler(backend=storage_backend),
         supertwins_manage_handler=ManageSupertwinsCommandHandler(backend=storage_backend),
+        piccoma_cookie_handler=PiccomaCookieCommandHandler.from_env(),
         interaction_callback_client=DiscordInteractionCallbackClient(),
     )
