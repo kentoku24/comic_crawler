@@ -17,6 +17,12 @@ from .sources.champion_cross import (
     parse_champion_cross_rss_latest,
 )
 from .sources.comic_action import ComicActionAdapter, extract_comic_action_series_id, parse_comic_action_title
+from .sources.comic_days import (
+    ComicDaysAdapter,
+    extract_comic_days_series_id,
+    parse_comic_days_feed_latest,
+    parse_comic_days_title,
+)
 from .sources.comic_earthstar import (
     ComicEarthstarAdapter,
     extract_comic_earthstar_series_id,
@@ -185,6 +191,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
         source="comic-trail",
         seed_url="https://comic-trail.com/episode/2550689798402927313",
         fixture_bundle="tests/fixtures/comic-trail/normal",
+        monitored_signals=(
+            "seed episode page exposes a stable series id",
+            "series RSS feed keeps the latest episode URL",
+            "latest episode page title still parses into series / episode labels",
+        ),
+    ),
+    "comic-days": SourceCanaryContract(
+        source="comic-days",
+        seed_url="https://comic-days.com/episode/12207421983746014850",
+        fixture_bundle="tests/fixtures/comic-days/normal",
         monitored_signals=(
             "seed episode page exposes a stable series id",
             "series RSS feed keeps the latest episode URL",
@@ -491,6 +507,57 @@ def _comicborder_canary(
         raise SourceParseError("comicborder: latest episode title could not be parsed from page title")
     if not parsed_series_title:
         raise SourceParseError("comicborder: series title could not be parsed from page title")
+
+    return (
+        tuple(checked_urls),
+        (
+            CanaryObservation("series_id", series_id),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", parsed_episode_title),
+            CanaryObservation("series_title", parsed_series_title),
+        ),
+    )
+
+
+def _comic_days_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = ComicDaysAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    checked_urls = []
+    if work.seed_url.endswith("/rss") or "/rss/series/" in work.seed_url:
+        rss_url = work.seed_url
+        series_id = str(work.metadata.get("seriesId") or "") or rss_url.rstrip("/").rsplit("/", 1)[-1]
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_comic_days_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+    else:
+        episode_html = http_client.get_text(work.seed_url)
+        checked_urls.append(work.seed_url)
+        series_id = extract_comic_days_series_id(episode_html)
+        if not series_id:
+            raise SourceParseError("comic-days: series id not found")
+        rss_url = f"https://comic-days.com/rss/series/{series_id}"
+        feed_text = http_client.get_text(rss_url)
+        checked_urls.append(rss_url)
+        latest_url, latest_title, _ = parse_comic_days_feed_latest(feed_text)
+        latest_html = http_client.get_text(latest_url)
+        checked_urls.append(latest_url)
+
+    page_title = html_title(latest_html) or ""
+    if not latest_title:
+        raise SourceParseError("comic-days: latest episode title not found")
+    if not page_title:
+        raise SourceParseError("comic-days: latest episode page title not found")
+    parsed_episode_title, parsed_series_title = parse_comic_days_title(page_title)
+    if not parsed_episode_title:
+        raise SourceParseError("comic-days: latest episode title could not be parsed from page title")
+    if not parsed_series_title:
+        raise SourceParseError("comic-days: series title could not be parsed from page title")
 
     return (
         tuple(checked_urls),
@@ -956,6 +1023,7 @@ CANARY_RUNNERS = {
     "comic-earthstar": _comic_earthstar_canary,
     "comicborder": _comicborder_canary,
     "comic-trail": _comic_trail_canary,
+    "comic-days": _comic_days_canary,
     "kuragebunch": _kuragebunch_canary,
     "shonenjumpplus": _shonenjumpplus_canary,
     "sunday-webry": _sunday_webry_canary,

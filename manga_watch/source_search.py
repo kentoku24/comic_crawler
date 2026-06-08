@@ -38,6 +38,10 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "search_url": "https://comic-trail.com/search?keyword={query}",
         "allowed_domains": ("comic-trail.com", "www.comic-trail.com"),
     },
+    "comic-days": {
+        "search_url": "https://comic-days.com/search?q={query}",
+        "allowed_domains": ("comic-days.com", "www.comic-days.com"),
+    },
     "kuragebunch": {
         "search_url": "https://kuragebunch.com/search?q={query}",
         "allowed_domains": ("kuragebunch.com", "www.kuragebunch.com"),

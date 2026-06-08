@@ -1,0 +1,58 @@
+{
+  "seedUrl": "https://comic-days.com/episode/12207421983746014850",
+  "expectedWork": {
+    "source": "comic-days",
+    "kind": "comic-days",
+    "workId": "https://comic-days.com/episode/12207421983746014850",
+    "seedUrl": "https://comic-days.com/episode/12207421983746014850"
+  },
+  "expectedLatest": {
+    "workId": "comic-days:13933686331650127004",
+    "latestKey": "https://comic-days.com/episode/12207421983746014857",
+    "url": "https://comic-days.com/episode/12207421983746014857",
+    "series": "comic-days:13933686331650127004",
+    "seriesTitle": "メダリスト",
+    "episodeTitle": "ｓｃｏｒｅ６０　牧師と子羊③",
+    "pageTitle": "メダリスト - つるまいかだ / ｓｃｏｒｅ６０ 牧師と子羊③ | コミックDAYS"
+  },
+  "missingLatestKeys": [
+    "nextUpdateLabel"
+  ],
+  "steps": [
+    {
+      "url": "https://comic-days.com/episode/12207421983746014850",
+      "response": "01-episode.html"
+    },
+    {
+      "url": "https://comic-days.com/rss/series/13933686331650127004",
+      "response": "02-rss.xml"
+    },
+    {
+      "url": "https://comic-days.com/episode/12207421983746014857",
+      "response": "03-latest.html"
+    }
+  ],
+  "expectedCheckedUrls": [
+    "https://comic-days.com/episode/12207421983746014850",
+    "https://comic-days.com/rss/series/13933686331650127004",
+    "https://comic-days.com/episode/12207421983746014857"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "13933686331650127004"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://comic-days.com/episode/12207421983746014857"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "ｓｃｏｒｅ６０ 牧師と子羊③"
+    },
+    {
+      "name": "series_title",
+      "value": "メダリスト"
+    }
+  ]
+}

@@ -425,6 +425,37 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("https://comic-trail.com/rss/series/14079602755560047206", entry["seed_url"])
         self.assertEqual("comic-trail", entry["source"])
 
+    def test_build_watchlist_entry_canonicalizes_comic_days_episode_seed_to_rss(self):
+        fake_client = mock.Mock()
+        fake_client.get_text.return_value = """
+        <html>
+          <head>
+            <link rel="alternate" type="application/rss+xml" href="https://comic-days.com/rss/series/13933686331650127004">
+          </head>
+          <body>
+            <script>
+              window.__DATA__ = {"series_id":"13933686331650127004"};
+            </script>
+          </body>
+        </html>
+        """
+        with mock.patch(
+            "manga_watch.check.normalize_item",
+            return_value={
+                "source": "comic-days",
+                "workId": "https://comic-days.com/episode/12207421983746014850",
+                "seedUrl": "https://comic-days.com/episode/12207421983746014850",
+            },
+        ):
+            entry = check.build_watchlist_entry(
+                "https://comic-days.com/episode/12207421983746014850",
+                http_client=fake_client,
+            )
+
+        self.assertEqual("comic-days:13933686331650127004", entry["id"])
+        self.assertEqual("https://comic-days.com/rss/series/13933686331650127004", entry["seed_url"])
+        self.assertEqual("comic-days", entry["source"])
+
     def test_build_watchlist_entry_canonicalizes_kuragebunch_episode_seed_to_rss(self):
         fake_client = mock.Mock()
         fake_client.get_text.return_value = """
