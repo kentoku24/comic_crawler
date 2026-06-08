@@ -1,0 +1,19 @@
+{
+  "seedUrl": "https://comic-days.com/episode/12207421983746014850",
+  "expectedWork": {
+    "source": "comic-days",
+    "kind": "comic-days",
+    "workId": "https://comic-days.com/episode/12207421983746014850",
+    "seedUrl": "https://comic-days.com/episode/12207421983746014850"
+  },
+  "expectedError": {
+    "type": "SourceParseError",
+    "message": "comic-days: series id not found"
+  },
+  "steps": [
+    {
+      "url": "https://comic-days.com/episode/12207421983746014850",
+      "response": "01-episode.html"
+    }
+  ]
+}

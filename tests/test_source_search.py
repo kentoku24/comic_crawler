@@ -88,6 +88,7 @@ class SourceSearchTests(unittest.TestCase):
                 "comic-earthstar",
                 "comicborder",
                 "comic-trail",
+                "comic-days",
                 "kuragebunch",
                 "shonenjumpplus",
                 "sunday-webry",

@@ -67,6 +67,16 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="comic-days",
+        domains=("comic-days.com",),
+        input_labels=("episode URL", "series RSS URL", "series Atom URL"),
+        examples=(
+            "https://comic-days.com/episode/12207421983746014850",
+            "https://comic-days.com/rss/series/13933686331650127004",
+            "https://comic-days.com/atom/series/13933686331650127004",
+        ),
+    ),
+    SourceCapability(
         source="kuragebunch",
         domains=("kuragebunch.com",),
         input_labels=("episode URL", "series RSS URL", "series Atom URL"),

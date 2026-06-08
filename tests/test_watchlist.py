@@ -198,6 +198,44 @@ class WatchlistAddLogicTests(unittest.TestCase):
         self.assertEqual(1, payload["work_count"])
         self.assertEqual(1, len(saved["works"]))
 
+    def test_add_watchlist_url_accepts_comic_days_episode_url_and_canonicalizes_to_rss(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            watchlist_path = Path(tmpdir) / "watchlist.json"
+            write_watchlist(watchlist_path, [])
+
+            payload = add_watchlist_url(
+                "https://comic-days.com/episode/12207421983746014850?from=share",
+                watchlist_path=str(watchlist_path),
+                http_client=StaticHttpClient(
+                    {
+                        "https://comic-days.com/episode/12207421983746014850": """
+                        <html>
+                          <head>
+                            <title>メダリスト - つるまいかだ / ｓｃｏｒｅ６０　牧師と子羊① | コミックDAYS</title>
+                            <link rel="alternate" type="application/rss+xml" href="https://comic-days.com/rss/series/13933686331650127004">
+                          </head>
+                          <body>
+                            <script>
+                              window.__DATA__ = {"series_id":"13933686331650127004"};
+                            </script>
+                          </body>
+                        </html>
+                        """
+                    }
+                ),
+            )
+            saved = json.loads(watchlist_path.read_text(encoding="utf-8"))
+
+        self.assertEqual("added", payload["action"])
+        self.assertEqual("comic-days:13933686331650127004", payload["entry"]["id"])
+        self.assertEqual(
+            "https://comic-days.com/rss/series/13933686331650127004",
+            payload["entry"]["seed_url"],
+        )
+        self.assertEqual("comic-days", payload["entry"]["source"])
+        self.assertEqual(1, payload["work_count"])
+        self.assertEqual(1, len(saved["works"]))
+
     def test_add_watchlist_url_accepts_magapoke_episode_url(self):
         with tempfile.TemporaryDirectory() as tmpdir:
             watchlist_path = Path(tmpdir) / "watchlist.json"

@@ -64,6 +64,10 @@ SOURCE_CASES = {
         "normal",
         "broken_missing_series_id",
     ),
+    "comic-days": (
+        "normal",
+        "broken_missing_series_id",
+    ),
     "kuragebunch": (
         "normal",
         "broken_missing_series_id",
@@ -137,6 +141,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
     },
     "comic-trail": {
         "normal": "main_story",
+    },
+    "comic-days": {
+        "normal": "unknown",
     },
     "kuragebunch": {
         "normal": "main_story",
@@ -268,6 +275,7 @@ class SourceAdapterTests(unittest.TestCase):
                 "comic-earthstar",
                 "comicborder",
                 "comic-trail",
+                "comic-days",
                 "kuragebunch",
                 "shonenjumpplus",
                 "sunday-webry",
@@ -316,6 +324,10 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_comic_trail_fixtures(self):
         self._assert_fixture_matrix("comic-trail")
+
+    def test_comic_days_fixtures(self):
+        self._assert_fixture_matrix("comic-days")
+
     def test_kuragebunch_fixtures(self):
         self._assert_fixture_matrix("kuragebunch")
 
@@ -438,6 +450,24 @@ class SourceAdapterTests(unittest.TestCase):
                 },
                 normalize_seed_url(
                     "https://comic-trail.com/rss/series/14079602755560047206"
+                ).to_dict(),
+            ),
+            (
+                "comic-days",
+                normalize_seed_url(
+                    "https://comic-days.com/episode/12207421983746014850?from=share"
+                ).to_dict(),
+                {
+                    "https://comic-days.com/episode/12207421983746014850": """
+                    <html>
+                      <head>
+                        <link rel="alternate" type="application/rss+xml" href="https://comic-days.com/rss/series/13933686331650127004">
+                      </head>
+                    </html>
+                    """,
+                },
+                normalize_seed_url(
+                    "https://comic-days.com/rss/series/13933686331650127004"
                 ).to_dict(),
             ),
             (

@@ -47,6 +47,7 @@ class DiscordSearchCommandRegistrationTests(unittest.TestCase):
                         {"name": "comic-earthstar", "value": "comic-earthstar"},
                         {"name": "comicborder", "value": "comicborder"},
                         {"name": "comic-trail", "value": "comic-trail"},
+                        {"name": "comic-days", "value": "comic-days"},
                         {"name": "kuragebunch", "value": "kuragebunch"},
                         {"name": "shonenjumpplus", "value": "shonenjumpplus"},
                         {"name": "sunday-webry", "value": "sunday-webry"},
