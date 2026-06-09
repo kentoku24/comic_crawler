@@ -3,7 +3,8 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Optional, Tuple
 
-from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, WorkDescriptor
+from .base import HttpClient, LatestEpisode, SourceParseError, WorkDescriptor
+from .gigaviewer import GigaViewerAdapter
 from .util import html_title
 
 
@@ -150,65 +151,22 @@ def _series_title_from_channel_title(channel_title: str) -> Optional[str]:
     return channel_title or None
 
 
-class ComicTrailAdapter(SourceAdapter):
+class ComicTrailAdapter(GigaViewerAdapter):
     source = "comic-trail"
 
-    def can_handle(self, seed_url: str) -> bool:
-        return bool(
-            parse_comic_trail_episode_url(seed_url)
-            or parse_comic_trail_series_feed_url(seed_url)
-        )
+    parse_episode_url = staticmethod(parse_comic_trail_episode_url)
+    parse_series_feed_url = staticmethod(parse_comic_trail_series_feed_url)
+    canonical_series_feed_url = staticmethod(canonical_comic_trail_series_feed_url)
+    extract_series_id_from_seed_url = staticmethod(extract_comic_trail_series_id_from_seed_url)
+    extract_series_id = staticmethod(extract_comic_trail_series_id)
+    extract_series_feed_url = staticmethod(extract_comic_trail_series_feed_url)
+    parse_feed_latest = staticmethod(parse_comic_trail_feed_latest)
+    parse_page_title = staticmethod(parse_comic_trail_title)
 
-    def normalize(self, seed_url: str) -> WorkDescriptor:
-        normalized_episode_url = parse_comic_trail_episode_url(seed_url)
-        if normalized_episode_url:
-            return WorkDescriptor(
-                source=self.source,
-                work_id=normalized_episode_url,
-                seed_url=normalized_episode_url,
-            )
-
-        feed_match = parse_comic_trail_series_feed_url(seed_url)
-        if not feed_match:
-            raise RuntimeError(f"comic-trail: unsupported seed URL: {seed_url}")
-
-        _, series_id = feed_match
-        stable_work_id = f"{self.source}:{series_id}"
-        return WorkDescriptor(
-            source=self.source,
-            work_id=stable_work_id,
-            seed_url=canonical_comic_trail_series_feed_url(series_id),
-            metadata={
-                "series": stable_work_id,
-                "seriesId": series_id,
-                "feedKind": "rss",
-            },
-        )
-
-    def canonicalize_item(
-        self,
-        item,
-        http_client: HttpClient,
-    ) -> WorkDescriptor:
-        seed_url = str(item.get("seedUrl") or "")
-        series_id = str(item.get("seriesId") or "") or extract_comic_trail_series_id_from_seed_url(seed_url)
-        if series_id:
-            return self.normalize(canonical_comic_trail_series_feed_url(series_id))
-
-        episode_url = parse_comic_trail_episode_url(seed_url)
-        if not episode_url:
-            raise RuntimeError("comic-trail: unsupported seed URL")
-
-        episode_html = http_client.get_text(episode_url)
-        feed_url = extract_comic_trail_series_feed_url(episode_html)
-        if feed_url:
-            return self.normalize(feed_url)
-
-        series_id = extract_comic_trail_series_id(episode_html)
-        if not series_id:
-            raise RuntimeError("comic-trail: series id not found")
-        return self.normalize(canonical_comic_trail_series_feed_url(series_id))
-
+    # comic-trail keeps a bespoke fetch_latest: it builds the feed URL directly
+    # from the series id (no feed-link discovery), reuses already-fetched HTML,
+    # raises strictly when the page title cannot be parsed, and emits a
+    # nextUpdateLabel scraped from the episode page.
     def fetch_latest(self, work: WorkDescriptor, http_client: HttpClient) -> LatestEpisode:
         series = str(work.metadata.get("series") or work.work_id)
         series_id = str(work.metadata.get("seriesId") or "") or extract_comic_trail_series_id_from_seed_url(work.seed_url)

@@ -3,8 +3,8 @@ import re
 import xml.etree.ElementTree as ET
 from typing import Optional, Tuple
 
-from .base import HttpClient, LatestEpisode, SourceAdapter, SourceParseError, WorkDescriptor
-from .util import html_title
+from .base import SourceParseError
+from .gigaviewer import GigaViewerAdapter
 
 
 _HOST = "comic-earthstar.com"
@@ -143,102 +143,14 @@ def _series_title_from_channel_title(channel_title: str) -> Optional[str]:
     return channel_title or None
 
 
-class ComicEarthstarAdapter(SourceAdapter):
+class ComicEarthstarAdapter(GigaViewerAdapter):
     source = "comic-earthstar"
 
-    def can_handle(self, seed_url: str) -> bool:
-        return bool(
-            parse_comic_earthstar_episode_url(seed_url)
-            or parse_comic_earthstar_series_feed_url(seed_url)
-        )
-
-    def normalize(self, seed_url: str) -> WorkDescriptor:
-        normalized_episode_url = parse_comic_earthstar_episode_url(seed_url)
-        if normalized_episode_url:
-            return WorkDescriptor(
-                source=self.source,
-                work_id=normalized_episode_url,
-                seed_url=normalized_episode_url,
-            )
-
-        feed_match = parse_comic_earthstar_series_feed_url(seed_url)
-        if not feed_match:
-            raise RuntimeError(f"comic-earthstar: unsupported seed URL: {seed_url}")
-
-        _, series_id = feed_match
-        stable_work_id = f"{self.source}:{series_id}"
-        return WorkDescriptor(
-            source=self.source,
-            work_id=stable_work_id,
-            seed_url=canonical_comic_earthstar_series_feed_url(series_id),
-            metadata={
-                "series": stable_work_id,
-                "seriesId": series_id,
-                "feedKind": "rss",
-            },
-        )
-
-    def canonicalize_item(
-        self,
-        item,
-        http_client: HttpClient,
-    ) -> WorkDescriptor:
-        seed_url = str(item.get("seedUrl") or "")
-        series_id = str(item.get("seriesId") or "") or extract_comic_earthstar_series_id_from_seed_url(seed_url)
-        if series_id:
-            return self.normalize(canonical_comic_earthstar_series_feed_url(series_id))
-
-        episode_url = parse_comic_earthstar_episode_url(seed_url)
-        if not episode_url:
-            raise RuntimeError("comic-earthstar: unsupported seed URL")
-
-        episode_html = http_client.get_text(episode_url)
-        feed_url = extract_comic_earthstar_series_feed_url(episode_html)
-        if feed_url:
-            return self.normalize(feed_url)
-
-        series_id = extract_comic_earthstar_series_id(episode_html)
-        if not series_id:
-            raise RuntimeError("comic-earthstar: series id not found")
-        return self.normalize(canonical_comic_earthstar_series_feed_url(series_id))
-
-    def fetch_latest(self, work: WorkDescriptor, http_client: HttpClient) -> LatestEpisode:
-        series = str(work.metadata.get("series") or work.work_id)
-        series_id = str(work.metadata.get("seriesId") or "")
-
-        feed_match = parse_comic_earthstar_series_feed_url(work.seed_url)
-        if feed_match:
-            feed_url = canonical_comic_earthstar_series_feed_url(feed_match[1])
-            series_id = series_id or feed_match[1]
-        else:
-            episode_url = parse_comic_earthstar_episode_url(work.seed_url)
-            if not episode_url:
-                raise RuntimeError("comic-earthstar: unsupported seed URL")
-            episode_html = http_client.get_text(episode_url)
-            feed_url = extract_comic_earthstar_series_feed_url(episode_html)
-            series_id = series_id or extract_comic_earthstar_series_id(episode_html) or ""
-            if not series_id:
-                raise SourceParseError("comic-earthstar: series id not found")
-            if not feed_url:
-                raise SourceParseError("comic-earthstar: series feed URL not found")
-            series = f"{self.source}:{series_id}"
-
-        feed_text = http_client.get_text(feed_url)
-        latest_url, episode_title, series_title = parse_comic_earthstar_feed_latest(feed_text)
-        page_title = html_title(http_client.get_text(latest_url))
-        parsed_episode_title, parsed_series_title = parse_comic_earthstar_title(page_title or "")
-        if not episode_title:
-            episode_title = parsed_episode_title
-        if not series_title:
-            series_title = parsed_series_title
-
-        return LatestEpisode(
-            source=self.source,
-            work_id=work.work_id if work.work_id.startswith(f"{self.source}:") else series,
-            latest_key=latest_url,
-            url=latest_url,
-            series=series,
-            series_title=series_title,
-            episode_title=episode_title,
-            page_title=page_title,
-        )
+    parse_episode_url = staticmethod(parse_comic_earthstar_episode_url)
+    parse_series_feed_url = staticmethod(parse_comic_earthstar_series_feed_url)
+    canonical_series_feed_url = staticmethod(canonical_comic_earthstar_series_feed_url)
+    extract_series_id_from_seed_url = staticmethod(extract_comic_earthstar_series_id_from_seed_url)
+    extract_series_id = staticmethod(extract_comic_earthstar_series_id)
+    extract_series_feed_url = staticmethod(extract_comic_earthstar_series_feed_url)
+    parse_feed_latest = staticmethod(parse_comic_earthstar_feed_latest)
+    parse_page_title = staticmethod(parse_comic_earthstar_title)
