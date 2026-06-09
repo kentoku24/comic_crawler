@@ -1,0 +1,56 @@
+{
+  "seedUrl": "https://comic-days.com/rss/series/10834108156629557420",
+  "expectedWork": {
+    "source": "comic-days",
+    "kind": "comic-days",
+    "workId": "comic-days:10834108156629557420",
+    "seedUrl": "https://comic-days.com/rss/series/10834108156629557420",
+    "series": "comic-days:10834108156629557420",
+    "seriesId": "10834108156629557420",
+    "feedKind": "rss"
+  },
+  "expectedLatest": {
+    "workId": "comic-days:10834108156629557420",
+    "latestKey": "https://comic-days.com/episode/12207421983793581733",
+    "url": "https://comic-days.com/episode/12207421983793581733",
+    "series": "comic-days:10834108156629557420",
+    "seriesTitle": "図書館の大魔術師",
+    "episodeTitle": "［第五十六話］海はきこえない　中編２②",
+    "pageTitle": "図書館の大魔術師 - 泉光 / ［第五十六話］海はきこえない 中編２② | コミックDAYS"
+  },
+  "missingLatestKeys": [
+    "nextUpdateLabel"
+  ],
+  "steps": [
+    {
+      "url": "https://comic-days.com/rss/series/10834108156629557420",
+      "response": "01-rss.xml"
+    },
+    {
+      "url": "https://comic-days.com/episode/12207421983793581733",
+      "response": "02-latest.html"
+    }
+  ],
+  "expectedCheckedUrls": [
+    "https://comic-days.com/rss/series/10834108156629557420",
+    "https://comic-days.com/episode/12207421983793581733"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_id",
+      "value": "10834108156629557420"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://comic-days.com/episode/12207421983793581733"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "［第五十六話］海はきこえない 中編２②"
+    },
+    {
+      "name": "series_title",
+      "value": "図書館の大魔術師"
+    }
+  ]
+}

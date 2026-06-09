@@ -52,6 +52,10 @@ SOURCE_CASES = {
         "broken_missing_next",
         "broken_loop",
     ),
+    "comic-days": (
+        "normal",
+        "broken_missing_series_id",
+    ),
     "comic-earthstar": (
         "normal",
         "broken_missing_series_id",
@@ -128,6 +132,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "escaped_next_uri": "main_story",
         "broken_missing_next": "main_story",
         "broken_loop": "main_story",
+    },
+    "comic-days": {
+        "normal": "unknown",
     },
     "comic-earthstar": {
         "normal": "main_story",
@@ -271,6 +278,7 @@ class SourceAdapterTests(unittest.TestCase):
                 "kuragebunch",
                 "shonenjumpplus",
                 "sunday-webry",
+                "comic-days",
                 "champion-cross",
                 "magapoke",
                 "firecross",
@@ -304,6 +312,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_shonenjumpplus_fixtures(self):
         self._assert_fixture_matrix("shonenjumpplus")
+
+    def test_comic_days_fixtures(self):
+        self._assert_fixture_matrix("comic-days")
 
     def test_comic_earthstar_fixtures(self):
         self._assert_fixture_matrix("comic-earthstar")

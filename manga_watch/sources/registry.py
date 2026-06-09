@@ -4,6 +4,7 @@ from .base import HttpClient, LatestEpisode, RequestsHttpClient, SourceAdapter, 
 from .bookwalker import BookwalkerAdapter
 from .champion_cross import ChampionCrossAdapter
 from .comic_action import ComicActionAdapter
+from .comic_days import ComicDaysAdapter
 from .comic_earthstar import ComicEarthstarAdapter
 from .comicborder import ComicBorderAdapter
 from .comic_trail import ComicTrailAdapter
@@ -29,6 +30,7 @@ REGISTERED_ADAPTERS = (
     KuragebunchAdapter(),
     ShonenJumpPlusAdapter(),
     SundayWebryAdapter(),
+    ComicDaysAdapter(),
     ChampionCrossAdapter(),
     MagapokeAdapter(),
     FirecrossAdapter(),
