@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import re
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -44,6 +45,42 @@ TIMEOUT = _read_positive_int_env("MANGA_WATCH_HTTP_TIMEOUT", 25)
 RETRY_COUNT = _read_positive_int_env("MANGA_WATCH_HTTP_RETRIES", 2)
 RETRY_BACKOFF = _read_non_negative_float_env("MANGA_WATCH_HTTP_RETRY_BACKOFF", 0.5)
 MAX_REQUESTS_PER_HOST = _read_positive_int_env("MANGA_WATCH_HTTP_WORKERS_PER_HOST", 2)
+
+_CHARSET_RE = re.compile(r"charset\s*=\s*[\"']?([^;\"'\s]+)", re.IGNORECASE)
+
+
+def decode_response_bytes(
+    content: bytes,
+    *,
+    content_type: Optional[str],
+    apparent_encoding: Optional[str],
+) -> str:
+    """Decode raw HTTP response bytes to str with a strict fallback order.
+
+    Order: declared charset parameter (if any) -> strict UTF-8 (with BOM
+    stripping) -> apparent encoding -> latin-1 with replacement.
+    """
+    if content_type:
+        match = _CHARSET_RE.search(content_type)
+        if match:
+            try:
+                return content.decode(match.group(1))
+            except (LookupError, UnicodeDecodeError):
+                pass
+    try:
+        text = content.decode("utf-8")
+    except UnicodeDecodeError:
+        pass
+    else:
+        if text.startswith("\ufeff"):
+            text = text[1:]
+        return text
+    if apparent_encoding is not None:
+        try:
+            return content.decode(apparent_encoding)
+        except (LookupError, UnicodeDecodeError):
+            pass
+    return content.decode("latin-1", errors="replace")
 
 
 class HttpClient(Protocol):
@@ -109,7 +146,11 @@ class RequestsHttpClient:
                     self._sleep_before_retry(attempt)
                     continue
                 response.raise_for_status()
-                return response.text
+                return decode_response_bytes(
+                    response.content,
+                    content_type=response.headers.get("Content-Type"),
+                    apparent_encoding=response.apparent_encoding or None,
+                )
             except requests.HTTPError as exc:
                 if not self._is_retryable_http_error(exc) or attempt >= self.retry_count:
                     raise

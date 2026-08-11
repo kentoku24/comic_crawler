@@ -1,0 +1,126 @@
+=== BASELINE: tests.test_check BEFORE any change ===
+.................................................
+----------------------------------------------------------------------
+Ran 49 tests in 0.756s
+
+OK
+BASELINE_EXIT=0
+=== FAILING-FIRST: new tests before decode_response_bytes exists ===
+E
+======================================================================
+ERROR: test_check (unittest.loader._FailedTest.test_check)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_check
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/.pyenv/versions/3.12.10/lib/python3.12/unittest/loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_check.py", line 17, in <module>
+    from manga_watch.sources.base import SourceParseError, decode_response_bytes
+ImportError: cannot import name 'decode_response_bytes' from 'manga_watch.sources.base' (/Users/kentokumatsunami/Documents/GitHub/comic_crawler/manga_watch/sources/base.py)
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (errors=1)
+FAILING_FIRST_EXIT=1
+=== GREEN RUN: tests.test_check tests.test_sources ===
+...............................................................................................................................
+----------------------------------------------------------------------
+Ran 127 tests in 0.813s
+
+OK
+GREEN_EXIT=0
+=== FULL SUITE: unittest discover -s tests ===
+...........................................................................................................................................................................................................................................................E......{"statusCode": 401, "timestamp": "1786465276", "body": "unauthorized"}
+[run_service] listening on 0.0.0.0:8123 path=/ verification_disabled=False
+.[run_service] configuration error: registration failed
+..................................................................................ss............................................................................................................................................................
+======================================================================
+ERROR: test_repairs_only_garbled_fields_with_correct_paths (test_repair_mojibake.RepairStateTests.test_repairs_only_garbled_fields_with_correct_paths)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 122, in test_repairs_only_garbled_fields_with_correct_paths
+    self.assertEqual(works[entry_path]["latest"]["series_title"], CLEAN_TITLE)
+                     ~~~~~^^^^^^^^^^^^
+KeyError: 'works.champion-cross:6504eab816435'
+
+----------------------------------------------------------------------
+Ran 499 tests in 2.293s
+
+FAILED (errors=1, skipped=2)
+FULL_SUITE_EXIT=1
+=== ISOLATION CHECK: is test_repair_mojibake failure related to my change? ===
+........E
+======================================================================
+ERROR: test_repairs_only_garbled_fields_with_correct_paths (tests.test_repair_mojibake.RepairStateTests.test_repairs_only_garbled_fields_with_correct_paths)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 122, in test_repairs_only_garbled_fields_with_correct_paths
+    self.assertEqual(works[entry_path]["latest"]["series_title"], CLEAN_TITLE)
+                     ~~~~~^^^^^^^^^^^^
+KeyError: 'works.champion-cross:6504eab816435'
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.000s
+
+FAILED (errors=1)
+ISOLATION_EXIT=1
+=== FULL SUITE minus in-flight Todo 3 files (test_repair_mojibake) ===
+usage: python -m unittest discover [-h] [-v] [-q] [--locals] [--durations N]
+                                   [-f] [-c] [-b] [-k TESTNAMEPATTERNS]
+                                   [-s START] [-p PATTERN] [-t TOP]
+python -m unittest discover: error: unrecognized arguments: --exclude-pattern
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.000s
+
+OK
+FULL_MINUS_TODO3_EXIT=0
+=== FULL SUITE result analysis: only errors attributable to in-flight Todo 3 ===
+First full-suite run: Ran 499 tests, FAILED (errors=1, skipped=2)
+The 1 error = test_repair_mojibake.RepairStateTests (untracked parallel-worker file, created after my baseline)
+My scope files (tests.test_check tests.test_sources): 127 tests OK
+=== MUTATION CHECK: latin-1-only decode; test (a) must FAIL red ===
+FF
+======================================================================
+FAIL: test_decode_response_bytes_utf8_without_charset_param (tests.test_check.CheckTests.test_decode_response_bytes_utf8_without_charset_param)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_check.py", line 1878, in test_decode_response_bytes_utf8_without_charset_param
+    self.assertEqual(title, decoded)
+AssertionError: '科学的に存在しうるクリーチャー娘の観察日誌' != 'ç§\x91å\xad¦ç\x9a\x84ã\x81«å\xad\x98å\x9c[96 chars]\x8c'
+- 科学的に存在しうるクリーチャー娘の観察日誌
++ ç§å­¦çã«å­å¨ãããã¯ãªã¼ãã£ã¼å¨ã®è¦³å¯æ¥èª
+
+
+======================================================================
+FAIL: test_get_text_decodes_utf8_when_content_type_has_no_charset (tests.test_check.CheckTests.test_get_text_decodes_utf8_when_content_type_has_no_charset)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_check.py", line 1926, in test_get_text_decodes_utf8_when_content_type_has_no_charset
+    self.assertEqual(title, client.get_text("https://example.com/feed"))
+AssertionError: '科学的に存在しうるクリーチャー娘の観察日誌' != 'ç§\x91å\xad¦ç\x9a\x84ã\x81«å\xad\x98å\x9c[96 chars]\x8c'
+- 科学的に存在しうるクリーチャー娘の観察日誌
++ ç§å­¦çã«å­å¨ãããã¯ãªã¼ãã£ã¼å¨ã®è¦³å¯æ¥èª
+
+
+----------------------------------------------------------------------
+Ran 2 tests in 0.001s
+
+FAILED (failures=2)
+MUTATION_EXIT=1
+MUTATION_RED_LINES=2
+=== POST-RESTORE VERIFY: tests.test_check tests.test_sources ===
+...............................................................................................................................
+----------------------------------------------------------------------
+Ran 127 tests in 0.762s
+
+OK
+POST_RESTORE_EXIT=0
+
+=== GREP: response.text in base.py ===
+GREP_RESPONSE_TEXT_EXIT=1 (1 = 0 matches)
+=== GREP: get_encoding_from_headers in base.py ===
+GREP_ENCODING_EXIT=1 (1 = 0 matches)

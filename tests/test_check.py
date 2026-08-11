@@ -14,7 +14,7 @@ import requests
 
 from manga_watch import check
 from manga_watch.sources import LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
-from manga_watch.sources.base import SourceParseError
+from manga_watch.sources.base import SourceParseError, decode_response_bytes
 from manga_watch.storage import (
     evaluate_notification_policy,
     latest_runtime_to_storage,
@@ -109,6 +109,9 @@ class FakeResponse:
     def __init__(self, *, status_code=200, text="ok"):
         self.status_code = status_code
         self.text = text
+        self.content = text.encode("utf-8")
+        self.headers = {"Content-Type": "text/html; charset=utf-8"}
+        self.apparent_encoding = "utf-8"
         self.closed = False
 
     def raise_for_status(self):
@@ -147,6 +150,30 @@ class TrackingSession:
         finally:
             with self.tracker["lock"]:
                 self.tracker["current"] -= 1
+
+
+class Utf8XmlResponse:
+    """Duck-typed requests.Response stand-in serving UTF-8 bytes with no charset header."""
+
+    def __init__(self, content: bytes, content_type: str = "text/xml"):
+        self.status_code = 200
+        self.content = content
+        self.headers = {"Content-Type": content_type}
+        self.apparent_encoding = "utf-8"
+
+    def raise_for_status(self):
+        pass
+
+    def close(self):
+        pass
+
+
+class Utf8XmlSession:
+    def __init__(self, response):
+        self.response = response
+
+    def get(self, url, headers=None, timeout=None):
+        return self.response
 
 
 class CheckTests(unittest.TestCase):
@@ -1871,6 +1898,63 @@ class CheckTests(unittest.TestCase):
             )
 
         self.assertEqual(1, tracker["max"])
+
+    def test_decode_response_bytes_utf8_without_charset_param(self):
+        title = "科学的に存在しうるクリーチャー娘の観察日誌"
+        decoded = decode_response_bytes(
+            title.encode("utf-8"),
+            content_type="text/xml",
+            apparent_encoding=None,
+        )
+        self.assertEqual(title, decoded)
+
+    def test_decode_response_bytes_utf8_with_explicit_charset(self):
+        title = "科学的に存在しうるクリーチャー娘の観察日誌"
+        decoded = decode_response_bytes(
+            title.encode("utf-8"),
+            content_type="text/html; charset=utf-8",
+            apparent_encoding=None,
+        )
+        self.assertEqual(title, decoded)
+
+    def test_decode_response_bytes_latin1_charset(self):
+        decoded = decode_response_bytes(
+            "caf\xe9".encode("latin-1"),
+            content_type="text/plain; charset=iso-8859-1",
+            apparent_encoding=None,
+        )
+        self.assertEqual("café", decoded)
+
+    def test_decode_response_bytes_ascii_without_content_type(self):
+        decoded = decode_response_bytes(
+            b"hello world",
+            content_type=None,
+            apparent_encoding=None,
+        )
+        self.assertEqual("hello world", decoded)
+
+    def test_decode_response_bytes_unknown_charset_falls_back_to_utf8(self):
+        title = "科学的に存在しうるクリーチャー娘の観察日誌"
+        decoded = decode_response_bytes(
+            title.encode("utf-8"),
+            content_type="text/xml; charset=bogus-xyz",
+            apparent_encoding=None,
+        )
+        self.assertEqual(title, decoded)
+
+    def test_decode_response_bytes_garbage_bytes_returns_without_raising(self):
+        decoded = decode_response_bytes(
+            b"\xff\xfe\x00garbage\x80",
+            content_type="text/xml",
+            apparent_encoding=None,
+        )
+        self.assertIsInstance(decoded, str)
+
+    def test_get_text_decodes_utf8_when_content_type_has_no_charset(self):
+        title = "科学的に存在しうるクリーチャー娘の観察日誌"
+        session = Utf8XmlSession(Utf8XmlResponse(title.encode("utf-8")))
+        client = RequestsHttpClient(session=session)
+        self.assertEqual(title, client.get_text("https://example.com/feed"))
 
     def test_run_check_compares_using_latest_key_from_adapter_interface(self):
         with tempfile.TemporaryDirectory() as tmpdir:
