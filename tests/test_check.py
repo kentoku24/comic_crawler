@@ -15,6 +15,7 @@ import requests
 from manga_watch import check
 from manga_watch.sources import LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
 from manga_watch.sources.base import SourceParseError, decode_response_bytes
+from manga_watch.sources.champion_cross import parse_champion_cross_rss_latest
 from manga_watch.storage import (
     evaluate_notification_policy,
     latest_runtime_to_storage,
@@ -1955,6 +1956,17 @@ class CheckTests(unittest.TestCase):
         session = Utf8XmlSession(Utf8XmlResponse(title.encode("utf-8")))
         client = RequestsHttpClient(session=session)
         self.assertEqual(title, client.get_text("https://example.com/feed"))
+
+    def test_champion_cross_rss_fixture_decodes_clean_japanese_titles(self):
+        fixture = Path(__file__).parent / "fixtures" / "champion-cross" / "normal" / "02-rss.xml"
+        feed_text = decode_response_bytes(
+            fixture.read_bytes(),
+            content_type="text/xml",
+            apparent_encoding=None,
+        )
+        _, episode_title, series_title = parse_champion_cross_rss_latest(feed_text)
+        self.assertEqual("織津江大志の異世界クリ娘サバイバル日誌", series_title)
+        self.assertEqual("第71話　ウェンディゴ2", episode_title)
 
     def test_run_check_compares_using_latest_key_from_adapter_interface(self):
         with tempfile.TemporaryDirectory() as tmpdir:
