@@ -1,7 +1,11 @@
 import copy
+import io
+import json
+import tempfile
 import unittest
+from pathlib import Path
 
-from manga_watch.repair_mojibake import repair_mojibake, repair_state
+from manga_watch.repair_mojibake import main, repair_mojibake, repair_state
 
 CLEAN_TITLE = "科学的に存在しうるクリーチャー娘の観察日誌"
 
@@ -80,11 +84,22 @@ def build_state():
         "notification_outbox": [
             {
                 "event_id": "ev-2",
+                "event": {
+                    "work_id": "champion-cross:6504eab816435",
+                    "latest_key": "kc-939a4960ab2ce",
+                    "update_type": "main_story",
+                },
                 "series_title": garbled(CLEAN_TITLE),
                 "url": "https://championcross.jp/episodes/939a4960ab2ce",
             },
         ],
     }
+
+
+def write_state_file(tmpdir_path: Path, state: dict) -> Path:
+    state_path = tmpdir_path / "state.json"
+    state_path.write_text(json.dumps(state, ensure_ascii=False), encoding="utf-8")
+    return state_path
 
 
 EXPECTED_REPORT_PATHS = {
@@ -183,6 +198,88 @@ class RepairStateTests(unittest.TestCase):
             ["discord_delivery.daily_notification.pending_messages.0.series_title"],
         )
         self.assertEqual(state, original)
+
+
+class RepairMojibakeCliTests(unittest.TestCase):
+    def test_dry_run_json_reports_repairs_without_writing(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = write_state_file(Path(tmpdir), build_state())
+            before = state_path.read_bytes()
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            exit_code = main(
+                argv=["--state", str(state_path), "--dry-run", "--json"],
+                stdout=stdout,
+                stderr=stderr,
+            )
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stderr.getvalue(), "")
+            report = json.loads(stdout.getvalue())
+            self.assertTrue(report["dry_run"])
+            self.assertEqual(report["repaired_fields"], 7)
+            self.assertEqual(report["affected_works"], 1)
+            self.assertEqual(state_path.read_bytes(), before)
+
+    def test_apply_rewrites_state_file_with_repaired_fields(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = write_state_file(Path(tmpdir), build_state())
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            exit_code = main(
+                argv=["--state", str(state_path)],
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stderr.getvalue(), "")
+            saved = json.loads(state_path.read_text(encoding="utf-8"))
+            work_id = "champion-cross:6504eab816435"
+            self.assertEqual(saved["works"][work_id]["latest"]["series_title"], CLEAN_TITLE)
+            self.assertEqual(
+                saved["works"][work_id]["history"][0]["gap"]["from_latest"]["series_title"],
+                CLEAN_TITLE,
+            )
+
+    def test_clean_state_exits_zero_with_no_repairs(self):
+        clean_state = {
+            "version": 2,
+            "works": {
+                "w1": {
+                    "latest": {
+                        "series_title": CLEAN_TITLE,
+                        "url": "https://example.com/1",
+                    }
+                }
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = write_state_file(Path(tmpdir), clean_state)
+            stdout = io.StringIO()
+            exit_code = main(
+                argv=["--state", str(state_path), "--json"],
+                stdout=stdout,
+                stderr=io.StringIO(),
+            )
+
+        self.assertEqual(exit_code, 0)
+        report = json.loads(stdout.getvalue())
+        self.assertEqual(report["repaired_fields"], 0)
+        self.assertEqual(report["affected_works"], 0)
+
+    def test_nonexistent_state_path_returns_exit_1_with_error(self):
+        stdout = io.StringIO()
+        stderr = io.StringIO()
+        exit_code = main(
+            argv=["--state", "/nonexistent/path/state.json"],
+            stdout=stdout,
+            stderr=stderr,
+        )
+
+        self.assertEqual(exit_code, 1)
+        self.assertIn("[repair_mojibake] error", stderr.getvalue())
 
 
 if __name__ == "__main__":

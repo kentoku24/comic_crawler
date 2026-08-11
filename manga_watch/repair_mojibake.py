@@ -10,7 +10,13 @@ walker over the state structure that reports every replaced field.
 """
 from __future__ import annotations
 
-from typing import Dict, List, Tuple
+import argparse
+import json
+import os
+import sys
+from typing import Dict, List, Optional, TextIO, Tuple
+
+from manga_watch.storage import get_state_path, load_state, save_state
 
 # Root prefix of the durable pending daily notification messages. The rendered
 # `content` of these messages must never be rewritten (mixed strings, and pure
@@ -99,3 +105,68 @@ def repair_state(state: object) -> Tuple[object, List[Dict[str, object]]]:
     report: List[Dict[str, object]] = []
     repaired = _walk(state, (), report)
     return repaired, report
+
+
+def _affected_work_count(report: List[Dict[str, object]]) -> int:
+    """Count distinct `works.<work_id>.*` paths touched by the report."""
+    affected = set()
+    for entry in report:
+        parts = entry["path"].split(".")
+        if len(parts) >= 2 and parts[0] == "works":
+            affected.add(parts[1])
+    return len(affected)
+
+
+def parse_args(argv=None):
+    parser = argparse.ArgumentParser(
+        description="Repair Latin-1 rendered UTF-8 mojibake in stored state v2 string fields.",
+    )
+    parser.add_argument("--state", default=get_state_path())
+    parser.add_argument("--backend", choices=("json", "firestore"), default="json")
+    parser.add_argument("--dry-run", action="store_true", help="do not save; print report only")
+    parser.add_argument("--json", action="store_true", dest="json_output")
+    return parser.parse_args(argv)
+
+
+def main(
+    argv=None,
+    *,
+    stdout: Optional[TextIO] = None,
+    stderr: Optional[TextIO] = None,
+) -> int:
+    args = parse_args(argv)
+    out = stdout or sys.stdout
+    err = stderr or sys.stderr
+    try:
+        if args.backend == "json" and not os.path.exists(args.state):
+            raise FileNotFoundError(f"state file not found: {args.state}")
+        state = load_state(args.state, backend=args.backend)
+        repaired_state, report = repair_state(state)
+        if not args.dry_run:
+            save_state(repaired_state, args.state, backend=args.backend)
+    except Exception as exc:
+        print(f"[repair_mojibake] error: {exc}", file=err)
+        return 1
+
+    result = {
+        "repaired_fields": len(report),
+        "affected_works": _affected_work_count(report),
+        "dry_run": args.dry_run,
+        "state_path": args.state,
+        "backend": args.backend,
+        "repairs": report,
+    }
+    if args.json_output:
+        print(json.dumps(result, ensure_ascii=False), file=out)
+    else:
+        verb = "would repair" if args.dry_run else "repaired"
+        print(
+            f"[repair_mojibake] {verb} {len(report)} fields across "
+            f"{result['affected_works']} works",
+            file=out,
+        )
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

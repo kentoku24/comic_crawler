@@ -1,0 +1,95 @@
+E
+======================================================================
+ERROR: test_repair_mojibake (unittest.loader._FailedTest.test_repair_mojibake)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_repair_mojibake
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/.pyenv/versions/3.12.10/lib/python3.12/unittest/loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 8, in <module>
+    from manga_watch.repair_mojibake import main, repair_mojibake, repair_state
+ImportError: cannot import name 'main' from 'manga_watch.repair_mojibake' (/Users/kentokumatsunami/Documents/GitHub/comic_crawler/manga_watch/repair_mojibake.py)
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (errors=1)
+F.F...........
+======================================================================
+FAIL: test_apply_rewrites_state_file_with_repaired_fields (tests.test_repair_mojibake.RepairMojibakeCliTests.test_apply_rewrites_state_file_with_repaired_fields)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 232, in test_apply_rewrites_state_file_with_repaired_fields
+    self.assertEqual(exit_code, 0)
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_dry_run_json_reports_repairs_without_writing (tests.test_repair_mojibake.RepairMojibakeCliTests.test_dry_run_json_reports_repairs_without_writing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 212, in test_dry_run_json_reports_repairs_without_writing
+    self.assertEqual(exit_code, 0)
+AssertionError: 1 != 0
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.004s
+
+FAILED (failures=2)
+..E...........
+======================================================================
+ERROR: test_dry_run_json_reports_repairs_without_writing (tests.test_repair_mojibake.RepairMojibakeCliTests.test_dry_run_json_reports_repairs_without_writing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 223, in test_dry_run_json_reports_repairs_without_writing
+    self.assertEqual(state_path.read_bytes(), before)
+                     ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kentokumatsunami/.pyenv/versions/3.12.10/lib/python3.12/pathlib.py", line 1019, in read_bytes
+    with self.open(mode='rb') as f:
+         ^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kentokumatsunami/.pyenv/versions/3.12.10/lib/python3.12/pathlib.py", line 1013, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/var/folders/nh/vvz9bw993dbg_2yvfmgxrp700000gn/T/tmpq0hg1okg/state.json'
+
+----------------------------------------------------------------------
+Ran 14 tests in 0.006s
+
+FAILED (errors=1)
+..............
+----------------------------------------------------------------------
+Ran 14 tests in 0.004s
+
+OK
+=== QA: --help ===
+usage: repair_mojibake.py [-h] [--state STATE] [--backend {json,firestore}]
+                          [--dry-run] [--json]
+
+Repair Latin-1 rendered UTF-8 mojibake in stored state v2 string fields.
+
+options:
+  -h, --help            show this help message and exit
+  --state STATE
+  --backend {json,firestore}
+  --dry-run             do not save; print report only
+  --json
+HELP_EXIT=0
+
+=== QA: happy path (synthetic garbled state) ===
+wrote synthetic state with garbled series_title
+--- dry-run --json ---
+{"repaired_fields": 1, "affected_works": 1, "dry_run": true, "state_path": "/var/folders/nh/vvz9bw993dbg_2yvfmgxrp700000gn/T/tmp.J01n3NOAxq/state.json", "backend": "json", "repairs": [{"path": "works.champion-cross:6504eab816435.latest.series_title", "from": "ç§å­¦çã«å­å¨ãããã¯ãªã¼ãã£ã¼å¨ã®è¦³å¯æ¥èª", "to": "科学的に存在しうるクリーチャー娘の観察日誌"}]}
+DRYRUN_EXIT=0
+--- apply (no dry-run) ---
+[repair_mojibake] repaired 1 fields across 1 works
+APPLY_EXIT=0
+--- grep clean title in file after apply ---
+1
+--- dry-run text output ---
+[repair_mojibake] would repair 0 fields across 0 works
+DRYRUN2_EXIT=0
+
+=== QA: failure path (nonexistent state) ===
+[repair_mojibake] error: state file not found: /nonexistent/path/state.json
+FAIL_EXIT=1
