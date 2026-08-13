@@ -59,13 +59,19 @@ def decode_response_bytes(
 
     Order: declared charset parameter (if any) -> strict UTF-8 (with BOM
     stripping) -> apparent encoding -> latin-1 with replacement.
+
+    The declared charset and apparent-encoding steps decode with
+    errors="replace", so a single malformed byte never discards the
+    selected encoding (an unknown codec still falls through via
+    LookupError). The strict UTF-8 step is the detection probe for
+    charset-less responses and is intentionally left strict.
     """
     if content_type:
         match = _CHARSET_RE.search(content_type)
         if match:
             try:
-                return content.decode(match.group(1))
-            except (LookupError, UnicodeDecodeError):
+                return content.decode(match.group(1), errors="replace")
+            except LookupError:
                 pass
     try:
         text = content.decode("utf-8")
@@ -77,8 +83,8 @@ def decode_response_bytes(
         return text
     if apparent_encoding is not None:
         try:
-            return content.decode(apparent_encoding)
-        except (LookupError, UnicodeDecodeError):
+            return content.decode(apparent_encoding, errors="replace")
+        except LookupError:
             pass
     return content.decode("latin-1", errors="replace")
 

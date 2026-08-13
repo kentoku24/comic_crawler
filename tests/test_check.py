@@ -1951,6 +1951,15 @@ class CheckTests(unittest.TestCase):
         )
         self.assertIsInstance(decoded, str)
 
+    def test_decode_response_bytes_declared_charset_with_malformed_byte_keeps_charset(self):
+        decoded = decode_response_bytes(
+            "あいう".encode("utf-8") + b"\xff",
+            content_type="text/html; charset=utf-8",
+            apparent_encoding=None,
+        )
+        self.assertIn("あいう", decoded)
+        self.assertIn("\ufffd", decoded)
+
     def test_get_text_decodes_utf8_when_content_type_has_no_charset(self):
         title = "科学的に存在しうるクリーチャー娘の観察日誌"
         session = Utf8XmlSession(Utf8XmlResponse(title.encode("utf-8")))
