@@ -1,0 +1,133 @@
+=== Todo 2: byte-level charset regression for champion-cross RSS (task-2-fix-mojibake-http-decode) ===
+=== env: Python 3.12.10, Darwin, HEAD=eed3a12 fix(sources): decode HTTP responses with explicit charset fallback ===
+
+########## PHASE 0: pre-work git status ##########
+ M manga_watch/repair_mojibake.py
+ M tests/test_check.py
+ M tests/test_repair_mojibake.py
+?? .omc/
+?? .omo/boulder.json
+?? .omo/drafts/
+?? .omo/evidence/task-2-fix-mojibake-http-decode.txt
+?? .omo/evidence/task-4-fix-mojibake-http-decode.txt
+?? .omo/notepads/
+?? .omo/plans/
+?? .omo/run-continuation/
+
+########## RED PROOF: temporarily mutate decode_response_bytes to decode latin-1 ##########
+### mutation applied to manga_watch/sources/base.py (git diff):
+diff --git a/manga_watch/sources/base.py b/manga_watch/sources/base.py
+index 5207c10..1f97455 100644
+--- a/manga_watch/sources/base.py
++++ b/manga_watch/sources/base.py
+@@ -67,6 +67,8 @@ def decode_response_bytes(
+                 return content.decode(match.group(1))
+             except (LookupError, UnicodeDecodeError):
+                 pass
++    # TEMP-MUTATION-FOR-TASK-2-EVIDENCE: force latin-1
++    return content.decode("latin-1")
+     try:
+         text = content.decode("utf-8")
+     except UnicodeDecodeError:
+
+### RED command: .venv/bin/python -m unittest tests.test_check.CheckTests.test_champion_cross_rss_fixture_decodes_clean_japanese_titles
+### RED run output (exit code: 1)
+F
+======================================================================
+FAIL: test_champion_cross_rss_fixture_decodes_clean_japanese_titles (tests.test_check.CheckTests.test_champion_cross_rss_fixture_decodes_clean_japanese_titles)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_check.py", line 1937, in test_champion_cross_rss_fixture_decodes_clean_japanese_titles
+    self.assertEqual("織津江大志の異世界クリ娘サバイバル日誌", series_title)
+AssertionError: '織津江大志の異世界クリ娘サバイバル日誌' != 'ç¹\x94æ´¥æ±\x9få¤§å¿\x97ã\x81®ç\x95°ä¸\x9[72 chars]\x8c'
+- 織津江大志の異世界クリ娘サバイバル日誌
++ ç¹æ´¥æ±å¤§å¿ã®ç°ä¸çã¯ãªå¨ãµãã¤ãã«æ¥èª
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.001s
+
+FAILED (failures=1)
+
+### base.py restored. Remaining diff on manga_watch/sources/base.py:
+(empty above = base.py identical to HEAD)
+
+########## GREEN: unmodified decode_response_bytes ##########
+### GREEN command: .venv/bin/python -m unittest tests.test_check.CheckTests.test_champion_cross_rss_fixture_decodes_clean_japanese_titles
+### GREEN run output (exit code: 0)
+.
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+OK
+
+########## Module suites: tests.test_check + tests.test_sources ##########
+### command: .venv/bin/python -m unittest tests.test_check tests.test_sources
+### module-suite output (exit code: 0)
+................................................................................................................................
+----------------------------------------------------------------------
+Ran 128 tests in 0.832s
+
+OK
+
+########## FULL SUITE: .venv/bin/python -m unittest discover -s tests ##########
+### full-suite output, tail (exit code: 1):
+....................................................................................................................................................................................................................................................F.F................{"statusCode": 401, "timestamp": "1786466020", "body": "unauthorized"}
+[run_service] listening on 0.0.0.0:8123 path=/ verification_disabled=False
+.[run_service] configuration error: registration failed
+..................................................................................ss............................................................................................................................................................
+======================================================================
+FAIL: test_apply_rewrites_state_file_with_repaired_fields (test_repair_mojibake.RepairMojibakeCliTests.test_apply_rewrites_state_file_with_repaired_fields)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 232, in test_apply_rewrites_state_file_with_repaired_fields
+    self.assertEqual(exit_code, 0)
+AssertionError: 1 != 0
+
+======================================================================
+FAIL: test_dry_run_json_reports_repairs_without_writing (test_repair_mojibake.RepairMojibakeCliTests.test_dry_run_json_reports_repairs_without_writing)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 212, in test_dry_run_json_reports_repairs_without_writing
+    self.assertEqual(exit_code, 0)
+AssertionError: 1 != 0
+
+----------------------------------------------------------------------
+Ran 504 tests in 2.357s
+
+FAILED (failures=2, skipped=2)
+(full-suite stdout+stderr saved to /var/folders/nh/vvz9bw993dbg_2yvfmgxrp700000gn/T/tmp.B90mx5FZ7q for reference)
+########## FULL SUITE (final, after parallel Todo-4 worker finished writing) ##########
+### command: .venv/bin/python -m unittest discover -s tests
+### full-suite output (exit code: 0):
+.......................................................................................................................................................................................................................................................................{"statusCode": 401, "timestamp": "1786466134", "body": "unauthorized"}
+[run_service] listening on 0.0.0.0:8123 path=/ verification_disabled=False
+.[run_service] configuration error: registration failed
+..................................................................................ss............................................................................................................................................................
+----------------------------------------------------------------------
+Ran 504 tests in 2.717s
+
+OK (skipped=2)
+
+########## TRANSIENT FAILURES OBSERVED (during parallel Todo-4 worker write) — NOT in scope, NOT fixed ##########
+### Run 1: FAILED (failures=2) in test_repair_mojibake.RepairMojibakeCliTests:
+###   test_apply_rewrites_state_file_with_repaired_fields: AssertionError 1 != 0 (exit_code)
+###   test_dry_run_json_reports_repairs_without_writing: AssertionError 1 != 0 (exit_code)
+### Run 2: FAILED (errors=1) in test_repair_mojibake.RepairMojibakeCliTests:
+###   test_dry_run_json_reports_repairs_without_writing: FileNotFoundError .../state.json (read_bytes after CLI)
+### Cause: tests/test_repair_mojibake.py + manga_watch/repair_mojibake.py were being rewritten by the parallel Todo-4 worker
+###        (mtimes 01:32-01:34; file size changed 10267 -> 10506 bytes between runs). Task 4 owns those files.
+### Resolution: re-ran full suite after worker finished -> Ran 504 tests, OK (skipped=2), exit 0 (above).
+
+########## FINAL git status ##########
+ M manga_watch/repair_mojibake.py
+ M tests/test_check.py
+ M tests/test_repair_mojibake.py
+?? .omc/
+?? .omo/boulder.json
+?? .omo/drafts/
+?? .omo/evidence/task-2-fix-mojibake-http-decode.txt
+?? .omo/evidence/task-4-fix-mojibake-http-decode.txt
+?? .omo/notepads/
+?? .omo/plans/
+?? .omo/run-continuation/

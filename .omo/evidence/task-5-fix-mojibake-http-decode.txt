@@ -1,0 +1,24 @@
+F
+======================================================================
+FAIL: test_decode_response_bytes_declared_charset_with_malformed_byte_keeps_charset (tests.test_check.CheckTests.test_decode_response_bytes_declared_charset_with_malformed_byte_keeps_charset)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_check.py", line 1960, in test_decode_response_bytes_declared_charset_with_malformed_byte_keeps_charset
+    self.assertIn("あいう", decoded)
+AssertionError: 'あいう' not found in 'ã\x81\x82ã\x81\x84ã\x81\x86ÿ'
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (failures=1)
+RED_EXIT_CODE=1
+................................................................................................................................................
+----------------------------------------------------------------------
+Ran 144 tests in 0.777s
+
+OK
+..................................................................................ss..............................................................................................................................................................
+----------------------------------------------------------------------
+Ran 508 tests in 2.316s
+
+OK (skipped=2)

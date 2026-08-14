@@ -1,0 +1,63 @@
+E
+======================================================================
+ERROR: test_repair_mojibake (unittest.loader._FailedTest.test_repair_mojibake)
+----------------------------------------------------------------------
+ImportError: Failed to import test module: test_repair_mojibake
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/.pyenv/versions/3.12.10/lib/python3.12/unittest/loader.py", line 137, in loadTestsFromName
+    module = __import__(module_name)
+             ^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 4, in <module>
+    from manga_watch.repair_mojibake import repair_mojibake, repair_state
+ModuleNotFoundError: No module named 'manga_watch.repair_mojibake'
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (errors=1)
+........E
+======================================================================
+ERROR: test_repairs_only_garbled_fields_with_correct_paths (tests.test_repair_mojibake.RepairStateTests.test_repairs_only_garbled_fields_with_correct_paths)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 122, in test_repairs_only_garbled_fields_with_correct_paths
+    self.assertEqual(works[entry_path]["latest"]["series_title"], CLEAN_TITLE)
+                     ~~~~~^^^^^^^^^^^^
+KeyError: 'works.champion-cross:6504eab816435'
+
+----------------------------------------------------------------------
+Ran 9 tests in 0.001s
+
+FAILED (errors=1)
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.000s
+
+OK
+.......
+----------------------------------------------------------------------
+Ran 7 tests in 0.288s
+
+OK
+F
+======================================================================
+FAIL: test_mixed_string_with_clean_japanese_unchanged (tests.test_repair_mojibake.RepairMojibakeHeuristicTests.test_mixed_string_with_clean_japanese_unchanged)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/Users/kentokumatsunami/Documents/GitHub/comic_crawler/tests/test_repair_mojibake.py", line 36, in test_mixed_string_with_clean_japanese_unchanged
+    self.assertEqual(repair_mojibake(mixed), mixed)
+AssertionError: '2026-08-11科学的に存在しうるクリーチャー娘の観察日誌' != '新着エピソードを検知しました（2026-08-11）ç§\x91å\xad¦ç\x[122 chars]\x8c'
+- 2026-08-11科学的に存在しうるクリーチャー娘の観察日誌
++ 新着エピソードを検知しました（2026-08-11）ç§å­¦çã«å­å¨ãããã¯ãªã¼ãã£ã¼å¨ã®è¦³å¯æ¥èª
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.000s
+
+FAILED (failures=1)
+.........
+----------------------------------------------------------------------
+Ran 9 tests in 0.000s
+
+OK

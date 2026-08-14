@@ -510,6 +510,7 @@ source expansion の Issue / PR review には [`docs/source-expansion-review-rub
 - `manga_watch/source_drift.py`: live source drift canary と fixture refresh 導線
 - `manga_watch/status.py`: status CLI 向けの health 集約と text / JSON 表示
 - `manga_watch/storage.py`: watchlist/state v2 validation と atomic write
+- `manga_watch/repair_mojibake.py`: 保存済み state v2 の Latin-1 化け UTF-8 文字列を修復する CLI（dry-run / JSON 出力対応）
 - `manga_watch/discord_text.py`: Discord 表示向け label fallback / truncate helper
 - `manga_watch/discord_outbound.py`: Discord daily notification / run report formatter と sender
 - `manga_watch/notifier.py`: update event schema + stdout/webhook backend
@@ -531,5 +532,6 @@ source expansion の Issue / PR review には [`docs/source-expansion-review-rub
 - state contract を更新したら `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_backlog` を回す
 - canonical docs の mocked acceptance 契約をまとめて確認したいときは `.venv/bin/python -m manga_watch.run_mocked_acceptance` を使う
 - 未読の確認や既読化を手動で行いたいときは `.venv/bin/python -m manga_watch.backlog --unread-only` または `.venv/bin/python -m manga_watch.backlog --mark-read <work_id>` を使う
+- 保存済み state のタイトルが文字化けしていたら、まず `.venv/bin/python -m manga_watch.repair_mojibake --state <path> --dry-run --json` で修復対象を確認し、state ファイルをコピーしてバックアップしてから `--dry-run` なしで適用する。GCP 本番では `--backend firestore` を付け、同じ dry-run → apply の流れで実行する（firestore backend はローカルでテストしていない）
 - run/retry 設定を変えたときは `.venv/bin/python -m unittest tests.test_source_drift tests.test_sources tests.test_update_classification tests.test_check tests.test_status tests.test_watchlist tests.test_runner tests.test_backlog` で runner まで確認する
 - 新しい source を足すときは `manga_watch/sources/` に adapter を追加し、`registry.py` の `REGISTERED_ADAPTERS` と `manga_watch/source_drift.py` の canary contract を更新して fixture / source tests を更新する
