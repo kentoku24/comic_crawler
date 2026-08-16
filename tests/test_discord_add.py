@@ -1,12 +1,14 @@
 import json
 import tempfile
 import unittest
+from datetime import datetime, timezone
 from pathlib import Path
 
 from manga_watch.discord_add import (
     ADD_MISSING_URL_MESSAGE,
     AddCommandHandler,
     UNSUPPORTED_SOURCE_REPORTED_MESSAGE,
+    UNSUPPORTED_SOURCE_REPORT_RATE_LIMIT_MESSAGE,
     UNSUPPORTED_SOURCE_REPORT_FAILURE_MESSAGE,
 )
 from manga_watch.watchlist import WatchlistAddError, add_watchlist_url
@@ -214,6 +216,46 @@ class DiscordAddTests(unittest.TestCase):
         self.assertEqual(0, reporter.calls)
         self.assertIn("追加できませんでした", payload["content"])
         self.assertNotIn(UNSUPPORTED_SOURCE_REPORTED_MESSAGE, payload["content"])
+
+    def test_start_rate_limits_unsupported_source_issue_reporting_per_host(self):
+        calls = []
+
+        class FakeIssueReporter:
+            def report_unsupported_source(self, *, url, error):
+                calls.append({"url": url, "error": error})
+                return {
+                    "action": "created",
+                    "issue_number": 174,
+                    "issue_url": "https://github.com/kentoku24/comic_crawler/issues/174",
+                }
+
+        def add_subscription(_url, *, watchlist_path=None):
+            raise WatchlistAddError(
+                "unsupported_source",
+                "Unsupported source host: example.com",
+                "Use one of the supported sources.",
+            )
+
+        now_values = iter(
+            [
+                1700000000,
+                1700000000 + 60,
+            ]
+        )
+
+        handler = AddCommandHandler(
+            add_subscription=add_subscription,
+            unsupported_source_reporter=FakeIssueReporter(),
+            unsupported_source_report_cooldown_seconds=300,
+            now=lambda: datetime.fromtimestamp(next(now_values), tz=timezone.utc),
+        )
+
+        first_payload = handler.start(url="https://example.com/work/1")
+        second_payload = handler.start(url="https://example.com/work/2")
+
+        self.assertEqual(1, len(calls))
+        self.assertIn(UNSUPPORTED_SOURCE_REPORTED_MESSAGE, first_payload["content"])
+        self.assertIn(UNSUPPORTED_SOURCE_REPORT_RATE_LIMIT_MESSAGE, second_payload["content"])
 
 
 if __name__ == "__main__":
