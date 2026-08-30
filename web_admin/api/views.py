@@ -8,6 +8,7 @@ from django.views.decorators.csrf import csrf_exempt
 
 from manga_watch.watchlist import WatchlistAddError
 from web_admin.operations import commands, queries
+from web_admin.operations.codex_approvals import ApprovalRequestError
 
 from .auth import machine_auth_required
 from .openapi import build_openapi_schema
@@ -37,6 +38,10 @@ def _watchlist_error_response(exc: WatchlistAddError) -> JsonResponse:
     status = 404 if exc.kind == "missing_work" else 400
     payload = {"ok": False, "error": exc.message, "detail": exc.to_dict()}
     return JsonResponse(payload, status=status)
+
+
+def _approval_error_response(exc: ApprovalRequestError) -> JsonResponse:
+    return JsonResponse({"ok": False, "error": str(exc)}, status=400)
 
 
 def _boolean_field(payload: Dict[str, Any], key: str) -> bool:
@@ -113,6 +118,21 @@ def manual_run_detail(request: HttpRequest):
     if request.method != "POST":
         return HttpResponseNotAllowed(["POST"])
     return JsonResponse({"ok": True, "result": commands.trigger_manual_run_command()})
+
+
+@csrf_exempt
+@machine_auth_required
+def codex_approval_assess_detail(request: HttpRequest):
+    if request.method != "POST":
+        return HttpResponseNotAllowed(["POST"])
+    try:
+        payload = _json_body(request)
+        result = queries.assess_codex_approval(payload)
+    except ApiRequestError as exc:
+        return _json_request_error_response(exc)
+    except ApprovalRequestError as exc:
+        return _approval_error_response(exc)
+    return JsonResponse(result)
 
 
 @machine_auth_required

@@ -33,6 +33,11 @@ def build_openapi_schema(*, backend: str | None = None) -> Dict[str, object]:
                 }
             },
             "/api/manual-run/": {"post": {"summary": "Trigger a background manual run"}},
+            "/api/codex/approval-assess/": {
+                "post": {
+                    "summary": "Assess a Codex approval request and return human decision support"
+                }
+            },
         },
         "x-machine-auth-policy": capabilities["machine_auth_policy"],
     }

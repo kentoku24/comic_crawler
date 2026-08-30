@@ -6,6 +6,7 @@ from manga_watch.status import build_status_report
 from manga_watch.storage import load_run_summaries, load_state, load_watchlist
 
 from .capabilities import capability_report
+from .codex_approvals import assess_approval_request, parse_approval_request
 
 
 def get_watchlist_data(*, watchlist_path: Optional[str] = None, backend: Optional[str] = None) -> Dict[str, object]:
@@ -41,6 +42,15 @@ def get_run_history(*, limit: int = 20, backend: Optional[str] = None) -> Dict[s
         "supported": True,
         "reason": None,
         "items": load_run_summaries(limit=limit, backend=backend) or [],
+    }
+
+
+def assess_codex_approval(payload: Dict[str, object]) -> Dict[str, object]:
+    request = parse_approval_request(payload)
+    assessment = assess_approval_request(request)
+    return {
+        "ok": True,
+        "assessment": assessment.to_dict(),
     }
 
 
