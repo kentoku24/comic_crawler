@@ -1,5 +1,6 @@
 import json
 import os
+import time
 import unittest
 from unittest import mock
 
@@ -73,7 +74,7 @@ class FakeInteractionCallbackSession:
 class DiscordInteractionServiceTests(unittest.TestCase):
     def signed_request(self, payload, signing_key):
         body = json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8")
-        timestamp = "1700000000"
+        timestamp = str(int(time.time()))
         signature = signing_key.sign(timestamp.encode("utf-8") + body).signature.hex()
         headers = {
             "X-Signature-Ed25519": signature,
@@ -223,6 +224,19 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         service, signing_key = self.make_service()
         headers, body = self.signed_request({"type": 2, "data": {"name": "latest"}}, signing_key)
         headers["X-Signature-Ed25519"] = "00" * 64
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(401, response.status_code)
+        self.assertEqual(b"invalid request signature", response.body)
+
+    def test_stale_timestamp_returns_401_even_with_valid_signature(self):
+        service, signing_key = self.make_service()
+        headers, body = self.signed_request({"type": 1}, signing_key)
+        headers["X-Signature-Timestamp"] = "946684800"  # 2000-01-01T00:00:00Z
+        headers["X-Signature-Ed25519"] = signing_key.sign(
+            headers["X-Signature-Timestamp"].encode("utf-8") + body
+        ).signature.hex()
 
         response = service.handle_request(method="POST", path="/", headers=headers, body=body)
 

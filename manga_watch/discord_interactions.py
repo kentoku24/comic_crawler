@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from dataclasses import dataclass
 from typing import Callable, Dict, Mapping, Optional, Protocol
 
@@ -65,6 +66,7 @@ DEFAULT_CLOUD_RUN_REGION = "asia-northeast1"
 DEFAULT_GOOGLE_AUTH_SCOPE = "https://www.googleapis.com/auth/cloud-platform"
 INVALID_SIGNATURE_MESSAGE = "invalid request signature"
 FETCH_DISPATCH_FAILURE_MESSAGE = "fetch の起動に失敗しました。Cloud Run logs を確認してください。"
+MAX_SIGNATURE_AGE_SECONDS = 300
 
 
 def _coerce_text(value: object) -> Optional[str]:
@@ -79,6 +81,15 @@ def _header_value(headers: Mapping[str, str], name: str) -> Optional[str]:
         if key.lower() == name.lower():
             return _coerce_text(value)
     return None
+
+
+def _is_fresh_timestamp(timestamp: str, *, now: Optional[int] = None) -> bool:
+    try:
+        timestamp_seconds = int(timestamp)
+    except (TypeError, ValueError):
+        return False
+    current_seconds = int(time.time()) if now is None else now
+    return abs(current_seconds - timestamp_seconds) <= MAX_SIGNATURE_AGE_SECONDS
 
 
 def build_cloud_run_job_run_uri(*, project: str, region: str, job_name: str) -> str:
@@ -751,6 +762,8 @@ class DiscordInteractionService:
         signature = _header_value(headers, "X-Signature-Ed25519")
         timestamp = _header_value(headers, "X-Signature-Timestamp")
         if not signature or not timestamp:
+            return False
+        if not _is_fresh_timestamp(timestamp):
             return False
         return self.verifier.verify(signature=signature, timestamp=timestamp, body=body)
 
