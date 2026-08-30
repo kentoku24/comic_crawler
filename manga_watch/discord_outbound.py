@@ -45,6 +45,20 @@ class DiscordTransport(Protocol):
         ...
 
 
+class DiscordReadTransport(Protocol):
+    def get_current_user_id(self) -> str:
+        ...
+
+    def list_channel_messages(
+        self,
+        channel_id: str,
+        *,
+        after: Optional[str] = None,
+        limit: int = 50,
+    ) -> List[Dict[str, object]]:
+        ...
+
+
 @dataclass(frozen=True)
 class DiscordOutboundConfig:
     bot_token: str
@@ -383,19 +397,25 @@ def deliver_daily_notifications(
         if blocked:
             remaining_messages.append(entry)
             continue
+        if int(entry.get("attempt_count", 0) or 0) > 0 and _pending_daily_message_was_already_sent(
+            client,
+            entry,
+        ):
+            delivered_count += 1
+            _mark_daily_message_delivered(
+                delivered_latest_keys,
+                entry,
+                attempted_at=attempted_at,
+            )
+            continue
         try:
             client.send_message(str(entry.get("channel_id") or ""), str(entry.get("content") or ""))
             delivered_count += 1
-            for message_key in entry.get("message_keys", []):
-                if not isinstance(message_key, Mapping):
-                    continue
-                work_id = _coerce_text(message_key.get("work_id"))
-                latest_key = _coerce_text(message_key.get("latest_key"))
-                if work_id and latest_key:
-                    delivered_latest_keys[work_id] = {
-                        "latest_key": latest_key,
-                        "delivered_at": attempted_at,
-                    }
+            _mark_daily_message_delivered(
+                delivered_latest_keys,
+                entry,
+                attempted_at=attempted_at,
+            )
         except Exception as exc:
             blocked = True
             entry["attempt_count"] = int(entry.get("attempt_count", 0) or 0) + 1
@@ -414,6 +434,64 @@ def deliver_daily_notifications(
         "remainingCount": len(remaining_messages),
         "errors": errors,
     }
+
+
+def _mark_daily_message_delivered(
+    delivered_latest_keys: Dict[str, object],
+    entry: Mapping[str, object],
+    *,
+    attempted_at: str,
+) -> None:
+    for message_key in entry.get("message_keys", []):
+        if not isinstance(message_key, Mapping):
+            continue
+        work_id = _coerce_text(message_key.get("work_id"))
+        latest_key = _coerce_text(message_key.get("latest_key"))
+        if work_id and latest_key:
+            delivered_latest_keys[work_id] = {
+                "latest_key": latest_key,
+                "delivered_at": attempted_at,
+            }
+
+
+def _pending_daily_message_was_already_sent(
+    client: DiscordTransport,
+    entry: Mapping[str, object],
+) -> bool:
+    read_client = client if _supports_discord_reads(client) else None
+    if read_client is None:
+        return False
+
+    channel_id = _coerce_text(entry.get("channel_id"))
+    content = str(entry.get("content") or "")
+    if not channel_id or not content:
+        return False
+
+    try:
+        bot_user_id = _coerce_text(read_client.get_current_user_id())
+        if not bot_user_id:
+            return False
+        recent_messages = read_client.list_channel_messages(channel_id, limit=10)
+    except Exception:
+        return False
+
+    for message in recent_messages:
+        if not isinstance(message, Mapping):
+            continue
+        author = message.get("author") or {}
+        if not isinstance(author, Mapping):
+            author = {}
+        if _coerce_text(author.get("id")) != bot_user_id:
+            continue
+        if str(message.get("content") or "") == content:
+            return True
+    return False
+
+
+def _supports_discord_reads(client: object) -> bool:
+    return callable(getattr(client, "get_current_user_id", None)) and callable(
+        getattr(client, "list_channel_messages", None)
+    )
 
 
 def _format_checker_error_lines(errors: Mapping[str, Sequence[Mapping[str, object]]]) -> List[str]:

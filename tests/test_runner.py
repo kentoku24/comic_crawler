@@ -84,9 +84,14 @@ class FakeSession:
 
 
 class FakeDiscordClient:
-    def __init__(self, *, fail_on_call=None, fail_channels=None):
+    def __init__(self, *, fail_on_call=None, fail_channels=None, bot_user_id="bot-user", channel_messages=None):
         self.fail_on_call = fail_on_call
         self.fail_channels = set(fail_channels or [])
+        self.bot_user_id = bot_user_id
+        self.channel_messages = {
+            channel_id: [dict(message) for message in messages]
+            for channel_id, messages in (channel_messages or {}).items()
+        }
         self.calls = []
 
     def send_message(self, channel_id, content):
@@ -100,6 +105,21 @@ class FakeDiscordClient:
             raise RuntimeError("discord delivery failed")
         if channel_id in self.fail_channels:
             raise RuntimeError(f"discord delivery failed for {channel_id}")
+        self.channel_messages.setdefault(channel_id, []).insert(
+            0,
+            {
+                "id": str(len(self.channel_messages.get(channel_id, [])) + 1),
+                "content": content,
+                "author": {"id": self.bot_user_id},
+            },
+        )
+
+    def get_current_user_id(self):
+        return self.bot_user_id
+
+    def list_channel_messages(self, channel_id, *, after=None, limit=50):
+        del after
+        return [dict(message) for message in self.channel_messages.get(channel_id, [])[:limit]]
 
 
 class SecretLeakingDiscordClient:
@@ -968,6 +988,65 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(store["discord_delivery"]["daily_notification"]["pending_messages"]))
         self.assertEqual(1, len(errors))
         self.assertIn("notification delivery failed", errors[0])
+
+    def test_run_once_clears_pending_daily_notification_if_message_is_already_visible(self):
+        pending_content = "pending message"
+        store, load_from_store, save_to_store = self.make_state_store(
+            {
+                **self.make_state(),
+                "discord_delivery": {
+                    "daily_notification": {
+                        "delivered_latest_keys": {},
+                        "pending_messages": [
+                            {
+                                "channel_id": "main-channel",
+                                "content": pending_content,
+                                "message_keys": [{"work_id": "work-1", "latest_key": "episode-2"}],
+                                "created_at": "2023-11-14T22:13:20Z",
+                                "attempt_count": 1,
+                                "last_attempted_at": "2023-11-14T22:14:00Z",
+                                "last_error": "discord delivery failed",
+                            }
+                        ],
+                    }
+                },
+            }
+        )
+        discord = FakeDiscordClient(
+            channel_messages={
+                "main-channel": [
+                    {
+                        "id": "42",
+                        "content": pending_content,
+                        "author": {"id": "bot-user"},
+                    }
+                ]
+            }
+        )
+        reports = []
+
+        outcome = run_once(
+            self.make_config(with_discord=True),
+            notifier=FakeNotifier(),
+            discord_client=discord,
+            checker=lambda _: {"updates": []},
+            state_loader=load_from_store,
+            state_saver=save_to_store,
+            now_fn=lambda: 1_700_000_300,
+            report_logger=reports.append,
+            error_logger=lambda _: self.fail("unexpected error log"),
+        )
+
+        self.assertTrue(outcome["ok"])
+        self.assertTrue(outcome["dailyNotificationSent"])
+        self.assertEqual(["run-report-channel"], [call["channel_id"] for call in discord.calls])
+        self.assertEqual([], store["discord_delivery"]["daily_notification"]["pending_messages"])
+        self.assertEqual(
+            "episode-2",
+            store["discord_delivery"]["daily_notification"]["delivered_latest_keys"]["work-1"]["latest_key"],
+        )
+        self.assertEqual(1, len(reports))
+        self.assertIn("daily notification: 送信した", reports[0])
 
     def test_run_once_logs_secondary_failure_when_run_report_delivery_fails(self):
         discord = FakeDiscordClient(fail_channels={"run-report-channel"})
