@@ -29,7 +29,7 @@ class GitHubWorkflowContractTests(unittest.TestCase):
         self.assertIn("test:", content)
         self.assertIn("build:", content)
         self.assertIn("deploy:", content)
-        self.assertIn("environment: production", content)
+        self.assertNotIn("environment: production", content.split("  deploy:", maxsplit=1)[1])
 
     def test_deploy_workflow_emits_and_consumes_an_image_digest(self):
         content = read_workflow("deploy-production.yml")
