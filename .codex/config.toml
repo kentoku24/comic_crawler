@@ -1,3 +1,5 @@
+approval_policy = "never"
+
 [features]
 multi_agent = true
 
@@ -16,3 +18,21 @@ config_file = "agents/gh-pr-reviewer.toml"
 [agents.maker]
 description = "Implementation-focused worker for the smallest bounded issue packet."
 config_file = "agents/maker.toml"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_add_comment_to_issue]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_add_review_to_pr]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_reply_to_review_comment]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_update_issue_comment]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_update_review_comment]
+approval_mode = "approve"
+
+[apps.connector_76869538009648d5b282a4bb21c3d157.tools.github_create_pull_request]
+approval_mode = "approve"

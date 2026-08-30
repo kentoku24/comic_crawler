@@ -58,6 +58,24 @@ Existing branch / worktree:
 merge:main
 ```
 
+## 4.1 広い scope を明示して渡す形
+
+「全媒体」「全 source」などの表現を使う場合は、対象リストと fallback を明示する。
+
+```text
+$gh-issue-resolver を使ってこの Issue を進めてください。
+
+対象 Issue:
+<owner/repo#number or issue URL>
+
+Scope note:
+- 「全媒体」は次の source を指す: <source list>
+- 対象外: <excluded source / reason>
+- capability 差は隠さない
+- 未実装 / 判定不能 / 取得失敗は false negative にせず <fallback> に倒す
+- Issue body を更新した場合は、maker loop の前に $gh-issue-reviewer を再実行する
+```
+
 ## 5. orchestrated-child で渡す形
 
 ```text
@@ -72,4 +90,29 @@ Existing branch / worktree: <branch name>, <worktree path>
 Requested terminal state: ready_to_merge | merged | done
 Reporting checkpoints: worktree_ready, pr_opened, review_state_changed, merger_state_changed
 merge:codex/orch/83
+```
+
+## 6. gate agent が詰まったときの bounded fallback
+
+```text
+Bounded Gate Packet として進めてください。
+
+Gate:
+gh-pr-reviewer | merger
+
+PR:
+<PR URL>
+
+確認するもの:
+- PR metadata
+- changed files
+- Issue accepted scope
+- test evidence
+- review threads
+- required checks
+
+成果物:
+- PR に `$gh-pr-reviewer` または `$merger` comment を残す
+- 最終行は APPROVE または NG
+- chat には decision と comment URL だけ返す
 ```
