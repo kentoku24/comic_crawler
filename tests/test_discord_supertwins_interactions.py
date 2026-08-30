@@ -18,11 +18,24 @@ class RecordingFetchDispatcher:
 
 
 class RecordingInteractionCallbackClient:
-    def __init__(self):
+    def __init__(self, events=None):
+        self.events = events if events is not None else []
+        self.defer_channel_calls = []
         self.defer_calls = []
         self.edit_calls = []
 
+    def defer_channel_message(self, *, interaction_id, interaction_token, ephemeral=False):
+        self.events.append("callback.defer_channel_message")
+        self.defer_channel_calls.append(
+            {
+                "interaction_id": interaction_id,
+                "interaction_token": interaction_token,
+                "ephemeral": ephemeral,
+            }
+        )
+
     def defer_component(self, *, interaction_id, interaction_token):
+        self.events.append("callback.defer_component")
         self.defer_calls.append(
             {
                 "interaction_id": interaction_id,
@@ -31,6 +44,7 @@ class RecordingInteractionCallbackClient:
         )
 
     def edit_original_response(self, *, application_id, interaction_token, data):
+        self.events.append("callback.edit_original_response")
         self.edit_calls.append(
             {
                 "application_id": application_id,
@@ -97,6 +111,52 @@ class DiscordSupertwinsInteractionTests(unittest.TestCase):
         self.assertEqual("候補検索はまだ有効化されていません。", payload["data"]["content"])
         self.assertEqual(1, len(handler.calls))
 
+    def test_supertwins_search_command_defers_before_handler_and_edits_original_response(self):
+        events = []
+
+        class FakeSearchHandler:
+            def __init__(self):
+                self.calls = []
+
+            def start(self, **kwargs):
+                events.append("supertwins_search_start")
+                self.calls.append(kwargs)
+                return {"content": "候補検索はまだ有効化されていません。", "components": []}
+
+        callback_client = RecordingInteractionCallbackClient(events)
+        handler = FakeSearchHandler()
+        service, signing_key = self.make_service(
+            supertwins_search_handler=handler,
+            interaction_callback_client=callback_client,
+        )
+        headers, body = self.signed_request(
+            {
+                "id": "interaction-1",
+                "application_id": "app-1",
+                "token": "token-1",
+                "type": 2,
+                "data": {"name": SUPERTWINS_SEARCH_COMMAND},
+            },
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(202, response.status_code)
+        self.assertEqual(
+            [
+                "callback.defer_channel_message",
+                "supertwins_search_start",
+                "callback.edit_original_response",
+            ],
+            events,
+        )
+        self.assertEqual(
+            [{"interaction_id": "interaction-1", "interaction_token": "token-1", "ephemeral": True}],
+            callback_client.defer_channel_calls,
+        )
+        self.assertEqual("候補検索はまだ有効化されていません。", callback_client.edit_calls[0]["data"]["content"])
+
     def test_supertwins_manage_command_routes_to_ephemeral_handler(self):
         class FakeManageHandler:
             def __init__(self):
@@ -120,6 +180,52 @@ class DiscordSupertwinsInteractionTests(unittest.TestCase):
         self.assertEqual(64, payload["data"]["flags"])
         self.assertEqual("supertwins 管理はまだ有効化されていません。", payload["data"]["content"])
         self.assertEqual(1, len(handler.calls))
+
+    def test_supertwins_manage_command_defers_before_handler_and_edits_original_response(self):
+        events = []
+
+        class FakeManageHandler:
+            def __init__(self):
+                self.calls = []
+
+            def start(self, **kwargs):
+                events.append("supertwins_manage_start")
+                self.calls.append(kwargs)
+                return {"content": "supertwins 管理はまだ有効化されていません。", "components": []}
+
+        callback_client = RecordingInteractionCallbackClient(events)
+        handler = FakeManageHandler()
+        service, signing_key = self.make_service(
+            supertwins_manage_handler=handler,
+            interaction_callback_client=callback_client,
+        )
+        headers, body = self.signed_request(
+            {
+                "id": "interaction-1",
+                "application_id": "app-1",
+                "token": "token-1",
+                "type": 2,
+                "data": {"name": SUPERTWINS_MANAGE_COMMAND},
+            },
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(202, response.status_code)
+        self.assertEqual(
+            [
+                "callback.defer_channel_message",
+                "supertwins_manage_start",
+                "callback.edit_original_response",
+            ],
+            events,
+        )
+        self.assertEqual(
+            [{"interaction_id": "interaction-1", "interaction_token": "token-1", "ephemeral": True}],
+            callback_client.defer_channel_calls,
+        )
+        self.assertEqual("supertwins 管理はまだ有効化されていません。", callback_client.edit_calls[0]["data"]["content"])
 
     def test_supertwins_search_component_prefix_routes_to_handler(self):
         class FakeSearchHandler:
@@ -262,6 +368,52 @@ class DiscordSupertwinsInteractionTests(unittest.TestCase):
         self.assertEqual(7, payload["type"])
         self.assertEqual("updated-manage", payload["data"]["content"])
         self.assertEqual("supertwins_manage:placeholder", handler.calls[0]["data"]["custom_id"])
+
+    def test_supertwins_manage_component_defers_before_handler_and_edits_original_response(self):
+        events = []
+
+        class FakeManageHandler:
+            def __init__(self):
+                self.calls = []
+
+            def handle_component(self, data, **kwargs):
+                events.append("supertwins_manage_component")
+                self.calls.append({"data": data, **kwargs})
+                return {"content": "updated-manage", "components": []}
+
+        callback_client = RecordingInteractionCallbackClient(events)
+        handler = FakeManageHandler()
+        service, signing_key = self.make_service(
+            supertwins_manage_handler=handler,
+            interaction_callback_client=callback_client,
+        )
+        headers, body = self.signed_request(
+            {
+                "id": "interaction-1",
+                "application_id": "app-1",
+                "token": "token-1",
+                "type": 3,
+                "data": {"custom_id": "supertwins_manage:placeholder"},
+            },
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(202, response.status_code)
+        self.assertEqual(
+            [
+                "callback.defer_component",
+                "supertwins_manage_component",
+                "callback.edit_original_response",
+            ],
+            events,
+        )
+        self.assertEqual(
+            [{"interaction_id": "interaction-1", "interaction_token": "token-1"}],
+            callback_client.defer_calls,
+        )
+        self.assertEqual("updated-manage", callback_client.edit_calls[0]["data"]["content"])
 
 
 if __name__ == "__main__":

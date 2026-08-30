@@ -34,6 +34,43 @@ class FailingFetchDispatcher:
         raise RuntimeError("boom")
 
 
+class RecordingInteractionCallbackClient:
+    def __init__(self, events=None):
+        self.events = events if events is not None else []
+        self.deferred_channel_messages = []
+        self.deferred_components = []
+        self.edits = []
+
+    def defer_channel_message(self, *, interaction_id, interaction_token, ephemeral=False):
+        self.events.append("callback.defer_channel_message")
+        self.deferred_channel_messages.append(
+            {
+                "interaction_id": interaction_id,
+                "interaction_token": interaction_token,
+                "ephemeral": ephemeral,
+            }
+        )
+
+    def defer_component(self, *, interaction_id, interaction_token):
+        self.events.append("callback.defer_component")
+        self.deferred_components.append(
+            {
+                "interaction_id": interaction_id,
+                "interaction_token": interaction_token,
+            }
+        )
+
+    def edit_original_response(self, *, application_id, interaction_token, data):
+        self.events.append("callback.edit_original_response")
+        self.edits.append(
+            {
+                "application_id": application_id,
+                "interaction_token": interaction_token,
+                "data": data,
+            }
+        )
+
+
 class FakeResponse:
     def __init__(self, status_code=200, text=""):
         self.status_code = status_code
@@ -88,6 +125,7 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         latest_handler=None,
         add_handler=None,
         remove_handler=None,
+        interaction_callback_client=None,
         signing_key=None,
     ):
         signing_key = signing_key or SigningKey.generate()
@@ -102,6 +140,7 @@ class DiscordInteractionServiceTests(unittest.TestCase):
             latest_handler=latest_handler or (lambda *_args, **_kwargs: "保存済みの最新話一覧です"),
             add_handler=resolved_add_handler,
             remove_handler=remove_handler,
+            interaction_callback_client=interaction_callback_client,
         )
         return service, signing_key
 
@@ -131,6 +170,45 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         self.assertEqual(4, payload["type"])
         self.assertIn("保存済みの最新話一覧です", payload["data"]["content"])
 
+    def test_latest_command_defers_before_loading_and_edits_original_response(self):
+        events = []
+
+        def latest_handler(*_args, **_kwargs):
+            events.append("latest_handler")
+            return "保存済みの最新話一覧です"
+
+        callback_client = RecordingInteractionCallbackClient(events)
+        service, signing_key = self.make_service(
+            latest_handler=latest_handler,
+            interaction_callback_client=callback_client,
+        )
+        headers, body = self.signed_request(
+            {
+                "id": "interaction-1",
+                "application_id": "app-1",
+                "token": "token-1",
+                "type": 2,
+                "data": {"name": "latest"},
+            },
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(202, response.status_code)
+        self.assertEqual(b"", response.body)
+        self.assertEqual(
+            ["callback.defer_channel_message", "latest_handler", "callback.edit_original_response"],
+            events,
+        )
+        self.assertEqual(
+            [{"interaction_id": "interaction-1", "interaction_token": "token-1", "ephemeral": False}],
+            callback_client.deferred_channel_messages,
+        )
+        self.assertEqual("app-1", callback_client.edits[0]["application_id"])
+        self.assertEqual("token-1", callback_client.edits[0]["interaction_token"])
+        self.assertIn("保存済みの最新話一覧です", callback_client.edits[0]["data"]["content"])
+
     def test_fetch_command_routes_to_dispatcher(self):
         dispatcher = RecordingFetchDispatcher()
         service, signing_key = self.make_service(fetch_dispatcher=dispatcher)
@@ -144,6 +222,77 @@ class DiscordInteractionServiceTests(unittest.TestCase):
             FETCH_ACCEPTED_MESSAGE,
             json.loads(response.body)["data"]["content"],
         )
+
+    def test_fetch_command_defers_before_dispatch_and_edits_original_response(self):
+        events = []
+
+        class RecordingDeferredFetchDispatcher:
+            def __init__(self):
+                self.calls = 0
+
+            def dispatch(self):
+                events.append("fetch_dispatch")
+                self.calls += 1
+                return {"message": FETCH_ACCEPTED_MESSAGE}
+
+        dispatcher = RecordingDeferredFetchDispatcher()
+        callback_client = RecordingInteractionCallbackClient(events)
+        service, signing_key = self.make_service(
+            fetch_dispatcher=dispatcher,
+            interaction_callback_client=callback_client,
+        )
+        headers, body = self.signed_request(
+            {
+                "id": "interaction-1",
+                "application_id": "app-1",
+                "token": "token-1",
+                "type": 2,
+                "data": {"name": "fetch"},
+            },
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(202, response.status_code)
+        self.assertEqual(b"", response.body)
+        self.assertEqual(
+            ["callback.defer_channel_message", "fetch_dispatch", "callback.edit_original_response"],
+            events,
+        )
+        self.assertEqual(
+            [{"interaction_id": "interaction-1", "interaction_token": "token-1", "ephemeral": False}],
+            callback_client.deferred_channel_messages,
+        )
+        self.assertEqual(1, dispatcher.calls)
+        self.assertEqual(FETCH_ACCEPTED_MESSAGE, callback_client.edits[0]["data"]["content"])
+
+    def test_fetch_deferred_command_edits_failure_message_when_dispatch_fails(self):
+        events = []
+        callback_client = RecordingInteractionCallbackClient(events)
+        service, signing_key = self.make_service(
+            fetch_dispatcher=FailingFetchDispatcher(),
+            interaction_callback_client=callback_client,
+        )
+        headers, body = self.signed_request(
+            {
+                "id": "interaction-1",
+                "application_id": "app-1",
+                "token": "token-1",
+                "type": 2,
+                "data": {"name": "fetch"},
+            },
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(202, response.status_code)
+        self.assertEqual(
+            ["callback.defer_channel_message", "callback.edit_original_response"],
+            events,
+        )
+        self.assertIn("fetch の起動に失敗しました", callback_client.edits[0]["data"]["content"])
 
     def test_add_command_routes_url_to_watchlist_handler(self):
         recorded = {}
@@ -170,6 +319,89 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         self.assertEqual("https://kakuyomu.jp/works/123", recorded["url"])
         self.assertIn("追加しました", payload["data"]["content"])
         self.assertIn("kakuyomu:123", payload["data"]["content"])
+
+    def test_add_command_defers_before_watchlist_handler_and_edits_original_response(self):
+        events = []
+
+        class FakeAddHandler:
+            def start(self, *, url, watchlist_path=None):
+                events.append("add_handler")
+                return {
+                    "content": f"追加しました: kakuyomu:123\nseed_url: {url}",
+                    "components": [],
+                }
+
+        callback_client = RecordingInteractionCallbackClient(events)
+        service, signing_key = self.make_service(
+            add_handler=FakeAddHandler(),
+            interaction_callback_client=callback_client,
+        )
+        headers, body = self.signed_request(
+            {
+                "id": "interaction-1",
+                "application_id": "app-1",
+                "token": "token-1",
+                "type": 2,
+                "data": {
+                    "name": "add",
+                    "options": [
+                        {"name": "url", "type": 3, "value": "https://kakuyomu.jp/works/123"}
+                    ],
+                },
+            },
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(202, response.status_code)
+        self.assertEqual(
+            ["callback.defer_channel_message", "add_handler", "callback.edit_original_response"],
+            events,
+        )
+        self.assertEqual(
+            [{"interaction_id": "interaction-1", "interaction_token": "token-1", "ephemeral": False}],
+            callback_client.deferred_channel_messages,
+        )
+        self.assertIn("追加しました", callback_client.edits[0]["data"]["content"])
+
+    def test_add_deferred_command_edits_failure_message_when_handler_raises(self):
+        events = []
+
+        class FakeAddHandler:
+            def start(self, *, url, watchlist_path=None):
+                events.append("add_handler")
+                raise RuntimeError("boom")
+
+        callback_client = RecordingInteractionCallbackClient(events)
+        service, signing_key = self.make_service(
+            add_handler=FakeAddHandler(),
+            interaction_callback_client=callback_client,
+        )
+        headers, body = self.signed_request(
+            {
+                "id": "interaction-1",
+                "application_id": "app-1",
+                "token": "token-1",
+                "type": 2,
+                "data": {
+                    "name": "add",
+                    "options": [
+                        {"name": "url", "type": 3, "value": "https://kakuyomu.jp/works/123"}
+                    ],
+                },
+            },
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(202, response.status_code)
+        self.assertEqual(
+            ["callback.defer_channel_message", "add_handler", "callback.edit_original_response"],
+            events,
+        )
+        self.assertIn("作品追加に失敗しました", callback_client.edits[0]["data"]["content"])
 
     def test_add_command_reports_duplicate_entry(self):
         class FakeAddHandler:
@@ -283,6 +515,57 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         self.assertEqual(64, payload["data"]["flags"])
         self.assertEqual("remove_select", payload["data"]["components"][0]["components"][0]["custom_id"])
 
+    def test_remove_command_defers_before_loading_options_and_edits_original_response(self):
+        events = []
+
+        class FakeRemoveHandler:
+            def start(self, **_kwargs):
+                events.append("remove_start")
+                return {
+                    "content": "削除する作品を選んでください。",
+                    "components": [
+                        {
+                            "type": 1,
+                            "components": [
+                                {
+                                    "type": 3,
+                                    "custom_id": "remove_select",
+                                    "options": [{"label": "作品A", "value": "token-a"}],
+                                }
+                            ],
+                        }
+                    ],
+                }
+
+        callback_client = RecordingInteractionCallbackClient(events)
+        service, signing_key = self.make_service(
+            remove_handler=FakeRemoveHandler(),
+            interaction_callback_client=callback_client,
+        )
+        headers, body = self.signed_request(
+            {
+                "id": "interaction-1",
+                "application_id": "app-1",
+                "token": "token-1",
+                "type": 2,
+                "data": {"name": REMOVE_COMMAND},
+            },
+            signing_key,
+        )
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(202, response.status_code)
+        self.assertEqual(
+            ["callback.defer_channel_message", "remove_start", "callback.edit_original_response"],
+            events,
+        )
+        self.assertEqual(
+            [{"interaction_id": "interaction-1", "interaction_token": "token-1", "ephemeral": True}],
+            callback_client.deferred_channel_messages,
+        )
+        self.assertEqual("remove_select", callback_client.edits[0]["data"]["components"][0]["components"][0]["custom_id"])
+
     def test_message_component_routes_to_remove_handler(self):
         class FakeRemoveHandler:
             def __init__(self):
@@ -305,6 +588,59 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         self.assertEqual(7, payload["type"])
         self.assertEqual("updated", payload["data"]["content"])
         self.assertEqual("remove_select", remove_handler.calls[0]["custom_id"])
+
+    def test_remove_component_defers_before_handler_and_edits_original_response(self):
+        class FakeRemoveHandler:
+            def __init__(self, events):
+                self.events = events
+                self.calls = []
+
+            def handle_component(self, data, **_kwargs):
+                self.events.append("remove_component")
+                self.calls.append(data)
+                return {"content": "updated", "components": []}
+
+        for custom_id, values in (
+            ("remove_select", ["token-a"]),
+            ("remove_page:1", []),
+            ("remove_confirm:token-a", []),
+            ("remove_cancel:token-a", []),
+        ):
+            with self.subTest(custom_id=custom_id):
+                events = []
+                remove_handler = FakeRemoveHandler(events)
+                callback_client = RecordingInteractionCallbackClient(events)
+                service, signing_key = self.make_service(
+                    remove_handler=remove_handler,
+                    interaction_callback_client=callback_client,
+                )
+                data = {"custom_id": custom_id}
+                if values:
+                    data["values"] = values
+                headers, body = self.signed_request(
+                    {
+                        "id": "interaction-1",
+                        "application_id": "app-1",
+                        "token": "token-1",
+                        "type": 3,
+                        "data": data,
+                    },
+                    signing_key,
+                )
+
+                response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+                self.assertEqual(202, response.status_code)
+                self.assertEqual(
+                    ["callback.defer_component", "remove_component", "callback.edit_original_response"],
+                    events,
+                )
+                self.assertEqual(
+                    [{"interaction_id": "interaction-1", "interaction_token": "token-1"}],
+                    callback_client.deferred_components,
+                )
+                self.assertEqual(custom_id, remove_handler.calls[0]["custom_id"])
+                self.assertEqual("updated", callback_client.edits[0]["data"]["content"])
 
 
 class FetchDispatcherTests(unittest.TestCase):
