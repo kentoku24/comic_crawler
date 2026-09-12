@@ -1875,6 +1875,14 @@ class CheckTests(unittest.TestCase):
         self.assertIn("あいう", decoded)
         self.assertIn("\ufffd", decoded)
 
+    def test_decode_response_bytes_declared_charset_strips_leading_bom(self):
+        decoded = decode_response_bytes(
+            "\ufeffあいう".encode("utf-8"),
+            content_type="text/html; charset=utf-8",
+            apparent_encoding=None,
+        )
+        self.assertEqual("あいう", decoded)
+
     def test_get_text_decodes_utf8_when_content_type_has_no_charset(self):
         title = "科学的に存在しうるクリーチャー娘の観察日誌"
         session = Utf8XmlSession(Utf8XmlResponse(title.encode("utf-8")))

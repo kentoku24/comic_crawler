@@ -1,6 +1,14 @@
 import unittest
 from pathlib import Path
 
+try:
+    import yaml
+except ImportError:  # pragma: no cover - CI has no PyYAML
+    yaml = None
+    _HAS_YAML = False
+else:
+    _HAS_YAML = True
+
 
 def repo_root() -> Path:
     return Path(__file__).resolve().parents[1]
@@ -177,6 +185,31 @@ def step_run_texts(steps: list) -> list:
     return [step.get("run") or "" for step in steps if isinstance(step, dict)]
 
 
+def _normalize_for_parity(value):
+    """Normalize scalar typing so stdlib strings compare with typed YAML.
+
+    _mini_yaml_load keeps every scalar a string while yaml.safe_load
+    coerces ints/bools; structural drift (not scalar typing) is what
+    this parity guard watches, so bools/numbers stringify here.
+    """
+    if isinstance(value, bool):
+        return str(value).lower()
+    if value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return str(value)
+    if isinstance(value, dict):
+        normalized = {}
+        for key, item in value.items():
+            if key is True:
+                key = "on"
+            normalized[str(key)] = _normalize_for_parity(item)
+        return normalized
+    if isinstance(value, list):
+        return [_normalize_for_parity(item) for item in value]
+    return value
+
+
 class GitHubWorkflowContractTests(unittest.TestCase):
     def test_deploy_workflow_exists_and_targets_main_push(self):
         doc = load_workflow("deploy-production.yml")
@@ -297,6 +330,21 @@ class GitHubWorkflowContractTests(unittest.TestCase):
             any("gcloud run deploy comic-crawler-service" in run for run in runs),
             "no rollback step updates the Cloud Run Service resource",
         )
+
+    @unittest.skipUnless(_HAS_YAML, "PyYAML not installed; parity needs yaml.safe_load")
+    def test_mini_yaml_load_matches_pyyaml_on_target_keys(self):
+        for name in ("deploy-production.yml", "rollback-production.yml"):
+            text = read_workflow(name)
+            expected = yaml.safe_load(text)
+            if isinstance(expected, dict) and "on" not in expected and True in expected:
+                expected["on"] = expected.pop(True)
+            actual = _mini_yaml_load(text)
+            for key in ("on", "jobs"):
+                self.assertEqual(
+                    _normalize_for_parity(actual.get(key)),
+                    _normalize_for_parity(expected.get(key)),
+                    f"{name}:{key} drift between _mini_yaml_load and yaml.safe_load",
+                )
 
 
 if __name__ == "__main__":

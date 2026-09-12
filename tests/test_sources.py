@@ -433,11 +433,14 @@ class SourceAdapterTests(unittest.TestCase):
             },
             {
                 "source": "comic-days",
+                "episode_input": "https://comic-days.com/episode/12207421983746014850?from=share",
                 "episode_url": "https://comic-days.com/episode/12207421983746014850",
+                "rss_input": "https://comic-days.com/rss/series/13933686331650127004?from=share",
+                "atom_input": "https://comic-days.com/atom/series/13933686331650127004",
                 "rss_url": "https://comic-days.com/rss/series/13933686331650127004",
                 "series_id": "13933686331650127004",
                 "canonical_input": "https://comic-days.com/episode/12207421983746014850?from=share",
-                "normalize_cases": (),
+                "normalize_cases": ("episode", "rss", "atom"),
             },
             {
                 "source": "kuragebunch",

@@ -57,8 +57,10 @@ def decode_response_bytes(
 ) -> str:
     """Decode raw HTTP response bytes to str with a strict fallback order.
 
-    Order: declared charset parameter (if any) -> strict UTF-8 (with BOM
-    stripping) -> apparent encoding -> latin-1 with replacement.
+    Order: declared charset parameter (if any) -> strict UTF-8 -> apparent
+    encoding -> latin-1 with replacement.
+
+    A single leading U+FEFF is stripped on every successful decode path.
 
     The declared charset and apparent-encoding steps decode with
     errors="replace", so a single malformed byte never discards the
@@ -70,9 +72,13 @@ def decode_response_bytes(
         match = _CHARSET_RE.search(content_type)
         if match:
             try:
-                return content.decode(match.group(1), errors="replace")
+                text = content.decode(match.group(1), errors="replace")
             except LookupError:
                 pass
+            else:
+                if text.startswith("\ufeff"):
+                    text = text[1:]
+                return text
     try:
         text = content.decode("utf-8")
     except UnicodeDecodeError:
@@ -83,10 +89,17 @@ def decode_response_bytes(
         return text
     if apparent_encoding is not None:
         try:
-            return content.decode(apparent_encoding, errors="replace")
+            text = content.decode(apparent_encoding, errors="replace")
         except LookupError:
             pass
-    return content.decode("latin-1", errors="replace")
+        else:
+            if text.startswith("\ufeff"):
+                text = text[1:]
+            return text
+    text = content.decode("latin-1", errors="replace")
+    if text.startswith("\ufeff"):
+        text = text[1:]
+    return text
 
 
 class HttpClient(Protocol):

@@ -29,7 +29,6 @@ ACCEPTANCE_TRACEABILITY = {
         "layer": "formatter",
         "tests": [
             "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-06": {
@@ -238,7 +237,6 @@ ACCEPTANCE_TRACEABILITY = {
     "TC-SEC-01": {
         "layer": "security",
         "tests": [
-            "tests.test_discord_outbound.DiscordOutboundTests.test_discord_channel_client_masks_bot_token_matrix",
             "tests.test_discord_outbound.DiscordOutboundTests.test_discord_channel_client_masks_bot_token_matrix",
             "tests.test_runner.RunnerTests.test_run_once_redacts_secrets_from_failure_outputs",
         ],

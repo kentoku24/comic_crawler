@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import json
 import os
+import shutil
 import sys
 from typing import Dict, List, Optional, TextIO, Tuple
 
@@ -33,7 +34,7 @@ def _contains_cjk(text: str) -> bool:
     )
 
 
-def repair_mojibake(text: str) -> str:
+def repair_mojibake(text: object) -> str:
     """Repair a single string if it is a Latin-1 rendering of UTF-8 CJK text.
 
     Rules, in order:
@@ -124,6 +125,11 @@ def parse_args(argv=None):
     parser.add_argument("--state", default=get_state_path())
     parser.add_argument("--backend", choices=("json", "firestore"), default="json")
     parser.add_argument("--dry-run", action="store_true", help="do not save; print report only")
+    parser.add_argument(
+        "--backup-path",
+        default=None,
+        help="copy the state file here before applying repairs (apply mode only)",
+    )
     parser.add_argument("--json", action="store_true", dest="json_output")
     return parser.parse_args(argv)
 
@@ -143,6 +149,8 @@ def main(
         state = load_state(args.state, backend=args.backend)
         repaired_state, report = repair_state(state)
         if not args.dry_run:
+            if args.backup_path:
+                shutil.copy2(args.state, args.backup_path)
             save_state(repaired_state, args.state, backend=args.backend)
     except Exception as exc:
         print(f"[repair_mojibake] error: {exc}", file=err)
