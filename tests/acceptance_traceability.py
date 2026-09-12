@@ -10,68 +10,68 @@ ACCEPTANCE_TRACEABILITY = {
     "TC-LATEST-02": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_uses_watchlist_order_and_ignores_disabled_and_orphans",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-03": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_uses_watchlist_order_and_ignores_disabled_and_orphans",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-04": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_uses_watchlist_order_and_ignores_disabled_and_orphans",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-05": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_returns_empty_message_when_all_works_are_unfetched",
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_includes_unfetched_rows_when_mixed_with_saved_results",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-06": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_returns_empty_message_when_all_works_are_unfetched",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-07": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_uses_watchlist_order_and_ignores_disabled_and_orphans",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-08": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_uses_plain_text_and_fallback_labels_without_url",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-09": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_uses_plain_text_and_fallback_labels_without_url",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-10": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_episode_label_truncation_matches_spec_examples",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-11": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_episode_label_truncation_matches_spec_examples",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-LATEST-12": {
         "layer": "formatter",
         "tests": [
-            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_warns_for_stale_saved_data",
+            "tests.test_discord_latest.DiscordLatestTests.test_build_latest_query_response_matrix",
         ],
     },
     "TC-DAILY-01": {
@@ -91,7 +91,7 @@ ACCEPTANCE_TRACEABILITY = {
     "TC-DAILY-03": {
         "layer": "orchestration",
         "tests": [
-            "tests.test_discord_outbound.DiscordOutboundTests.test_enqueue_daily_notification_dedupes_by_work_id_and_latest_key_even_if_metadata_changes",
+            "tests.test_discord_outbound.DiscordOutboundTests.test_enqueue_daily_notification_dedupe_matrix",
         ],
     },
     "TC-DAILY-04": {
@@ -238,8 +238,8 @@ ACCEPTANCE_TRACEABILITY = {
     "TC-SEC-01": {
         "layer": "security",
         "tests": [
-            "tests.test_discord_outbound.DiscordOutboundTests.test_discord_channel_client_masks_bot_token_in_transport_error",
-            "tests.test_discord_outbound.DiscordOutboundTests.test_discord_channel_client_masks_bot_token_in_error_response",
+            "tests.test_discord_outbound.DiscordOutboundTests.test_discord_channel_client_masks_bot_token_matrix",
+            "tests.test_discord_outbound.DiscordOutboundTests.test_discord_channel_client_masks_bot_token_matrix",
             "tests.test_runner.RunnerTests.test_run_once_redacts_secrets_from_failure_outputs",
         ],
     },
