@@ -152,8 +152,7 @@ ACCEPTANCE_TRACEABILITY = {
     "TC-FETCH-03": {
         "layer": "orchestration",
         "tests": [
-            "tests.test_runner.RunnerTests.test_run_coordinator_queues_scheduled_while_fetch_is_in_progress",
-            "tests.test_runner.RunnerTests.test_run_coordinator_queues_startup_while_fetch_is_in_progress",
+            "tests.test_runner.RunnerTests.test_run_coordinator_queues_second_trigger_while_fetch_is_in_progress",
         ],
     },
     "TC-FETCH-04": {

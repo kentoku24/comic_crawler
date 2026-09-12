@@ -55,17 +55,17 @@ class PrintCloudSchedulerJobTests(unittest.TestCase):
             module.build_run_request_body(),
         )
 
-    def test_build_gcloud_command_for_create_requires_schedule(self):
+    def test_build_gcloud_command_for_create_requires_non_empty_schedule(self):
         module = load_scheduler_helper_module()
 
-        with self.assertRaisesRegex(ValueError, "schedule"):
-            module.build_gcloud_scheduler_http_command(action="create")
-
-    def test_build_gcloud_command_for_create_rejects_whitespace_only_schedule(self):
-        module = load_scheduler_helper_module()
-
-        with self.assertRaisesRegex(ValueError, "schedule"):
-            module.build_gcloud_scheduler_http_command(action="create", schedule="   ")
+        cases = {
+            "missing": {},
+            "whitespace_only": {"schedule": "   "},
+        }
+        for case, kwargs in cases.items():
+            with self.subTest(case=case):
+                with self.assertRaisesRegex(ValueError, "schedule"):
+                    module.build_gcloud_scheduler_http_command(action="create", **kwargs)
 
     def test_build_gcloud_command_for_create_includes_oauth_and_json_body(self):
         module = load_scheduler_helper_module()
@@ -127,20 +127,26 @@ class PrintCloudSchedulerJobTests(unittest.TestCase):
             result.stdout,
         )
 
-    def test_script_create_requires_schedule_without_traceback(self):
+    def test_script_create_requires_non_empty_schedule_without_traceback(self):
         repo_root = Path(__file__).resolve().parents[1]
 
-        result = subprocess.run(
-            [sys.executable, "scripts/print_cloud_scheduler_job.py", "create"],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
+        cases = {
+            "missing": ["create"],
+            "whitespace_only": ["create", "--schedule", "   "],
+        }
+        for case, args in cases.items():
+            with self.subTest(case=case):
+                result = subprocess.run(
+                    [sys.executable, "scripts/print_cloud_scheduler_job.py", *args],
+                    cwd=repo_root,
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
 
-        self.assertNotEqual(0, result.returncode)
-        self.assertIn("--schedule must be a non-empty cron expression", result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
+                self.assertNotEqual(0, result.returncode)
+                self.assertIn("--schedule must be a non-empty cron expression", result.stderr)
+                self.assertNotIn("Traceback", result.stderr)
 
     def test_build_gcloud_command_for_create_uses_create_headers_flag(self):
         module = load_scheduler_helper_module()
@@ -160,21 +166,6 @@ class PrintCloudSchedulerJobTests(unittest.TestCase):
 
         self.assertIn("--update-headers=Content-Type=application/json", command)
         self.assertNotIn("--headers=Content-Type=application/json", command)
-
-    def test_script_create_requires_non_empty_schedule_without_traceback(self):
-        repo_root = Path(__file__).resolve().parents[1]
-
-        result = subprocess.run(
-            [sys.executable, "scripts/print_cloud_scheduler_job.py", "create", "--schedule", "   "],
-            cwd=repo_root,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-
-        self.assertNotEqual(0, result.returncode)
-        self.assertIn("--schedule must be a non-empty cron expression", result.stderr)
-        self.assertNotIn("Traceback", result.stderr)
 
 
 if __name__ == "__main__":

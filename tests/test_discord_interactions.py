@@ -12,7 +12,6 @@ from manga_watch.discord_interactions import (
     DiscordRequestVerifier,
     InProcessFetchDispatcher,
     build_interaction_service_from_env,
-    build_manual_run_request_body,
 )
 from manga_watch.discord_add import AddCommandHandler
 from manga_watch.discord_remove import REMOVE_COMMAND
@@ -348,18 +347,6 @@ class FetchDispatcherTests(unittest.TestCase):
             session.posts[0]["json"],
         )
         self.assertIn("/jobs/comic-crawler-job:run", session.posts[0]["url"])
-
-    def test_build_manual_run_request_body_uses_manual_alias(self):
-        self.assertEqual(
-            {
-                "overrides": {
-                    "containerOverrides": [
-                        {"env": [{"name": "MANGA_WATCH_TRIGGER_SOURCE", "value": "manual"}]}
-                    ]
-                }
-            },
-            build_manual_run_request_body(),
-        )
 
     def test_discord_interaction_callback_client_uses_shorter_timeout_for_defer(self):
         from manga_watch.discord_interactions import DiscordInteractionCallbackClient

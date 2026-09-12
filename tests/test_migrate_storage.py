@@ -6,7 +6,7 @@ from unittest import mock
 
 from manga_watch.firestore_storage import FirestoreStorageConfig, FirestoreStorageRepository
 from manga_watch.migrate_storage import migrate_storage
-from tests.test_firestore_storage import FakeFirestoreClient, make_state, make_watchlist
+from tests._firestore_fakes import FakeFirestoreClient, make_state, make_watchlist
 
 
 class MigrateStorageTests(unittest.TestCase):

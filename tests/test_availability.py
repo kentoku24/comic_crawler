@@ -18,141 +18,138 @@ class AvailabilityTests(unittest.TestCase):
         self.assertEqual(("comic-walker", "nicovideo-manga"), supported_availability_sources())
         self.assertNotIn("kakuyomu", supported_availability_sources())
 
-    def test_comic_walker_resolves_exact_episode_url(self):
-        seed_url = "https://comic-walker.com/detail/KC_004800_S"
-        html = """
-        <html><body>
-          <a href="/detail/KC_004800_S/episodes/KC_0048000000100012_E">第１話</a>
-          <a href="/detail/KC_004800_S/episodes/KC_0048000000200011_E">第2話①</a>
-        </body></html>
-        """
-
-        result = resolve_episode_availability(
-            "comic-walker",
-            seed_url,
-            "1話",
-            http_client=StaticHttpClient({seed_url: html}),
-        )
-
-        self.assertEqual(
+    def test_resolves_exact_episode_url(self):
+        cases = (
             {
                 "source": "comic-walker",
-                "status": "free_now",
-                "url": "https://comic-walker.com/detail/KC_004800_S/episodes/KC_0048000000100012_E",
+                "seed_url": "https://comic-walker.com/detail/KC_004800_S",
+                "query": "1話",
+                "html": """
+                <html><body>
+                  <a href="/detail/KC_004800_S/episodes/KC_0048000000100012_E">第１話</a>
+                  <a href="/detail/KC_004800_S/episodes/KC_0048000000200011_E">第2話①</a>
+                </body></html>
+                """,
+                "expected": {
+                    "source": "comic-walker",
+                    "status": "free_now",
+                    "url": "https://comic-walker.com/detail/KC_004800_S/episodes/KC_0048000000100012_E",
+                },
             },
-            result,
+            {
+                "source": "nicovideo-manga",
+                "seed_url": "https://manga.nicovideo.jp/comic/62782",
+                "query": "第1話",
+                "html": """
+                <html><body>
+                  <a href="/watch/mg1000001">ニセモノの錬金術師 第1話 / 杉浦次郎</a>
+                  <a href="/watch/mg1000002">ニセモノの錬金術師 第2話 / 杉浦次郎</a>
+                </body></html>
+                """,
+                "expected": {
+                    "source": "nicovideo-manga",
+                    "status": "free_now",
+                    "url": "https://manga.nicovideo.jp/watch/mg1000001",
+                },
+            },
         )
 
-    def test_comic_walker_does_not_match_nearby_episode_number(self):
-        seed_url = "https://comic-walker.com/detail/KC_004800_S"
-        html = """
-        <html><body>
-          <a href="/detail/KC_004800_S/episodes/KC_0048000001000012_E">第10話</a>
-          <a href="/detail/KC_004800_S/episodes/KC_0048000001100011_E">第11話</a>
-        </body></html>
-        """
+        for entry in cases:
+            with self.subTest(source=entry["source"]):
+                result = resolve_episode_availability(
+                    entry["source"],
+                    entry["seed_url"],
+                    entry["query"],
+                    http_client=StaticHttpClient({entry["seed_url"]: entry["html"]}),
+                )
 
-        result = resolve_episode_availability(
-            "comic-walker",
-            seed_url,
-            "第1話",
-            http_client=StaticHttpClient({seed_url: html}),
-        )
+                self.assertEqual(entry["expected"], result)
 
-        self.assertEqual({"source": "comic-walker", "status": "not_found", "url": None}, result)
-
-    def test_comic_walker_binds_episode_label_to_same_anchor(self):
-        seed_url = "https://comic-walker.com/detail/KC_004800_S"
-        html = """
-        <html><body>
-          <a href="/detail/KC_004800_S/episodes/KC_0048000000200011_E">第2話</a>
-          <a href="/detail/KC_004800_S/episodes/KC_0048000000100012_E">第1話</a>
-        </body></html>
-        """
-
-        result = resolve_episode_availability(
-            "comic-walker",
-            seed_url,
-            "第1話",
-            http_client=StaticHttpClient({seed_url: html}),
-        )
-
-        self.assertEqual(
+    def test_does_not_match_nearby_episode_number(self):
+        cases = (
             {
                 "source": "comic-walker",
-                "status": "free_now",
-                "url": "https://comic-walker.com/detail/KC_004800_S/episodes/KC_0048000000100012_E",
+                "seed_url": "https://comic-walker.com/detail/KC_004800_S",
+                "query": "第1話",
+                "html": """
+                <html><body>
+                  <a href="/detail/KC_004800_S/episodes/KC_0048000001000012_E">第10話</a>
+                  <a href="/detail/KC_004800_S/episodes/KC_0048000001100011_E">第11話</a>
+                </body></html>
+                """,
+                "expected": {"source": "comic-walker", "status": "not_found", "url": None},
             },
-            result,
-        )
-
-    def test_nicovideo_manga_resolves_exact_episode_url(self):
-        seed_url = "https://manga.nicovideo.jp/comic/62782"
-        html = """
-        <html><body>
-          <a href="/watch/mg1000001">ニセモノの錬金術師 第1話 / 杉浦次郎</a>
-          <a href="/watch/mg1000002">ニセモノの錬金術師 第2話 / 杉浦次郎</a>
-        </body></html>
-        """
-
-        result = resolve_episode_availability(
-            "nicovideo-manga",
-            seed_url,
-            "第1話",
-            http_client=StaticHttpClient({seed_url: html}),
-        )
-
-        self.assertEqual(
             {
                 "source": "nicovideo-manga",
-                "status": "free_now",
-                "url": "https://manga.nicovideo.jp/watch/mg1000001",
+                "seed_url": "https://manga.nicovideo.jp/comic/62782",
+                "query": "1話",
+                "html": """
+                <html><body>
+                  <a href="/watch/mg1000010">ニセモノの錬金術師 第10話 / 杉浦次郎</a>
+                  <a href="/watch/mg1000011">ニセモノの錬金術師 第11話 / 杉浦次郎</a>
+                </body></html>
+                """,
+                "expected": {"source": "nicovideo-manga", "status": "not_found", "url": None},
             },
-            result,
         )
 
-    def test_nicovideo_manga_does_not_match_nearby_episode_number(self):
-        seed_url = "https://manga.nicovideo.jp/comic/62782"
-        html = """
-        <html><body>
-          <a href="/watch/mg1000010">ニセモノの錬金術師 第10話 / 杉浦次郎</a>
-          <a href="/watch/mg1000011">ニセモノの錬金術師 第11話 / 杉浦次郎</a>
-        </body></html>
-        """
+        for entry in cases:
+            with self.subTest(source=entry["source"]):
+                result = resolve_episode_availability(
+                    entry["source"],
+                    entry["seed_url"],
+                    entry["query"],
+                    http_client=StaticHttpClient({entry["seed_url"]: entry["html"]}),
+                )
 
-        result = resolve_episode_availability(
-            "nicovideo-manga",
-            seed_url,
-            "1話",
-            http_client=StaticHttpClient({seed_url: html}),
-        )
+                self.assertEqual(entry["expected"], result)
 
-        self.assertEqual({"source": "nicovideo-manga", "status": "not_found", "url": None}, result)
-
-    def test_nicovideo_manga_binds_episode_label_to_same_anchor(self):
-        seed_url = "https://manga.nicovideo.jp/comic/62782"
-        html = """
-        <html><body>
-          <a href="/watch/mg1000002">ニセモノの錬金術師 第2話 / 杉浦次郎</a>
-          <a href="/watch/mg1000001">ニセモノの錬金術師 第1話 / 杉浦次郎</a>
-        </body></html>
-        """
-
-        result = resolve_episode_availability(
-            "nicovideo-manga",
-            seed_url,
-            "第1話",
-            http_client=StaticHttpClient({seed_url: html}),
-        )
-
-        self.assertEqual(
+    def test_binds_episode_label_to_same_anchor(self):
+        cases = (
+            {
+                "source": "comic-walker",
+                "seed_url": "https://comic-walker.com/detail/KC_004800_S",
+                "query": "第1話",
+                "html": """
+                <html><body>
+                  <a href="/detail/KC_004800_S/episodes/KC_0048000000200011_E">第2話</a>
+                  <a href="/detail/KC_004800_S/episodes/KC_0048000000100012_E">第1話</a>
+                </body></html>
+                """,
+                "expected": {
+                    "source": "comic-walker",
+                    "status": "free_now",
+                    "url": "https://comic-walker.com/detail/KC_004800_S/episodes/KC_0048000000100012_E",
+                },
+            },
             {
                 "source": "nicovideo-manga",
-                "status": "free_now",
-                "url": "https://manga.nicovideo.jp/watch/mg1000001",
+                "seed_url": "https://manga.nicovideo.jp/comic/62782",
+                "query": "第1話",
+                "html": """
+                <html><body>
+                  <a href="/watch/mg1000002">ニセモノの錬金術師 第2話 / 杉浦次郎</a>
+                  <a href="/watch/mg1000001">ニセモノの錬金術師 第1話 / 杉浦次郎</a>
+                </body></html>
+                """,
+                "expected": {
+                    "source": "nicovideo-manga",
+                    "status": "free_now",
+                    "url": "https://manga.nicovideo.jp/watch/mg1000001",
+                },
             },
-            result,
         )
+
+        for entry in cases:
+            with self.subTest(source=entry["source"]):
+                result = resolve_episode_availability(
+                    entry["source"],
+                    entry["seed_url"],
+                    entry["query"],
+                    http_client=StaticHttpClient({entry["seed_url"]: entry["html"]}),
+                )
+
+                self.assertEqual(entry["expected"], result)
 
     def test_returns_not_found_without_exact_episode(self):
         seed_url = "https://manga.nicovideo.jp/comic/62782"

@@ -11,7 +11,7 @@ from manga_watch.discord_remove import (
     build_remove_token,
     remove_watch_subscription,
 )
-from tests.test_firestore_storage import FakeFirestoreClient, make_state, make_watchlist
+from tests._firestore_fakes import FakeFirestoreClient, make_state, make_watchlist
 
 
 def write_json(path: Path, payload):

@@ -215,92 +215,53 @@ class CheckTests(unittest.TestCase):
         self.assertEqual({}, saved_state["works"])
         self.assertIsInstance(saved_state["last_run_at"], int)
 
-    def test_check_module_reports_load_watchlist_failures_as_json(self):
-        missing_watchlist_path = Path(tempfile.gettempdir()) / "comic-crawler-missing-watchlist.json"
-        if missing_watchlist_path.exists():
-            missing_watchlist_path.unlink()
-
-        result = self.run_check_module(missing_watchlist_path)
-
-        self.assertEqual(1, result.returncode)
-        self.assertEqual(
-            {
-                "updates": [],
-                "errors": {
-                    "sources": [],
-                    "run": [
-                        {
+    def test_check_module_reports_stage_failures_as_json(self):
+        for failure_point in ("load_watchlist", "load_state", "save_state", "http_config"):
+            with self.subTest(failure_point=failure_point):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    watchlist_path = Path(tmpdir) / "watchlist.json"
+                    state_path = Path(tmpdir) / "state.json"
+                    write_watchlist(watchlist_path, [])
+                    extra_env = {"MANGA_WATCH_STATE": str(state_path)}
+                    expected = {}
+                    if failure_point == "load_watchlist":
+                        watchlist_path = Path(tempfile.gettempdir()) / "comic-crawler-missing-watchlist.json"
+                        if watchlist_path.exists():
+                            watchlist_path.unlink()
+                        extra_env = {}
+                        expected = {
                             "stage": "load_watchlist",
                             "kind": "runtime",
                             "errorType": "FileNotFoundError",
-                            "message": f"[Errno 2] No such file or directory: '{missing_watchlist_path}'",
+                            "message": f"[Errno 2] No such file or directory: '{watchlist_path}'",
                         }
-                    ],
-                },
-            },
-            json.loads(result.stdout),
-        )
-        self.assertEqual("", result.stderr)
+                    elif failure_point == "load_state":
+                        state_path.write_text("{broken json", encoding="utf-8")
+                        expected = {"stage": "load_state", "errorType": "JSONDecodeError"}
+                    elif failure_point == "save_state":
+                        extra_env = {"MANGA_WATCH_STATE": "/dev/null/state.json"}
+                        expected = {"stage": "save_state", "errorType": "FileExistsError"}
+                    else:
+                        extra_env = {
+                            "MANGA_WATCH_STATE": str(state_path),
+                            "MANGA_WATCH_HTTP_WORKERS": "0",
+                        }
+                        expected = {"stage": "http_config", "errorType": "ValueError"}
 
-    def test_check_module_reports_load_state_failures_as_json(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            watchlist_path = Path(tmpdir) / "watchlist.json"
-            state_path = Path(tmpdir) / "state.json"
-            write_watchlist(watchlist_path, [])
-            state_path.write_text("{broken json", encoding="utf-8")
+                    result = self.run_check_module(watchlist_path, extra_env=extra_env)
 
-            result = self.run_check_module(
-                watchlist_path,
-                extra_env={"MANGA_WATCH_STATE": str(state_path)},
-            )
-
-        self.assertEqual(1, result.returncode)
-        payload = json.loads(result.stdout)
-        self.assertEqual([], payload["updates"])
-        self.assertEqual([], payload["errors"]["sources"])
-        self.assertEqual("load_state", payload["errors"]["run"][0]["stage"])
-        self.assertEqual("JSONDecodeError", payload["errors"]["run"][0]["errorType"])
-        self.assertEqual("", result.stderr)
-
-    def test_check_module_reports_save_state_failures_as_json(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            watchlist_path = Path(tmpdir) / "watchlist.json"
-            write_watchlist(watchlist_path, [])
-
-            result = self.run_check_module(
-                watchlist_path,
-                extra_env={"MANGA_WATCH_STATE": "/dev/null/state.json"},
-            )
-
-        self.assertEqual(1, result.returncode)
-        payload = json.loads(result.stdout)
-        self.assertEqual([], payload["updates"])
-        self.assertEqual([], payload["errors"]["sources"])
-        self.assertEqual("save_state", payload["errors"]["run"][0]["stage"])
-        self.assertEqual("FileExistsError", payload["errors"]["run"][0]["errorType"])
-        self.assertEqual("", result.stderr)
-
-    def test_check_module_reports_invalid_http_config_as_json(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            watchlist_path = Path(tmpdir) / "watchlist.json"
-            state_path = Path(tmpdir) / "state.json"
-            write_watchlist(watchlist_path, [])
-
-            result = self.run_check_module(
-                watchlist_path,
-                extra_env={
-                    "MANGA_WATCH_STATE": str(state_path),
-                    "MANGA_WATCH_HTTP_WORKERS": "0",
-                },
-            )
-
-        self.assertEqual(1, result.returncode)
-        payload = json.loads(result.stdout)
-        self.assertEqual([], payload["updates"])
-        self.assertEqual([], payload["errors"]["sources"])
-        self.assertEqual("http_config", payload["errors"]["run"][0]["stage"])
-        self.assertEqual("ValueError", payload["errors"]["run"][0]["errorType"])
-        self.assertEqual("", result.stderr)
+                self.assertEqual(1, result.returncode)
+                payload = json.loads(result.stdout)
+                self.assertEqual([], payload["updates"])
+                self.assertEqual([], payload["errors"]["sources"])
+                self.assertEqual(1, len(payload["errors"]["run"]))
+                run_error = payload["errors"]["run"][0]
+                self.assertEqual(expected["stage"], run_error["stage"])
+                self.assertEqual(expected["errorType"], run_error["errorType"])
+                if "kind" in expected:
+                    self.assertEqual(expected["kind"], run_error["kind"])
+                    self.assertEqual(expected["message"], run_error["message"])
+                self.assertEqual("", result.stderr)
 
     def test_normalize_item_returns_work_descriptor_fields(self):
         item = check.normalize_item("https://kakuyomu.jp/works/123/episodes/456")
@@ -364,9 +325,14 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("comic-action:13933686331663374228", entry["id"])
         self.assertEqual("comic-action", entry["source"])
 
-    def test_build_watchlist_entry_canonicalizes_comicborder_episode_seed_to_rss(self):
-        fake_client = mock.Mock()
-        fake_client.get_text.return_value = """
+    def test_build_watchlist_entry_canonicalizes_feed_family_episode_seed_to_rss(self):
+        cases = [
+            (
+                "comicborder",
+                "comicborder.com",
+                "12207421983437812169",
+                "12207421983437805229",
+                """
         <html>
           <head>
             <link rel="alternate" type="application/rss+xml" href="https://comicborder.com/rss/series/12207421983437805229">
@@ -375,27 +341,14 @@ class CheckTests(unittest.TestCase):
             <div data-gtm-data-layer="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;12207421983437805229&quot;}}"></div>
           </body>
         </html>
-        """
-        with mock.patch(
-            "manga_watch.check.normalize_item",
-            return_value={
-                "source": "comicborder",
-                "workId": "https://comicborder.com/episode/12207421983437812169",
-                "seedUrl": "https://comicborder.com/episode/12207421983437812169",
-            },
-        ):
-            entry = check.build_watchlist_entry(
-                "https://comicborder.com/episode/12207421983437812169",
-                http_client=fake_client,
-            )
-
-        self.assertEqual("comicborder:12207421983437805229", entry["id"])
-        self.assertEqual("https://comicborder.com/rss/series/12207421983437805229", entry["seed_url"])
-        self.assertEqual("comicborder", entry["source"])
-
-    def test_build_watchlist_entry_canonicalizes_comic_earthstar_episode_seed_to_rss(self):
-        fake_client = mock.Mock()
-        fake_client.get_text.return_value = """
+        """,
+            ),
+            (
+                "comic-earthstar",
+                "comic-earthstar.com",
+                "12207421983526541742",
+                "12207421983526538413",
+                """
         <html>
           <head>
             <link rel="alternate" type="application/rss+xml" href="https://comic-earthstar.com/rss/series/12207421983526538413">
@@ -404,27 +357,14 @@ class CheckTests(unittest.TestCase):
             <div data-gtm-data-layer="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;12207421983526538413&quot;}}"></div>
           </body>
         </html>
-        """
-        with mock.patch(
-            "manga_watch.check.normalize_item",
-            return_value={
-                "source": "comic-earthstar",
-                "workId": "https://comic-earthstar.com/episode/12207421983526541742",
-                "seedUrl": "https://comic-earthstar.com/episode/12207421983526541742",
-            },
-        ):
-            entry = check.build_watchlist_entry(
-                "https://comic-earthstar.com/episode/12207421983526541742",
-                http_client=fake_client,
-            )
-
-        self.assertEqual("comic-earthstar:12207421983526538413", entry["id"])
-        self.assertEqual("https://comic-earthstar.com/rss/series/12207421983526538413", entry["seed_url"])
-        self.assertEqual("comic-earthstar", entry["source"])
-
-    def test_build_watchlist_entry_canonicalizes_comic_trail_episode_seed_to_rss(self):
-        fake_client = mock.Mock()
-        fake_client.get_text.return_value = """
+        """,
+            ),
+            (
+                "comic-trail",
+                "comic-trail.com",
+                "2550689798402927313",
+                "14079602755560047206",
+                """
         <html>
           <head>
             <link rel="alternate" type="application/rss+xml" href="https://comic-trail.com/rss/series/14079602755560047206">
@@ -435,27 +375,14 @@ class CheckTests(unittest.TestCase):
             </script>
           </body>
         </html>
-        """
-        with mock.patch(
-            "manga_watch.check.normalize_item",
-            return_value={
-                "source": "comic-trail",
-                "workId": "https://comic-trail.com/episode/2550689798402927313",
-                "seedUrl": "https://comic-trail.com/episode/2550689798402927313",
-            },
-        ):
-            entry = check.build_watchlist_entry(
-                "https://comic-trail.com/episode/2550689798402927313",
-                http_client=fake_client,
-            )
-
-        self.assertEqual("comic-trail:14079602755560047206", entry["id"])
-        self.assertEqual("https://comic-trail.com/rss/series/14079602755560047206", entry["seed_url"])
-        self.assertEqual("comic-trail", entry["source"])
-
-    def test_build_watchlist_entry_canonicalizes_comic_days_episode_seed_to_rss(self):
-        fake_client = mock.Mock()
-        fake_client.get_text.return_value = """
+        """,
+            ),
+            (
+                "comic-days",
+                "comic-days.com",
+                "12207421983746014850",
+                "13933686331650127004",
+                """
         <html>
           <head>
             <link rel="alternate" type="application/rss+xml" href="https://comic-days.com/rss/series/13933686331650127004">
@@ -466,27 +393,14 @@ class CheckTests(unittest.TestCase):
             </script>
           </body>
         </html>
-        """
-        with mock.patch(
-            "manga_watch.check.normalize_item",
-            return_value={
-                "source": "comic-days",
-                "workId": "https://comic-days.com/episode/12207421983746014850",
-                "seedUrl": "https://comic-days.com/episode/12207421983746014850",
-            },
-        ):
-            entry = check.build_watchlist_entry(
-                "https://comic-days.com/episode/12207421983746014850",
-                http_client=fake_client,
-            )
-
-        self.assertEqual("comic-days:13933686331650127004", entry["id"])
-        self.assertEqual("https://comic-days.com/rss/series/13933686331650127004", entry["seed_url"])
-        self.assertEqual("comic-days", entry["source"])
-
-    def test_build_watchlist_entry_canonicalizes_kuragebunch_episode_seed_to_rss(self):
-        fake_client = mock.Mock()
-        fake_client.get_text.return_value = """
+        """,
+            ),
+            (
+                "kuragebunch",
+                "kuragebunch.com",
+                "2550912964856491139",
+                "2550912964856487532",
+                """
         <html>
           <head>
             <link rel="alternate" type="application/rss+xml" href="https://kuragebunch.com/rss/series/2550912964856487532">
@@ -495,23 +409,31 @@ class CheckTests(unittest.TestCase):
             <div data-gtm-data-layer="{&quot;episode&quot;:{&quot;series_id&quot;:&quot;2550912964856487532&quot;}}"></div>
           </body>
         </html>
-        """
-        with mock.patch(
-            "manga_watch.check.normalize_item",
-            return_value={
-                "source": "kuragebunch",
-                "workId": "https://kuragebunch.com/episode/2550912964856491139",
-                "seedUrl": "https://kuragebunch.com/episode/2550912964856491139",
-            },
-        ):
-            entry = check.build_watchlist_entry(
-                "https://kuragebunch.com/episode/2550912964856491139",
-                http_client=fake_client,
-            )
+        """,
+            ),
+        ]
 
-        self.assertEqual("kuragebunch:2550912964856487532", entry["id"])
-        self.assertEqual("https://kuragebunch.com/rss/series/2550912964856487532", entry["seed_url"])
-        self.assertEqual("kuragebunch", entry["source"])
+        for source, host, episode_id, series_id, page_html in cases:
+            with self.subTest(source=source):
+                episode_url = f"https://{host}/episode/{episode_id}"
+                fake_client = mock.Mock()
+                fake_client.get_text.return_value = page_html
+                with mock.patch(
+                    "manga_watch.check.normalize_item",
+                    return_value={
+                        "source": source,
+                        "workId": episode_url,
+                        "seedUrl": episode_url,
+                    },
+                ):
+                    entry = check.build_watchlist_entry(
+                        episode_url,
+                        http_client=fake_client,
+                    )
+
+                self.assertEqual(f"{source}:{series_id}", entry["id"])
+                self.assertEqual(f"https://{host}/rss/series/{series_id}", entry["seed_url"])
+                self.assertEqual(source, entry["source"])
     def test_build_watchlist_entry_uses_stable_champion_cross_work_id(self):
         fake_client = mock.Mock()
         fake_client.get_text.return_value = """
@@ -645,61 +567,173 @@ class CheckTests(unittest.TestCase):
                 update_type="main_story",
             )
 
-    def test_evaluate_notification_policy_truth_table(self):
+    def test_notification_policy_truth_table(self):
+        previous = {
+            "latest": {
+                "source": "fake",
+                "work_id": "work-1",
+                "latest_key": "ep-1",
+                "series_title": "作品A",
+                "episode_title": "第1話",
+                "url": "https://example.com/work/1",
+            },
+            "history": [],
+            "unread": {"event_ids": []},
+            "health": {
+                "last_checked_at": 10,
+                "last_success_at": 10,
+                "consecutive_failures": 0,
+            },
+        }
         cases = [
             (
+                "mode=all bypasses suppressed defaults",
                 {"mode": "all", "allowed_update_types": None},
                 "bonus",
+                False,
                 True,
                 "mode",
+                None,
                 "mode=all notifies every update_type",
             ),
             (
+                "mode=important_only allows main_story",
                 {"mode": "important_only", "allowed_update_types": None},
                 "main_story",
                 True,
+                True,
                 "mode",
+                None,
                 "mode=important_only allows main_story",
             ),
             (
+                "mode=important_only suppresses announcement",
                 {"mode": "important_only", "allowed_update_types": None},
                 "announcement",
                 False,
+                False,
                 "mode",
+                None,
                 "mode=important_only suppresses announcement",
             ),
             (
+                "mode=mute suppresses unknown",
                 {"mode": "mute", "allowed_update_types": None},
                 "unknown",
+                True,
                 False,
                 "mode",
+                None,
                 "mode=mute suppresses every update_type",
             ),
             (
+                "allowed_update_types override matched announcement",
                 {"mode": "mute", "allowed_update_types": ["announcement"]},
                 "announcement",
+                False,
                 True,
                 "allowed_update_types",
+                ["announcement"],
                 "allowed_update_types override matched announcement",
             ),
             (
+                "allowed_update_types override did not include bonus",
                 {"mode": "all", "allowed_update_types": ["main_story"]},
                 "bonus",
                 False,
+                False,
                 "allowed_update_types",
+                ["main_story"],
                 "allowed_update_types override did not include bonus",
+            ),
+            (
+                "mode=important_only allows unknown",
+                {"mode": "important_only", "allowed_update_types": None},
+                "unknown",
+                True,
+                True,
+                "mode",
+                None,
+                "mode=important_only allows unknown",
+            ),
+            (
+                "mode=important_only suppresses bonus",
+                {"mode": "important_only", "allowed_update_types": None},
+                "bonus",
+                False,
+                False,
+                "mode",
+                None,
+                "mode=important_only suppresses bonus",
+            ),
+            (
+                "mode=mute suppresses everything",
+                {"mode": "mute", "allowed_update_types": None},
+                "main_story",
+                True,
+                False,
+                "mode",
+                None,
+                "mode=mute suppresses every update_type",
+            ),
+            (
+                "allowed_update_types overrides mute",
+                {"mode": "mute", "allowed_update_types": ["bonus"]},
+                "bonus",
+                False,
+                True,
+                "allowed_update_types",
+                ["bonus"],
+                "allowed_update_types override matched bonus",
+            ),
+            (
+                "empty allowed_update_types overrides all",
+                {"mode": "all", "allowed_update_types": []},
+                "main_story",
+                True,
+                False,
+                "allowed_update_types",
+                [],
+                "allowed_update_types override did not include main_story",
             ),
         ]
 
-        for policy, update_type, should_notify, applied_via, reason in cases:
-            with self.subTest(policy=policy, update_type=update_type):
+        for description, policy, update_type, default_notify, should_notify, applied_via, allowed, reason in cases:
+            with self.subTest(description=description):
                 decision = evaluate_notification_policy(policy, update_type=update_type)
 
                 self.assertEqual(policy["mode"], decision["mode"])
-                self.assertEqual(policy["allowed_update_types"], decision["allowed_update_types"])
+                self.assertEqual(allowed, decision["allowed_update_types"])
                 self.assertEqual(should_notify, decision["should_notify"])
                 self.assertEqual(applied_via, decision["applied_via"])
                 self.assertEqual(reason, decision["reason"])
+
+                latest = {
+                    "source": "fake",
+                    "workId": "work-1",
+                    "latestKey": f"ep-{update_type}",
+                    "seriesTitle": "作品A",
+                    "episodeTitle": f"{update_type} update",
+                    "url": f"https://example.com/{update_type}",
+                    "update_type": update_type,
+                    "default_notify": default_notify,
+                }
+                next_entry, update = check.apply_item_transition(
+                    "work-1",
+                    previous,
+                    latest,
+                    seen_at=20,
+                    history_retention=5,
+                    notification_policy=policy,
+                )
+
+                self.assertIsNotNone(update)
+                self.assertEqual(1, len(next_entry["history"]))
+                self.assertEqual(["ep-" + update_type], next_entry["unread"]["event_ids"])
+                self.assertEqual(policy["mode"], update["notification"]["mode"])
+                self.assertEqual(allowed, update["notification"]["allowed_update_types"])
+                self.assertEqual(should_notify, update["notification"]["should_notify"])
+                self.assertEqual(applied_via, update["notification"]["applied_via"])
 
     def test_run_check_initializes_state_without_updates(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1083,120 +1117,6 @@ class CheckTests(unittest.TestCase):
             {"seriesTitle": "作品A", "series": "series-a"},
             check.previous_series_metadata(previous),
         )
-
-    def test_apply_item_transition_evaluates_notification_policy_truth_table(self):
-        previous = {
-            "latest": {
-                "source": "fake",
-                "work_id": "work-1",
-                "latest_key": "ep-1",
-                "series_title": "作品A",
-                "episode_title": "第1話",
-                "url": "https://example.com/work/1",
-            },
-            "history": [],
-            "unread": {"event_ids": []},
-            "health": {
-                "last_checked_at": 10,
-                "last_success_at": 10,
-                "consecutive_failures": 0,
-            },
-        }
-        cases = [
-            (
-                "mode=all bypasses suppressed defaults",
-                {"mode": "all", "allowed_update_types": None},
-                "bonus",
-                False,
-                True,
-                "mode",
-                None,
-            ),
-            (
-                "mode=important_only allows main_story",
-                {"mode": "important_only", "allowed_update_types": None},
-                "main_story",
-                True,
-                True,
-                "mode",
-                None,
-            ),
-            (
-                "mode=important_only allows unknown",
-                {"mode": "important_only", "allowed_update_types": None},
-                "unknown",
-                True,
-                True,
-                "mode",
-                None,
-            ),
-            (
-                "mode=important_only suppresses bonus",
-                {"mode": "important_only", "allowed_update_types": None},
-                "bonus",
-                False,
-                False,
-                "mode",
-                None,
-            ),
-            (
-                "mode=mute suppresses everything",
-                {"mode": "mute", "allowed_update_types": None},
-                "main_story",
-                True,
-                False,
-                "mode",
-                None,
-            ),
-            (
-                "allowed_update_types overrides mute",
-                {"mode": "mute", "allowed_update_types": ["bonus"]},
-                "bonus",
-                False,
-                True,
-                "allowed_update_types",
-                ["bonus"],
-            ),
-            (
-                "empty allowed_update_types overrides all",
-                {"mode": "all", "allowed_update_types": []},
-                "main_story",
-                True,
-                False,
-                "allowed_update_types",
-                [],
-            ),
-        ]
-
-        for description, policy, update_type, default_notify, should_notify, applied_via, allowed in cases:
-            latest = {
-                "source": "fake",
-                "workId": "work-1",
-                "latestKey": f"ep-{update_type}",
-                "seriesTitle": "作品A",
-                "episodeTitle": f"{update_type} update",
-                "url": f"https://example.com/{update_type}",
-                "update_type": update_type,
-                "default_notify": default_notify,
-            }
-
-            with self.subTest(description=description):
-                next_entry, update = check.apply_item_transition(
-                    "work-1",
-                    previous,
-                    latest,
-                    seen_at=20,
-                    history_retention=5,
-                    notification_policy=policy,
-                )
-
-                self.assertIsNotNone(update)
-                self.assertEqual(1, len(next_entry["history"]))
-                self.assertEqual(["ep-" + update_type], next_entry["unread"]["event_ids"])
-                self.assertEqual(policy["mode"], update["notification"]["mode"])
-                self.assertEqual(allowed, update["notification"]["allowed_update_types"])
-                self.assertEqual(should_notify, update["notification"]["should_notify"])
-                self.assertEqual(applied_via, update["notification"]["applied_via"])
 
     def test_run_check_keeps_suppressed_updates_in_state_and_machine_readable_output(self):
         with tempfile.TemporaryDirectory() as tmpdir:
@@ -1900,39 +1820,34 @@ class CheckTests(unittest.TestCase):
 
         self.assertEqual(1, tracker["max"])
 
-    def test_decode_response_bytes_utf8_without_charset_param(self):
+    def test_decode_response_bytes_decodes_utf8(self):
         title = "科学的に存在しうるクリーチャー娘の観察日誌"
-        decoded = decode_response_bytes(
-            title.encode("utf-8"),
-            content_type="text/xml",
-            apparent_encoding=None,
-        )
-        self.assertEqual(title, decoded)
+        for case, content_type in (
+            ("without_charset_param", "text/xml"),
+            ("with_explicit_charset", "text/html; charset=utf-8"),
+        ):
+            with self.subTest(case=case):
+                decoded = decode_response_bytes(
+                    title.encode("utf-8"),
+                    content_type=content_type,
+                    apparent_encoding=None,
+                )
+                self.assertEqual(title, decoded)
 
-    def test_decode_response_bytes_utf8_with_explicit_charset(self):
-        title = "科学的に存在しうるクリーチャー娘の観察日誌"
-        decoded = decode_response_bytes(
-            title.encode("utf-8"),
-            content_type="text/html; charset=utf-8",
-            apparent_encoding=None,
-        )
-        self.assertEqual(title, decoded)
+    def test_decode_response_bytes_decodes_declared_charset_and_bare_ascii(self):
+        cases = [
+            ("latin1", "café".encode("latin-1"), "text/plain; charset=iso-8859-1", "café"),
+            ("ascii_without_content_type", b"hello world", None, "hello world"),
+        ]
 
-    def test_decode_response_bytes_latin1_charset(self):
-        decoded = decode_response_bytes(
-            "caf\xe9".encode("latin-1"),
-            content_type="text/plain; charset=iso-8859-1",
-            apparent_encoding=None,
-        )
-        self.assertEqual("café", decoded)
-
-    def test_decode_response_bytes_ascii_without_content_type(self):
-        decoded = decode_response_bytes(
-            b"hello world",
-            content_type=None,
-            apparent_encoding=None,
-        )
-        self.assertEqual("hello world", decoded)
+        for case, raw, content_type, expected in cases:
+            with self.subTest(case=case):
+                decoded = decode_response_bytes(
+                    raw,
+                    content_type=content_type,
+                    apparent_encoding=None,
+                )
+                self.assertEqual(expected, decoded)
 
     def test_decode_response_bytes_unknown_charset_falls_back_to_utf8(self):
         title = "科学的に存在しうるクリーチャー娘の観察日誌"

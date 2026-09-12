@@ -1,6 +1,6 @@
 import unittest
 
-from manga_watch.discord_title_search import TITLE_COMMAND, TITLE_USAGE_MESSAGE, handle_title_query
+from manga_watch.discord_title_search import TITLE_USAGE_MESSAGE, handle_title_query
 
 
 class RecordingSearchSource:
@@ -38,9 +38,6 @@ class PartiallyFailingSearchSource:
 
 
 class DiscordTitleSearchTests(unittest.TestCase):
-    def test_title_command_name_is_exported(self):
-        self.assertEqual("title", TITLE_COMMAND)
-
     def test_handle_title_query_returns_none_for_non_title_messages(self):
         self.assertIsNone(handle_title_query("latest"))
         self.assertIsNone(handle_title_query("titleworks"))

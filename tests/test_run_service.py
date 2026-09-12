@@ -65,56 +65,49 @@ class RunServiceTests(unittest.TestCase):
         self.assertEqual("text/plain; charset=utf-8", response.content_type)
         self.assertEqual([], service.calls)
 
-    def test_build_http_response_delegates_non_health_requests_to_interaction_service(self):
-        service = FakeInteractionService()
+    def test_build_http_response_delegates_non_health_requests(self):
+        cases = {
+            "post_to_root": {
+                "interaction_path": "/",
+                "method": "POST",
+                "path": "/",
+                "headers": {"X-Test": "1"},
+                "body": b'{"type":1}',
+            },
+            "health_path_matches_interaction_path": {
+                "interaction_path": "/healthz",
+                "method": "GET",
+                "path": "/healthz",
+                "headers": {"X-Test": "1"},
+                "body": b"",
+            },
+        }
+        for case, request in cases.items():
+            with self.subTest(case=case):
+                service = FakeInteractionService()
+                service.interaction_path = request["interaction_path"]
 
-        response = run_service.build_http_response(
-            service,
-            method="POST",
-            path="/",
-            headers={"X-Test": "1"},
-            body=b'{"type":1}',
-        )
+                response = run_service.build_http_response(
+                    service,
+                    method=request["method"],
+                    path=request["path"],
+                    headers=request["headers"],
+                    body=request["body"],
+                )
 
-        self.assertEqual(200, response.status_code)
-        self.assertEqual(b"delegated", response.body)
-        self.assertEqual(
-            [
-                {
-                    "method": "POST",
-                    "path": "/",
-                    "headers": {"X-Test": "1"},
-                    "body": b'{"type":1}',
-                }
-            ],
-            service.calls,
-        )
-
-    def test_build_http_response_delegates_when_health_path_matches_interaction_path(self):
-        service = FakeInteractionService()
-        service.interaction_path = "/healthz"
-
-        response = run_service.build_http_response(
-            service,
-            method="GET",
-            path="/healthz",
-            headers={"X-Test": "1"},
-            body=b"",
-        )
-
-        self.assertEqual(200, response.status_code)
-        self.assertEqual(b"delegated", response.body)
-        self.assertEqual(
-            [
-                {
-                    "method": "GET",
-                    "path": "/healthz",
-                    "headers": {"X-Test": "1"},
-                    "body": b"",
-                }
-            ],
-            service.calls,
-        )
+                self.assertEqual(200, response.status_code)
+                self.assertEqual(b"delegated", response.body)
+                self.assertEqual(
+                    [
+                        {
+                            "method": request["method"],
+                            "path": request["path"],
+                            "headers": request["headers"],
+                            "body": request["body"],
+                        }
+                    ],
+                    service.calls,
+                )
 
     def test_main_boots_with_cloud_run_job_backend_minimal_env(self):
         public_key = SigningKey.generate().verify_key.encode().hex()

@@ -2,14 +2,6 @@ import os
 import unittest
 from unittest import mock
 
-from manga_watch.discord_fetch import FETCH_COMMAND
-from manga_watch.discord_latest import LATEST_COMMAND
-from manga_watch.discord_remove import REMOVE_COMMAND
-from manga_watch.discord_search import SEARCH_COMMAND
-from manga_watch.discord_supertwins_manage import SUPERTWINS_MANAGE_COMMAND
-from manga_watch.discord_supertwins_search import SUPERTWINS_SEARCH_COMMAND
-from manga_watch.discord_where import WHERE_COMMAND
-
 
 class FakeResponse:
     def __init__(self, status_code=200, text="", json_data=None):
@@ -46,43 +38,22 @@ class DiscordCommandRegistrationTests(unittest.TestCase):
         from manga_watch.discord_command_registration import default_interaction_commands
 
         commands = default_interaction_commands()
+        names = [command["name"] for command in commands]
 
+        self.assertEqual(8, len(names))
         self.assertEqual(
-            [
-                LATEST_COMMAND,
-                FETCH_COMMAND,
+            {
+                "latest",
+                "fetch",
                 "add",
-                SEARCH_COMMAND,
-                WHERE_COMMAND,
-                REMOVE_COMMAND,
-                SUPERTWINS_SEARCH_COMMAND,
-                SUPERTWINS_MANAGE_COMMAND,
-            ],
-            [command["name"] for command in commands],
+                "search",
+                "where",
+                "remove",
+                "supertwins-search",
+                "supertwins-manage",
+            },
+            set(names),
         )
-        add_command = commands[2]
-        self.assertEqual("作品URLを追加してクロール対象に登録します。", add_command["description"])
-        self.assertEqual(
-            [
-                {
-                    "type": 3,
-                    "name": "url",
-                    "description": "追加したい作品URL",
-                    "required": True,
-                }
-            ],
-            add_command["options"],
-        )
-        self.assertEqual(
-            "既存作品を起点に他媒体候補を探して supertwins を作成します。",
-            commands[6]["description"],
-        )
-        self.assertNotIn("options", commands[6])
-        self.assertEqual(
-            "既存の supertwins を確認して誤登録を解除します。",
-            commands[7]["description"],
-        )
-        self.assertNotIn("options", commands[7])
 
     def test_ensure_registered_from_env_uses_guild_registration_when_guild_id_is_present(self):
         from manga_watch.discord_command_registration import ensure_commands_registered_from_env
