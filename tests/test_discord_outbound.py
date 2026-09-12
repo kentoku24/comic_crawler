@@ -96,105 +96,115 @@ class DiscordOutboundTests(unittest.TestCase):
         self.assertEqual("[作品A：第71話 abcdefg…](<https://example.com/latest>)←第1話", lines[1])
         self.assertEqual("[作品B：第3話](<https://example.com/latest>)←第2話", lines[2])
 
-    def test_enqueue_daily_notification_skips_updates_without_latest_key(self):
-        state = {
-            "discord_delivery": {
-                "daily_notification": {
-                    "delivered_latest_keys": {},
-                    "pending_messages": [],
+    def test_enqueue_daily_notification_dedupe_matrix(self):
+        def run_skips_updates_without_latest_key(test):
+            state = {
+                "discord_delivery": {
+                    "daily_notification": {
+                        "delivered_latest_keys": {},
+                        "pending_messages": [],
+                    }
                 }
             }
-        }
-        update = {
-            "id": "work-1",
-            "from": {
-                "seriesTitle": "作品A",
-                "episodeTitle": "第1話",
-                "latestKey": "episode-1",
-            },
-            "to": {
-                "series_title": "作品A",
-                "episode_title": "第2話 改題",
-                "episode_code": "episode-2",
-                "url": "https://example.com/latest",
-            },
-        }
+            update = {
+                "id": "work-1",
+                "from": {
+                    "seriesTitle": "作品A",
+                    "episodeTitle": "第1話",
+                    "latestKey": "episode-1",
+                },
+                "to": {
+                    "series_title": "作品A",
+                    "episode_title": "第2話 改題",
+                    "episode_code": "episode-2",
+                    "url": "https://example.com/latest",
+                },
+            }
 
-        result = enqueue_daily_notification(
-            state,
-            updates=[update],
-            channel_id="main-channel",
-            now_ts=1_700_000_000,
-            timezone_name="Asia/Tokyo",
-            created_at="2023-11-14T22:13:20Z",
-        )
+            result = enqueue_daily_notification(
+                state,
+                updates=[update],
+                channel_id="main-channel",
+                now_ts=1_700_000_000,
+                timezone_name="Asia/Tokyo",
+                created_at="2023-11-14T22:13:20Z",
+            )
 
-        self.assertEqual({"queued": False, "candidateUpdateCount": 0}, result)
-        self.assertEqual([], state["discord_delivery"]["daily_notification"]["pending_messages"])
+            test.assertEqual({"queued": False, "candidateUpdateCount": 0}, result)
+            test.assertEqual([], state["discord_delivery"]["daily_notification"]["pending_messages"])
 
-    def test_enqueue_daily_notification_dedupes_by_work_id_and_latest_key_even_if_metadata_changes(self):
-        state = {
-            "discord_delivery": {
-                "daily_notification": {
-                    "delivered_latest_keys": {
-                        "work-1": {
-                            "latest_key": "episode-2",
-                            "delivered_at": "2023-11-14T22:13:20Z",
-                        }
-                    },
-                    "pending_messages": [],
+        def run_dedupes_by_work_id_and_latest_key_even_if_metadata_changes(test):
+            state = {
+                "discord_delivery": {
+                    "daily_notification": {
+                        "delivered_latest_keys": {
+                            "work-1": {
+                                "latest_key": "episode-2",
+                                "delivered_at": "2023-11-14T22:13:20Z",
+                            }
+                        },
+                        "pending_messages": [],
+                    }
                 }
             }
-        }
 
-        result = enqueue_daily_notification(
-            state,
-            updates=[
-                self.make_update(
-                    episode_title="第2話 改題",
-                    previous="第2話",
-                )
-            ],
-            channel_id="main-channel",
-            now_ts=1_700_000_300,
-            timezone_name="Asia/Tokyo",
-            created_at="2023-11-14T22:18:20Z",
-        )
+            result = enqueue_daily_notification(
+                state,
+                updates=[
+                    test.make_update(
+                        episode_title="第2話 改題",
+                        previous="第2話",
+                    )
+                ],
+                channel_id="main-channel",
+                now_ts=1_700_000_300,
+                timezone_name="Asia/Tokyo",
+                created_at="2023-11-14T22:18:20Z",
+            )
 
-        self.assertEqual({"queued": False, "candidateUpdateCount": 0}, result)
-        self.assertEqual([], state["discord_delivery"]["daily_notification"]["pending_messages"])
+            test.assertEqual({"queued": False, "candidateUpdateCount": 0}, result)
+            test.assertEqual([], state["discord_delivery"]["daily_notification"]["pending_messages"])
 
-    def test_enqueue_daily_notification_dedupes_against_legacy_camel_case_delivery_state(self):
-        state = {
-            "discordDelivery": {
-                "dailyNotification": {
-                    "deliveredLatestKeys": {
-                        "work-1": {
-                            "latestKey": "episode-2",
-                            "deliveredAt": "2023-11-14T22:13:20Z",
-                        }
-                    },
-                    "pendingMessages": [],
+        def run_dedupes_against_legacy_camel_case_delivery_state(test):
+            state = {
+                "discordDelivery": {
+                    "dailyNotification": {
+                        "deliveredLatestKeys": {
+                            "work-1": {
+                                "latestKey": "episode-2",
+                                "deliveredAt": "2023-11-14T22:13:20Z",
+                            }
+                        },
+                        "pendingMessages": [],
+                    }
                 }
             }
-        }
 
-        result = enqueue_daily_notification(
-            state,
-            updates=[
-                self.make_update(
-                    episode_title="第2話 改題",
-                    previous="第2話",
-                )
-            ],
-            channel_id="main-channel",
-            now_ts=1_700_000_300,
-            timezone_name="Asia/Tokyo",
-            created_at="2023-11-14T22:18:20Z",
-        )
+            result = enqueue_daily_notification(
+                state,
+                updates=[
+                    test.make_update(
+                        episode_title="第2話 改題",
+                        previous="第2話",
+                    )
+                ],
+                channel_id="main-channel",
+                now_ts=1_700_000_300,
+                timezone_name="Asia/Tokyo",
+                created_at="2023-11-14T22:18:20Z",
+            )
 
-        self.assertEqual({"queued": False, "candidateUpdateCount": 0}, result)
-        self.assertEqual([], state["discord_delivery"]["daily_notification"]["pending_messages"])
+            test.assertEqual({"queued": False, "candidateUpdateCount": 0}, result)
+            test.assertEqual([], state["discord_delivery"]["daily_notification"]["pending_messages"])
+
+        cases = [
+            ("skips_updates_without_latest_key", run_skips_updates_without_latest_key),
+            ("dedupes_by_work_id_and_latest_key", run_dedupes_by_work_id_and_latest_key_even_if_metadata_changes),
+            ("dedupes_against_legacy_camel_case_state", run_dedupes_against_legacy_camel_case_delivery_state),
+        ]
+        for case, run in cases:
+            with self.subTest(case=case):
+                run(self)
 
     def test_filter_updates_for_daily_notifications_excludes_hidden_watchlist_entries(self):
         updates = [
@@ -287,43 +297,52 @@ class DiscordOutboundTests(unittest.TestCase):
         self.assertEqual({"limit": 100, "after": "10"}, session.calls[1]["params"])
         self.assertEqual("latest", messages[0]["content"])
 
-    def test_discord_channel_client_masks_bot_token_in_transport_error(self):
-        token = "discord-bot-token"
-        session = FakeSession(error=requests.Timeout(f"Authorization: Bot {token}"))
-        client = DiscordChannelClient(
-            DiscordOutboundConfig(
-                bot_token=token,
-                main_channel_id="main-channel",
-                run_report_channel_id="run-report-channel",
-            ),
-            session=session,
-        )
+    def test_discord_channel_client_masks_bot_token_matrix(self):
+        def run_masks_bot_token_in_transport_error(test):
+            token = "discord-bot-token"
+            session = FakeSession(error=requests.Timeout(f"Authorization: Bot {token}"))
+            client = DiscordChannelClient(
+                DiscordOutboundConfig(
+                    bot_token=token,
+                    main_channel_id="main-channel",
+                    run_report_channel_id="run-report-channel",
+                ),
+                session=session,
+            )
 
-        with self.assertRaises(RuntimeError) as exc_info:
-            client.send_message("run-report-channel", "hello")
+            with test.assertRaises(RuntimeError) as exc_info:
+                client.send_message("run-report-channel", "hello")
 
-        self.assertNotIn(token, str(exc_info.exception))
-        self.assertIn("[REDACTED_BOT_TOKEN]", str(exc_info.exception))
+            test.assertNotIn(token, str(exc_info.exception))
+            test.assertIn("[REDACTED_BOT_TOKEN]", str(exc_info.exception))
 
-    def test_discord_channel_client_masks_bot_token_in_error_response(self):
-        token = "discord-bot-token"
-        session = FakeSession(
-            responses=[FakeResponse(401, text=f"Authorization header was Bot {token}")]
-        )
-        client = DiscordChannelClient(
-            DiscordOutboundConfig(
-                bot_token=token,
-                main_channel_id="main-channel",
-                run_report_channel_id="run-report-channel",
-            ),
-            session=session,
-        )
+        def run_masks_bot_token_in_error_response(test):
+            token = "discord-bot-token"
+            session = FakeSession(
+                responses=[FakeResponse(401, text=f"Authorization header was Bot {token}")]
+            )
+            client = DiscordChannelClient(
+                DiscordOutboundConfig(
+                    bot_token=token,
+                    main_channel_id="main-channel",
+                    run_report_channel_id="run-report-channel",
+                ),
+                session=session,
+            )
 
-        with self.assertRaises(RuntimeError) as exc_info:
-            client.send_message("run-report-channel", "hello")
+            with test.assertRaises(RuntimeError) as exc_info:
+                client.send_message("run-report-channel", "hello")
 
-        self.assertNotIn(token, str(exc_info.exception))
-        self.assertIn("[REDACTED_BOT_TOKEN]", str(exc_info.exception))
+            test.assertNotIn(token, str(exc_info.exception))
+            test.assertIn("[REDACTED_BOT_TOKEN]", str(exc_info.exception))
+
+        cases = [
+            ("transport_error", run_masks_bot_token_in_transport_error),
+            ("error_response", run_masks_bot_token_in_error_response),
+        ]
+        for case, run in cases:
+            with self.subTest(case=case):
+                run(self)
 
     def test_state_round_trip_preserves_discord_delivery_state(self):
         state = {

@@ -25,23 +25,22 @@ class RepairMojibakeHeuristicTests(unittest.TestCase):
     def test_garbled_title_round_trips_to_clean_title(self):
         self.assertEqual(repair_mojibake(garbled(CLEAN_TITLE)), CLEAN_TITLE)
 
-    def test_clean_japanese_unchanged(self):
-        self.assertEqual(repair_mojibake(CLEAN_TITLE), CLEAN_TITLE)
-
-    def test_ascii_url_unchanged(self):
-        url = "https://championcross.jp/episodes/939a4960ab2ce"
-        self.assertEqual(repair_mojibake(url), url)
-
-    def test_accented_european_unchanged(self):
-        self.assertEqual(repair_mojibake("café"), "café")
-
-    def test_mixed_string_with_clean_japanese_unchanged(self):
-        mixed = "新着エピソードを検知しました（2026-08-11）" + garbled(CLEAN_TITLE)
-        self.assertEqual(repair_mojibake(mixed), mixed)
-
-    def test_non_str_input_unchanged(self):
-        self.assertIs(repair_mojibake(None), None)
-        self.assertEqual(repair_mojibake(123), 123)
+    def test_noop_inputs_unchanged(self):
+        cases = {
+            "clean_japanese": CLEAN_TITLE,
+            "ascii_url": "https://championcross.jp/episodes/939a4960ab2ce",
+            "accented_european": "café",
+            "mixed_clean_japanese": (
+                "新着エピソードを検知しました（2026-08-11）" + garbled(CLEAN_TITLE)
+            ),
+        }
+        for case, value in cases.items():
+            with self.subTest(case=case):
+                self.assertEqual(repair_mojibake(value), value)
+        with self.subTest(case="non_str_none"):
+            self.assertIs(repair_mojibake(None), None)
+        with self.subTest(case="non_str_int"):
+            self.assertEqual(repair_mojibake(123), 123)
 
 
 def build_state():
@@ -280,6 +279,86 @@ class RepairMojibakeCliTests(unittest.TestCase):
 
         self.assertEqual(exit_code, 1)
         self.assertIn("[repair_mojibake] error", stderr.getvalue())
+
+    def test_apply_with_backup_path_creates_backup_matching_original(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = write_state_file(Path(tmpdir), build_state())
+            before = state_path.read_bytes()
+            backup_path = Path(tmpdir) / "state.backup.json"
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            exit_code = main(
+                argv=["--state", str(state_path), "--backup-path", str(backup_path)],
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stderr.getvalue(), "")
+            self.assertTrue(backup_path.exists())
+            self.assertEqual(backup_path.read_bytes(), before)
+            saved = json.loads(state_path.read_text(encoding="utf-8"))
+            work_id = "champion-cross:6504eab816435"
+            self.assertEqual(saved["works"][work_id]["latest"]["series_title"], CLEAN_TITLE)
+
+    def test_apply_without_backup_path_creates_no_backup(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = write_state_file(Path(tmpdir), build_state())
+            backup_path = Path(tmpdir) / "state.backup.json"
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            exit_code = main(
+                argv=["--state", str(state_path)],
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stderr.getvalue(), "")
+            self.assertFalse(backup_path.exists())
+
+    def test_dry_run_with_backup_path_does_not_copy(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = write_state_file(Path(tmpdir), build_state())
+            before = state_path.read_bytes()
+            backup_path = Path(tmpdir) / "state.backup.json"
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            exit_code = main(
+                argv=[
+                    "--state",
+                    str(state_path),
+                    "--dry-run",
+                    "--backup-path",
+                    str(backup_path),
+                ],
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(exit_code, 0)
+            self.assertEqual(stderr.getvalue(), "")
+            self.assertFalse(backup_path.exists())
+            self.assertEqual(state_path.read_bytes(), before)
+
+    def test_apply_with_unwritable_backup_path_returns_exit_1(self):
+        with tempfile.TemporaryDirectory() as tmpdir:
+            state_path = write_state_file(Path(tmpdir), build_state())
+            backup_path = Path(tmpdir) / "missing-dir" / "state.backup.json"
+
+            stdout = io.StringIO()
+            stderr = io.StringIO()
+            exit_code = main(
+                argv=["--state", str(state_path), "--backup-path", str(backup_path)],
+                stdout=stdout,
+                stderr=stderr,
+            )
+
+            self.assertEqual(exit_code, 1)
+            self.assertIn("[repair_mojibake] error", stderr.getvalue())
 
 
 if __name__ == "__main__":

@@ -21,64 +21,61 @@ class StaticHttpClient:
 
 
 class SourceSearchTests(unittest.TestCase):
-    def test_search_source_parses_takecomic_results_and_strips_update_label(self):
-        query = "異世界の常識は難しい"
-        request_url = f"https://takecomic.jp/search?keyword={quote_plus(query)}"
-        html = (
-            Path(__file__).parent
-            / "fixtures"
-            / "source_search"
-            / "takecomic_search_update_label.html"
-        ).read_text(encoding="utf-8")
-
-        results = search_source(
-            "takecomic",
-            query,
-            http_client=StaticHttpClient({request_url: html}),
+    def test_search_source_parses_takecomic_results(self):
+        cases = (
+            {
+                "branch": "strips_update_label",
+                "query": "異世界の常識は難しい",
+                "html": (
+                    Path(__file__).parent
+                    / "fixtures"
+                    / "source_search"
+                    / "takecomic_search_update_label.html"
+                ).read_text(encoding="utf-8"),
+                "expected": [
+                    SearchResult(
+                        source="takecomic",
+                        title="異世界の常識は難しい～希少で最弱な人族に転生したけど物理以外で最強になりそうです～",
+                        seed_url="https://takecomic.jp/series/bb237f85f48a3",
+                        subtitle="takecomic",
+                    )
+                ],
+            },
+            {
+                "branch": "badge_only_fallback",
+                "query": "takecomic badge only",
+                "html": """
+                <html><body>
+                  <a class="series-list-item-link" href="/series/bb237f85f48a3">
+                    <div class="g-updated-mark-wrap">
+                      <div class="g-updated-mark">更新</div>
+                    </div>
+                  </a>
+                </body></html>
+                """,
+                "expected": [
+                    SearchResult(
+                        source="takecomic",
+                        title="https://takecomic.jp/series/bb237f85f48a3",
+                        seed_url="https://takecomic.jp/series/bb237f85f48a3",
+                        subtitle="takecomic",
+                    )
+                ],
+            },
         )
 
-        self.assertEqual(
-            [
-                SearchResult(
-                    source="takecomic",
-                    title="異世界の常識は難しい～希少で最弱な人族に転生したけど物理以外で最強になりそうです～",
-                    seed_url="https://takecomic.jp/series/bb237f85f48a3",
-                    subtitle="takecomic",
+        for entry in cases:
+            with self.subTest(branch=entry["branch"]):
+                query = entry["query"]
+                request_url = f"https://takecomic.jp/search?keyword={quote_plus(query)}"
+
+                results = search_source(
+                    "takecomic",
+                    query,
+                    http_client=StaticHttpClient({request_url: entry["html"]}),
                 )
-            ],
-            results,
-        )
 
-    def test_search_source_falls_back_to_canonical_url_when_takecomic_title_is_only_badge(self):
-        query = "takecomic badge only"
-        request_url = f"https://takecomic.jp/search?keyword={quote_plus(query)}"
-        html = """
-        <html><body>
-          <a class="series-list-item-link" href="/series/bb237f85f48a3">
-            <div class="g-updated-mark-wrap">
-              <div class="g-updated-mark">更新</div>
-            </div>
-          </a>
-        </body></html>
-        """
-
-        results = search_source(
-            "takecomic",
-            query,
-            http_client=StaticHttpClient({request_url: html}),
-        )
-
-        self.assertEqual(
-            [
-                SearchResult(
-                    source="takecomic",
-                    title="https://takecomic.jp/series/bb237f85f48a3",
-                    seed_url="https://takecomic.jp/series/bb237f85f48a3",
-                    subtitle="takecomic",
-                )
-            ],
-            results,
-        )
+                self.assertEqual(entry["expected"], results)
 
     def test_supported_search_sources_match_registered_sources(self):
         self.assertEqual(
@@ -226,103 +223,97 @@ class SourceSearchTests(unittest.TestCase):
             results,
         )
 
-    def test_search_source_parses_comic_action_results_via_q_parameter(self):
-        html = """
-        <html>
-          <body>
-            <section>
-              <h4>「ダンジョンの中のひと」の検索結果</h4>
-              <ul>
-                <li class="SearchResultItem_li__u1Vp8">
-                  <div>
-                    <a href="https://comic-action.com/episode/13933686331665056851">
-                      <img
-                        alt="ダンジョンの中のひと"
-                        src="https://cdn-img.comic-action.com/public/series-thumbnail/13933686331663374228-4e8c11f394783f9b8a20a98d4354d771"
-                      />
-                    </a>
-                  </div>
-                  <div class="SearchResultItem_title_box__kqLq3">
-                    <p class="SearchResultItem_series_title__hDsk1">ダンジョンの中のひと</p>
-                    <p class="SearchResultItem_author__WEU8G">双見酔</p>
-                    <a href="https://comic-action.com/episode/13933686331665056851" class="SearchResultItem_main_link__NWMR7">1話を読む</a>
-                    <a href="https://comic-action.com/episode/13933686331677886179" class="SearchResultItem_sub_link__ZIGr8">最新話を読む</a>
-                  </div>
-                </li>
-              </ul>
-            </section>
-          </body>
-        </html>
-        """
-
-        results = search_source(
-            "comic-action",
-            "ダンジョンの中のひと",
-            http_client=StaticHttpClient(
-                {
-                    "https://comic-action.com/search?q=%E3%83%80%E3%83%B3%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E4%B8%AD%E3%81%AE%E3%81%B2%E3%81%A8": html
-                }
-            ),
+    def test_search_source_parses_comic_action_results(self):
+        cases = (
+            {
+                "branch": "series_thumbnail_seed",
+                "html": """
+                <html>
+                  <body>
+                    <section>
+                      <h4>「ダンジョンの中のひと」の検索結果</h4>
+                      <ul>
+                        <li class="SearchResultItem_li__u1Vp8">
+                          <div>
+                            <a href="https://comic-action.com/episode/13933686331665056851">
+                              <img
+                                alt="ダンジョンの中のひと"
+                                src="https://cdn-img.comic-action.com/public/series-thumbnail/13933686331663374228-4e8c11f394783f9b8a20a98d4354d771"
+                              />
+                            </a>
+                          </div>
+                          <div class="SearchResultItem_title_box__kqLq3">
+                            <p class="SearchResultItem_series_title__hDsk1">ダンジョンの中のひと</p>
+                            <p class="SearchResultItem_author__WEU8G">双見酔</p>
+                            <a href="https://comic-action.com/episode/13933686331665056851" class="SearchResultItem_main_link__NWMR7">1話を読む</a>
+                            <a href="https://comic-action.com/episode/13933686331677886179" class="SearchResultItem_sub_link__ZIGr8">最新話を読む</a>
+                          </div>
+                        </li>
+                      </ul>
+                    </section>
+                  </body>
+                </html>
+                """,
+                "expected": [
+                    SearchResult(
+                        source="comic-action",
+                        title="ダンジョンの中のひと",
+                        seed_url="https://comic-action.com/rss/series/13933686331663374228",
+                        subtitle="comic-action",
+                    )
+                ],
+            },
+            {
+                "branch": "reordered_attributes_latest_link",
+                "html": """
+                <html>
+                  <body>
+                    <section>
+                      <ul>
+                        <li class="SearchResultItem_li__u1Vp8">
+                          <div>
+                            <a href="https://comic-action.com/episode/13933686331665056851">
+                              <img alt="ダンジョンの中のひと" />
+                            </a>
+                          </div>
+                          <div class="SearchResultItem_title_box__kqLq3">
+                            <p class="SearchResultItem_series_title__hDsk1">ダンジョンの中のひと</p>
+                            <a class="SearchResultItem_sub_link__ZIGr8" href="https://comic-action.com/episode/13933686331677886179">
+                              最新話を読む
+                            </a>
+                          </div>
+                        </li>
+                      </ul>
+                    </section>
+                  </body>
+                </html>
+                """,
+                "expected": [
+                    SearchResult(
+                        source="comic-action",
+                        title="ダンジョンの中のひと",
+                        seed_url="https://comic-action.com/episode/13933686331677886179",
+                        subtitle="comic-action",
+                    )
+                ],
+            },
         )
 
-        self.assertEqual(
-            [
-                SearchResult(
-                    source="comic-action",
-                    title="ダンジョンの中のひと",
-                    seed_url="https://comic-action.com/rss/series/13933686331663374228",
-                    subtitle="comic-action",
+        for entry in cases:
+            with self.subTest(branch=entry["branch"]):
+                results = search_source(
+                    "comic-action",
+                    "ダンジョンの中のひと",
+                    http_client=StaticHttpClient(
+                        {
+                            "https://comic-action.com/search?q=%E3%83%80%E3%83%B3%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E4%B8%AD%E3%81%AE%E3%81%B2%E3%81%A8": entry[
+                                "html"
+                            ]
+                        }
+                    ),
                 )
-            ],
-            results,
-        )
 
-    def test_search_source_parses_comic_action_latest_link_when_attributes_are_reordered(self):
-        html = """
-        <html>
-          <body>
-            <section>
-              <ul>
-                <li class="SearchResultItem_li__u1Vp8">
-                  <div>
-                    <a href="https://comic-action.com/episode/13933686331665056851">
-                      <img alt="ダンジョンの中のひと" />
-                    </a>
-                  </div>
-                  <div class="SearchResultItem_title_box__kqLq3">
-                    <p class="SearchResultItem_series_title__hDsk1">ダンジョンの中のひと</p>
-                    <a class="SearchResultItem_sub_link__ZIGr8" href="https://comic-action.com/episode/13933686331677886179">
-                      最新話を読む
-                    </a>
-                  </div>
-                </li>
-              </ul>
-            </section>
-          </body>
-        </html>
-        """
-
-        results = search_source(
-            "comic-action",
-            "ダンジョンの中のひと",
-            http_client=StaticHttpClient(
-                {
-                    "https://comic-action.com/search?q=%E3%83%80%E3%83%B3%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E4%B8%AD%E3%81%AE%E3%81%B2%E3%81%A8": html
-                }
-            ),
-        )
-
-        self.assertEqual(
-            [
-                SearchResult(
-                    source="comic-action",
-                    title="ダンジョンの中のひと",
-                    seed_url="https://comic-action.com/episode/13933686331677886179",
-                    subtitle="comic-action",
-                )
-            ],
-            results,
-        )
+                self.assertEqual(entry["expected"], results)
 
     def test_search_source_parses_comic_earthstar_results_via_q_parameter(self):
         html = """
@@ -496,216 +487,162 @@ class SourceSearchTests(unittest.TestCase):
         )
 
     def test_search_source_parses_gaugau_results(self):
-        html = """
-        <html>
-          <body>
-            <div class="works__list">
-              <div class="works__grid">
-                <div class="list__box -free">
-                  <a class="thumbnail -youth" href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000">
-                    <div class="img"><img alt="" /></div>
-                  </a>
-                  <div class="list__text">
-                    <h4>
-                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000">ダンジョンの中のひと</a>
-                    </h4>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </body>
-        </html>
-        """
-
-        results = search_source(
-            "gaugau",
-            "ダンジョンの中のひと",
-            http_client=StaticHttpClient(
-                {
-                    "https://gaugau.futabanet.jp/list/search-result?word=%E3%83%80%E3%83%B3%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E4%B8%AD%E3%81%AE%E3%81%B2%E3%81%A8": html
-                }
-            ),
+        cases = (
+            {
+                "branch": "heading_over_empty_thumbnail",
+                "html": """
+                <html>
+                  <body>
+                    <div class="works__list">
+                      <div class="works__grid">
+                        <div class="list__box -free">
+                          <a class="thumbnail -youth" href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000">
+                            <div class="img"><img alt="" /></div>
+                          </a>
+                          <div class="list__text">
+                            <h4>
+                              <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000">ダンジョンの中のひと</a>
+                            </h4>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </body>
+                </html>
+                """,
+            },
+            {
+                "branch": "heading_over_badge_inside_thumbnail_anchor",
+                "html": """
+                <html>
+                  <body>
+                    <div class="works__list">
+                      <div class="works__grid">
+                        <div class="list__box -free">
+                          <a class="thumbnail -youth" href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000">
+                            <div class="img"><img alt="" /></div>
+                            <p class="thumbnail__badge">無料コミック 3/27 更新</p>
+                          </a>
+                          <div class="list__text">
+                            <h4>
+                              <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000">ダンジョンの中のひと</a>
+                            </h4>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </body>
+                </html>
+                """,
+            },
         )
 
-        self.assertEqual(
-            [
-                SearchResult(
-                    source="gaugau",
-                    title="ダンジョンの中のひと",
-                    seed_url="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
-                    subtitle="gaugau",
+        for entry in cases:
+            with self.subTest(branch=entry["branch"]):
+                results = search_source(
+                    "gaugau",
+                    "ダンジョンの中のひと",
+                    http_client=StaticHttpClient(
+                        {
+                            "https://gaugau.futabanet.jp/list/search-result?word=%E3%83%80%E3%83%B3%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E4%B8%AD%E3%81%AE%E3%81%B2%E3%81%A8": entry[
+                                "html"
+                            ]
+                        }
+                    ),
                 )
-            ],
-            results,
-        )
+
+                self.assertEqual(
+                    [
+                        SearchResult(
+                            source="gaugau",
+                            title="ダンジョンの中のひと",
+                            seed_url="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
+                            subtitle="gaugau",
+                        )
+                    ],
+                    results,
+                )
 
     def test_search_source_parses_bookwalker_series_results(self):
-        html = """
-        <html>
-          <body>
-            <ul class="m-tile-list">
-              <li class="m-tile">
-                <div class="m-book-item">
-                  <a href="https://bookwalker.jp/series/519222/list/"
-                     class="m-thumb__image"
-                     data-series-id="519222">
-                    <img alt="くまぐらし（MANGAバル コミックス）" />
-                  </a>
-                  <p class="m-book-item__title">
-                    <a href="https://bookwalker.jp/series/519222/list/"
-                       class="m-book-item__title"
-                       title="くまぐらし（MANGAバル コミックス）">くまぐらし（MANGAバル コミックス）</a>
-                  </p>
-                  <a href="https://bookwalker.jp/de893cb2ba-dc87-4c1b-90cb-a1cd13d33a0f/"
-                     data-action-label="最新巻を見る">最新刊を見る</a>
-                </div>
-              </li>
-            </ul>
-          </body>
-        </html>
-        """
-
-        results = search_source(
-            "bookwalker",
-            "くまぐらし",
-            http_client=StaticHttpClient(
-                {"https://bookwalker.jp/search/?word=%E3%81%8F%E3%81%BE%E3%81%90%E3%82%89%E3%81%97&order=score": html}
-            ),
+        cases = (
+            {
+                "branch": "title_anchor",
+                "html": """
+                <html>
+                  <body>
+                    <ul class="m-tile-list">
+                      <li class="m-tile">
+                        <div class="m-book-item">
+                          <a href="https://bookwalker.jp/series/519222/list/"
+                             class="m-thumb__image"
+                             data-series-id="519222">
+                            <img alt="くまぐらし（MANGAバル コミックス）" />
+                          </a>
+                          <p class="m-book-item__title">
+                            <a href="https://bookwalker.jp/series/519222/list/"
+                               class="m-book-item__title"
+                               title="くまぐらし（MANGAバル コミックス）">くまぐらし（MANGAバル コミックス）</a>
+                          </p>
+                          <a href="https://bookwalker.jp/de893cb2ba-dc87-4c1b-90cb-a1cd13d33a0f/"
+                             data-action-label="最新巻を見る">最新刊を見る</a>
+                        </div>
+                      </li>
+                    </ul>
+                  </body>
+                </html>
+                """,
+            },
+            {
+                "branch": "image_alt_fallback",
+                "html": """
+                <html>
+                  <body>
+                    <ul class="m-tile-list">
+                      <li class="m-tile">
+                        <div class="m-book-item">
+                          <img alt="くまぐらし（MANGAバル コミックス）" />
+                          <a href="https://bookwalker.jp/series/519222/list/"
+                             class="m-book-item__title"></a>
+                        </div>
+                      </li>
+                    </ul>
+                  </body>
+                </html>
+                """,
+            },
         )
 
-        self.assertEqual(
-            [
-                SearchResult(
-                    source="bookwalker",
-                    title="くまぐらし（MANGAバル コミックス）",
-                    seed_url="https://bookwalker.jp/series/519222/list/",
-                    subtitle="bookwalker",
+        for entry in cases:
+            with self.subTest(branch=entry["branch"]):
+                results = search_source(
+                    "bookwalker",
+                    "くまぐらし",
+                    http_client=StaticHttpClient(
+                        {"https://bookwalker.jp/search/?word=%E3%81%8F%E3%81%BE%E3%81%90%E3%82%89%E3%81%97&order=score": entry["html"]}
+                    ),
                 )
-            ],
-            results,
-        )
 
-    def test_search_source_uses_bookwalker_image_alt_when_title_anchor_is_absent(self):
-        html = """
-        <html>
-          <body>
-            <ul class="m-tile-list">
-              <li class="m-tile">
-                <div class="m-book-item">
-                  <img alt="くまぐらし（MANGAバル コミックス）" />
-                  <a href="https://bookwalker.jp/series/519222/list/"
-                     class="m-book-item__title"></a>
-                </div>
-              </li>
-            </ul>
-          </body>
-        </html>
-        """
-
-        results = search_source(
-            "bookwalker",
-            "くまぐらし",
-            http_client=StaticHttpClient(
-                {"https://bookwalker.jp/search/?word=%E3%81%8F%E3%81%BE%E3%81%90%E3%82%89%E3%81%97&order=score": html}
-            ),
-        )
-
-        self.assertEqual(
-            [
-                SearchResult(
-                    source="bookwalker",
-                    title="くまぐらし（MANGAバル コミックス）",
-                    seed_url="https://bookwalker.jp/series/519222/list/",
-                    subtitle="bookwalker",
+                self.assertEqual(
+                    [
+                        SearchResult(
+                            source="bookwalker",
+                            title="くまぐらし（MANGAバル コミックス）",
+                            seed_url="https://bookwalker.jp/series/519222/list/",
+                            subtitle="bookwalker",
+                        )
+                    ],
+                    results,
                 )
-            ],
-            results,
-        )
 
-    def test_search_source_prefers_gaugau_series_heading_over_badge_inside_thumbnail_anchor(self):
-        html = """
-        <html>
-          <body>
-            <div class="works__list">
-              <div class="works__grid">
-                <div class="list__box -free">
-                  <a class="thumbnail -youth" href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000">
-                    <div class="img"><img alt="" /></div>
-                    <p class="thumbnail__badge">無料コミック 3/27 更新</p>
-                  </a>
-                  <div class="list__text">
-                    <h4>
-                      <a href="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000">ダンジョンの中のひと</a>
-                    </h4>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </body>
-        </html>
-        """
-
-        results = search_source(
-            "gaugau",
-            "ダンジョンの中のひと",
-            http_client=StaticHttpClient(
-                {
-                    "https://gaugau.futabanet.jp/list/search-result?word=%E3%83%80%E3%83%B3%E3%82%B8%E3%83%A7%E3%83%B3%E3%81%AE%E4%B8%AD%E3%81%AE%E3%81%B2%E3%81%A8": html
-                }
-            ),
-        )
-
-        self.assertEqual(
-            [
-                SearchResult(
-                    source="gaugau",
-                    title="ダンジョンの中のひと",
-                    seed_url="https://gaugau.futabanet.jp/list/work/600a5fd37765610d30010000",
-                    subtitle="gaugau",
-                )
-            ],
-            results,
-        )
-
-    def test_search_source_parses_piccoma_json_results(self):
+    def test_search_source_parses_piccoma_results(self):
         query = "九条の大罪"
         request_url = (
             "https://piccoma.com/web/search/result_ajax/list"
             f"?tab_type=T&word={quote_plus(query)}&page=1"
         )
-        json_text = (FIXTURES_ROOT / "piccoma" / "01-search.json").read_text(encoding="utf-8")
 
-        results = search_source(
-            "piccoma",
-            query,
-            http_client=StaticHttpClient({request_url: json_text}),
-        )
-
-        self.assertEqual(
-            [
-                SearchResult(
-                    source="piccoma",
-                    title="九条の大罪",
-                    seed_url="https://piccoma.com/web/product/58170?etype=episode",
-                    subtitle="piccoma",
-                ),
-                SearchResult(
-                    source="piccoma",
-                    title="闇金ウシジマくん",
-                    seed_url="https://piccoma.com/web/product/12345?etype=episode",
-                    subtitle="piccoma",
-                ),
-            ],
-            results,
-        )
-
-    def test_search_source_piccoma_ignores_malformed_rows(self):
-        query = "九条の大罪"
-        request_url = (
-            "https://piccoma.com/web/search/result_ajax/list"
-            f"?tab_type=T&word={quote_plus(query)}&page=1"
-        )
-        json_text = """
+        valid_json = (FIXTURES_ROOT / "piccoma" / "01-search.json").read_text(encoding="utf-8")
+        malformed_rows_json = """
         {
           "status": 0,
           "products": [
@@ -719,47 +656,68 @@ class SourceSearchTests(unittest.TestCase):
           ]
         }
         """
-
-        results = search_source(
-            "piccoma",
-            query,
-            http_client=StaticHttpClient({request_url: json_text}),
-        )
-
-        self.assertEqual(
-            [
-                SearchResult(
-                    source="piccoma",
-                    title="九条の大罪",
-                    seed_url="https://piccoma.com/web/product/58170?etype=episode",
-                    subtitle="piccoma",
-                )
-            ],
-            results,
-        )
-
-    def test_search_source_piccoma_returns_empty_for_empty_or_malformed_products(self):
-        query = "九条の大罪"
-        request_url = (
-            "https://piccoma.com/web/search/result_ajax/list"
-            f"?tab_type=T&word={quote_plus(query)}&page=1"
-        )
-
-        for json_text in (
+        empty_variants = (
             '{"status": 0, "products": []}',
             '{"status": 0, "products": {}}',
             '{"status": 1, "products": [{"id": 58170, "title": "九条の大罪"}]}',
             '{"status": 0}',
             'not json',
-        ):
-            with self.subTest(json_text=json_text):
-                results = search_source(
-                    "piccoma",
-                    query,
-                    http_client=StaticHttpClient({request_url: json_text}),
-                )
+        )
 
-                self.assertEqual([], results)
+        with self.subTest(branch="valid_results"):
+            results = search_source(
+                "piccoma",
+                query,
+                http_client=StaticHttpClient({request_url: valid_json}),
+            )
+
+            self.assertEqual(
+                [
+                    SearchResult(
+                        source="piccoma",
+                        title="九条の大罪",
+                        seed_url="https://piccoma.com/web/product/58170?etype=episode",
+                        subtitle="piccoma",
+                    ),
+                    SearchResult(
+                        source="piccoma",
+                        title="闇金ウシジマくん",
+                        seed_url="https://piccoma.com/web/product/12345?etype=episode",
+                        subtitle="piccoma",
+                    ),
+                ],
+                results,
+            )
+
+        with self.subTest(branch="malformed_rows"):
+            results = search_source(
+                "piccoma",
+                query,
+                http_client=StaticHttpClient({request_url: malformed_rows_json}),
+            )
+
+            self.assertEqual(
+                [
+                    SearchResult(
+                        source="piccoma",
+                        title="九条の大罪",
+                        seed_url="https://piccoma.com/web/product/58170?etype=episode",
+                        subtitle="piccoma",
+                    )
+                ],
+                results,
+            )
+
+        with self.subTest(branch="empty_or_malformed"):
+            for json_text in empty_variants:
+                with self.subTest(json_text=json_text):
+                    results = search_source(
+                        "piccoma",
+                        query,
+                        http_client=StaticHttpClient({request_url: json_text}),
+                    )
+
+                    self.assertEqual([], results)
 
     def test_search_source_falls_back_to_comicborder_homepage_results_when_search_errors(self):
         homepage_html = """

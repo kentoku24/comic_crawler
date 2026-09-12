@@ -86,304 +86,319 @@ class DiscordLatestTests(unittest.TestCase):
             )
         )
 
-    def test_build_latest_query_response_uses_watchlist_order_and_ignores_disabled_and_orphans(self):
-        watchlist = self.make_watchlist(
-            [
+    def test_build_latest_query_response_matrix(self):
+        def run_watchlist_order_ignores_disabled_and_orphans(test):
+            watchlist = test.make_watchlist(
+                [
+                    {
+                        "id": "work-b",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-b",
+                        "enabled": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                    {
+                        "id": "work-a",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-a",
+                        "enabled": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                    {
+                        "id": "work-disabled",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-disabled",
+                        "enabled": False,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                ]
+            )
+            state = test.make_state(
                 {
-                    "id": "work-b",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-b",
-                    "enabled": True,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    "work-a": {
+                        "latest": {"series_title": "作品A", "episode_title": "第1話", "url": "https://example.com/a"},
+                        "history": [],
+                        "health": {"consecutive_failures": 0},
+                    },
+                    "work-b": {
+                        "latest": {"series_title": "作品B", "episode_title": "第8話", "url": "https://example.com/b"},
+                        "history": [],
+                        "health": {"consecutive_failures": 0},
+                    },
+                    "work-disabled": {
+                        "latest": {"series_title": "作品C", "episode_title": "第9話", "url": "https://example.com/c"},
+                        "history": [],
+                        "health": {"consecutive_failures": 0},
+                    },
+                    "orphan": {
+                        "latest": {"series_title": "孤児", "episode_title": "第99話", "url": "https://example.com/orphan"},
+                        "history": [],
+                        "health": {"consecutive_failures": 0},
+                    },
                 },
+                last_run_at=1_700_000_000,
+            )
+
+            response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
+            lines = response.splitlines()
+
+            test.assertEqual("現在のリスト:", lines[2])
+            test.assertEqual("[第8話](<https://example.com/b>)　作品B", lines[3])
+            test.assertEqual("[第1話](<https://example.com/a>)　作品A", lines[4])
+            test.assertNotIn("作品C", response)
+            test.assertNotIn("孤児", response)
+
+        def run_excludes_hidden_entries(test):
+            watchlist = test.make_watchlist(
+                [
+                    {
+                        "id": "work-visible",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-visible",
+                        "enabled": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                    {
+                        "id": "work-hidden",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-hidden",
+                        "enabled": True,
+                        "hidden": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                ]
+            )
+            state = test.make_state(
                 {
-                    "id": "work-a",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-a",
-                    "enabled": True,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    "work-visible": {
+                        "latest": {"series_title": "表示作品", "episode_title": "第3話", "url": "https://example.com/visible"},
+                        "history": [],
+                        "health": {"consecutive_failures": 0},
+                    },
+                    "work-hidden": {
+                        "latest": {"series_title": "非表示作品", "episode_title": "第9話", "url": "https://example.com/hidden"},
+                        "history": [],
+                        "health": {"consecutive_failures": 0},
+                    },
                 },
+                last_run_at=1_700_000_000,
+            )
+
+            response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
+
+            test.assertIn("表示作品", response)
+            test.assertNotIn("非表示作品", response)
+
+        def run_empty_message_when_all_works_are_unfetched(test):
+            watchlist = test.make_watchlist(
+                [
+                    {
+                        "id": "work-1",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-1",
+                        "enabled": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                    {
+                        "id": "work-2",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-2",
+                        "enabled": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                ]
+            )
+            state = test.make_state(
                 {
-                    "id": "work-disabled",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-disabled",
-                    "enabled": False,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
-                },
-            ]
-        )
-        state = self.make_state(
-            {
-                "work-a": {
-                    "latest": {"series_title": "作品A", "episode_title": "第1話", "url": "https://example.com/a"},
-                    "history": [],
-                    "health": {"consecutive_failures": 0},
-                },
-                "work-b": {
-                    "latest": {"series_title": "作品B", "episode_title": "第8話", "url": "https://example.com/b"},
-                    "history": [],
-                    "health": {"consecutive_failures": 0},
-                },
-                "work-disabled": {
-                    "latest": {"series_title": "作品C", "episode_title": "第9話", "url": "https://example.com/c"},
-                    "history": [],
-                    "health": {"consecutive_failures": 0},
-                },
-                "orphan": {
-                    "latest": {"series_title": "孤児", "episode_title": "第99話", "url": "https://example.com/orphan"},
-                    "history": [],
-                    "health": {"consecutive_failures": 0},
-                },
-            },
-            last_run_at=1_700_000_000,
-        )
+                    "work-1": {"latest": {}, "history": [], "health": {"consecutive_failures": 0}},
+                    "work-2": {"latest": {}, "history": [], "health": {"consecutive_failures": 0}},
+                }
+            )
 
-        response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
-        lines = response.splitlines()
+            response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
 
-        self.assertEqual("現在のリスト:", lines[2])
-        self.assertEqual("[第8話](<https://example.com/b>)　作品B", lines[3])
-        self.assertEqual("[第1話](<https://example.com/a>)　作品A", lines[4])
-        self.assertNotIn("作品C", response)
-        self.assertNotIn("孤児", response)
+            test.assertIn("最終巡回: まだ実行されていません", response)
+            test.assertTrue(response.endswith(EMPTY_LINE))
+            test.assertNotIn("（未取得）", response)
 
-    def test_build_latest_query_response_excludes_hidden_entries(self):
-        watchlist = self.make_watchlist(
-            [
+        def run_unfetched_rows_when_mixed_with_saved_results(test):
+            watchlist = test.make_watchlist(
+                [
+                    {
+                        "id": "work-1",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-1",
+                        "enabled": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                    {
+                        "id": "work-2",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-2",
+                        "enabled": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    },
+                ]
+            )
+            state = test.make_state(
                 {
-                    "id": "work-visible",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-visible",
-                    "enabled": True,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
-                },
+                    "work-1": {
+                        "latest": {
+                            "series_title": "作品A",
+                            "episode_title": "第71話 abcdefghijk",
+                            "url": "https://example.com/71",
+                        },
+                        "history": [],
+                        "health": {"consecutive_failures": 1},
+                    },
+                    "work-2": {"latest": {}, "history": [], "health": {"consecutive_failures": 0}},
+                }
+            )
+
+            response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
+
+            test.assertIn("[第71話 abcdefg…](<https://example.com/71>)　作品A", response)
+            test.assertIn("（未取得）　work-2", response)
+            test.assertTrue(response.endswith(PARTIAL_FAILURE_WARNING))
+
+        def run_saved_next_update_label(test):
+            watchlist = test.make_watchlist(
+                [
+                    {
+                        "id": "work-1",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-1",
+                        "enabled": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    }
+                ]
+            )
+            state = test.make_state(
                 {
-                    "id": "work-hidden",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-hidden",
-                    "enabled": True,
-                    "hidden": True,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    "work-1": {
+                        "latest": {
+                            "series_title": "作品A",
+                            "episode_title": "第2話",
+                            "next_update_label": "次回更新予定 3/15",
+                            "url": "https://example.com/2",
+                        },
+                        "history": [],
+                        "health": {"consecutive_failures": 0},
+                    }
                 },
-            ]
-        )
-        state = self.make_state(
-            {
-                "work-visible": {
-                    "latest": {"series_title": "表示作品", "episode_title": "第3話", "url": "https://example.com/visible"},
-                    "history": [],
-                    "health": {"consecutive_failures": 0},
-                },
-                "work-hidden": {
-                    "latest": {"series_title": "非表示作品", "episode_title": "第9話", "url": "https://example.com/hidden"},
-                    "history": [],
-                    "health": {"consecutive_failures": 0},
-                },
-            },
-            last_run_at=1_700_000_000,
-        )
+                last_run_at=1_700_000_000,
+            )
 
-        response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
+            response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
 
-        self.assertIn("表示作品", response)
-        self.assertNotIn("非表示作品", response)
+            test.assertIn(
+                "[第2話（次回更新予定 3/15）](<https://example.com/2>)　作品A",
+                response,
+            )
 
-    def test_build_latest_query_response_returns_empty_message_when_all_works_are_unfetched(self):
-        watchlist = self.make_watchlist(
-            [
+        def run_plain_text_and_fallback_labels_without_url(test):
+            watchlist = test.make_watchlist(
+                [
+                    {
+                        "id": "work-1",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-1",
+                        "enabled": True,
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    }
+                ]
+            )
+            state = test.make_state(
                 {
-                    "id": "work-1",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-1",
-                    "enabled": True,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    "work-1": {
+                        "latest": {
+                            "series": "作品A fallback",
+                            "episode_code": "ep-2",
+                        },
+                        "history": [],
+                        "health": {"consecutive_failures": 0},
+                    }
                 },
-                {
-                    "id": "work-2",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-2",
-                    "enabled": True,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
-                },
-            ]
-        )
-        state = self.make_state(
-            {
-                "work-1": {"latest": {}, "history": [], "health": {"consecutive_failures": 0}},
-                "work-2": {"latest": {}, "history": [], "health": {"consecutive_failures": 0}},
-            }
-        )
+                last_run_at=1_700_000_000,
+            )
 
-        response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
+            response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
 
-        self.assertIn("最終巡回: まだ実行されていません", response)
-        self.assertTrue(response.endswith(EMPTY_LINE))
-        self.assertNotIn("（未取得）", response)
+            test.assertIn("ep-2　作品A fallback", response)
+            test.assertNotIn("[ep-2]", response)
 
-    def test_build_latest_query_response_includes_unfetched_rows_when_mixed_with_saved_results(self):
-        watchlist = self.make_watchlist(
-            [
+        def run_stale_saved_data_warning(test):
+            watchlist = test.make_watchlist(
+                [
+                    {
+                        "id": "work-1",
+                        "source": "comic-walker",
+                        "seed_url": "https://example.com/work-1",
+                        "enabled": True,
+                        "health_policy": {"expected_interval_seconds": 3_600},
+                        "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    }
+                ]
+            )
+            state = test.make_state(
                 {
-                    "id": "work-1",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-1",
-                    "enabled": True,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
+                    "work-1": {
+                        "latest": {
+                            "series_title": "作品A",
+                            "episode_title": "第2話",
+                            "url": "https://example.com/2",
+                        },
+                        "history": [],
+                        "health": {
+                            "last_checked_at": 1_700_010_000,
+                            "last_success_at": 1_700_000_000,
+                            "consecutive_failures": 0,
+                        },
+                    }
                 },
-                {
-                    "id": "work-2",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-2",
-                    "enabled": True,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
-                },
-            ]
-        )
-        state = self.make_state(
-            {
-                "work-1": {
-                    "latest": {
-                        "series_title": "作品A",
+                last_run_at=1_700_010_000,
+            )
+
+            response = build_latest_query_response(
+                watchlist,
+                state,
+                timezone_name="Asia/Tokyo",
+                now=1_700_008_000,
+            )
+
+            test.assertTrue(response.endswith(PARTIAL_FAILURE_WARNING))
+
+        def run_episode_label_truncation_spec_examples(test):
+            test.assertEqual("第71話 abcdefg…", truncate_episode_label("第71話 abcdefghijk"))
+            test.assertEqual("第71話 あいうえおかき…", truncate_episode_label("第71話 あいうえおかきくけ"))
+            test.assertEqual("第71話 abあいうcd…", truncate_episode_label("第71話 abあいうcdef"))
+            test.assertEqual("abcdefghijklmnopqrs…", truncate_episode_label("abcdefghijklmnopqrstu"))
+            test.assertEqual("第55話後編", truncate_episode_label("第55話後編"))
+            test.assertEqual("[第71話 abcdefg…](<https://example.com/71>)", format_discord_link("第71話 abcdefghijk", "https://example.com/71"))
+            test.assertEqual(
+                "第71話 abcdefg…（次回更新予定 3/15）",
+                latest_display_label_for_snapshot(
+                    {
                         "episode_title": "第71話 abcdefghijk",
-                        "url": "https://example.com/71",
-                    },
-                    "history": [],
-                    "health": {"consecutive_failures": 1},
-                },
-                "work-2": {"latest": {}, "history": [], "health": {"consecutive_failures": 0}},
-            }
-        )
-
-        response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
-
-        self.assertIn("[第71話 abcdefg…](<https://example.com/71>)　作品A", response)
-        self.assertIn("（未取得）　work-2", response)
-        self.assertTrue(response.endswith(PARTIAL_FAILURE_WARNING))
-
-    def test_build_latest_query_response_appends_saved_next_update_label(self):
-        watchlist = self.make_watchlist(
-            [
-                {
-                    "id": "work-1",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-1",
-                    "enabled": True,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
-                }
-            ]
-        )
-        state = self.make_state(
-            {
-                "work-1": {
-                    "latest": {
-                        "series_title": "作品A",
-                        "episode_title": "第2話",
                         "next_update_label": "次回更新予定 3/15",
-                        "url": "https://example.com/2",
                     },
-                    "history": [],
-                    "health": {"consecutive_failures": 0},
-                }
-            },
-            last_run_at=1_700_000_000,
-        )
+                    truncate_episode=True,
+                ),
+            )
 
-        response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
-
-        self.assertIn(
-            "[第2話（次回更新予定 3/15）](<https://example.com/2>)　作品A",
-            response,
-        )
-
-    def test_build_latest_query_response_uses_plain_text_and_fallback_labels_without_url(self):
-        watchlist = self.make_watchlist(
-            [
-                {
-                    "id": "work-1",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-1",
-                    "enabled": True,
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
-                }
-            ]
-        )
-        state = self.make_state(
-            {
-                "work-1": {
-                    "latest": {
-                        "series": "作品A fallback",
-                        "episode_code": "ep-2",
-                    },
-                    "history": [],
-                    "health": {"consecutive_failures": 0},
-                }
-            },
-            last_run_at=1_700_000_000,
-        )
-
-        response = build_latest_query_response(watchlist, state, timezone_name="Asia/Tokyo")
-
-        self.assertIn("ep-2　作品A fallback", response)
-        self.assertNotIn("[ep-2]", response)
-
-    def test_build_latest_query_response_warns_for_stale_saved_data(self):
-        watchlist = self.make_watchlist(
-            [
-                {
-                    "id": "work-1",
-                    "source": "comic-walker",
-                    "seed_url": "https://example.com/work-1",
-                    "enabled": True,
-                    "health_policy": {"expected_interval_seconds": 3_600},
-                    "notification_policy": {"mode": "all", "allowed_update_types": None},
-                }
-            ]
-        )
-        state = self.make_state(
-            {
-                "work-1": {
-                    "latest": {
-                        "series_title": "作品A",
-                        "episode_title": "第2話",
-                        "url": "https://example.com/2",
-                    },
-                    "history": [],
-                    "health": {
-                        "last_checked_at": 1_700_010_000,
-                        "last_success_at": 1_700_000_000,
-                        "consecutive_failures": 0,
-                    },
-                }
-            },
-            last_run_at=1_700_010_000,
-        )
-
-        response = build_latest_query_response(
-            watchlist,
-            state,
-            timezone_name="Asia/Tokyo",
-            now=1_700_008_000,
-        )
-
-        self.assertTrue(response.endswith(PARTIAL_FAILURE_WARNING))
-
-    def test_episode_label_truncation_matches_spec_examples(self):
-        self.assertEqual("第71話 abcdefg…", truncate_episode_label("第71話 abcdefghijk"))
-        self.assertEqual("第71話 あいうえおかき…", truncate_episode_label("第71話 あいうえおかきくけ"))
-        self.assertEqual("第71話 abあいうcd…", truncate_episode_label("第71話 abあいうcdef"))
-        self.assertEqual("abcdefghijklmnopqrs…", truncate_episode_label("abcdefghijklmnopqrstu"))
-        self.assertEqual("第55話後編", truncate_episode_label("第55話後編"))
-        self.assertEqual("[第71話 abcdefg…](<https://example.com/71>)", format_discord_link("第71話 abcdefghijk", "https://example.com/71"))
-        self.assertEqual(
-            "第71話 abcdefg…（次回更新予定 3/15）",
-            latest_display_label_for_snapshot(
-                {
-                    "episode_title": "第71話 abcdefghijk",
-                    "next_update_label": "次回更新予定 3/15",
-                },
-                truncate_episode=True,
-            ),
-        )
+        cases = [
+            ("watchlist_order_ignores_disabled_and_orphans", run_watchlist_order_ignores_disabled_and_orphans),
+            ("excludes_hidden_entries", run_excludes_hidden_entries),
+            ("empty_message_when_all_works_unfetched", run_empty_message_when_all_works_are_unfetched),
+            ("unfetched_rows_mixed_with_saved_results", run_unfetched_rows_when_mixed_with_saved_results),
+            ("saved_next_update_label", run_saved_next_update_label),
+            ("plain_text_and_fallback_labels_without_url", run_plain_text_and_fallback_labels_without_url),
+            ("stale_saved_data_warning", run_stale_saved_data_warning),
+            ("episode_label_truncation_spec_examples", run_episode_label_truncation_spec_examples),
+        ]
+        for case, run in cases:
+            with self.subTest(case=case):
+                run(self)
 
     def test_handle_latest_query_is_read_only_and_uses_only_injected_loaders(self):
         watchlist = self.make_watchlist(

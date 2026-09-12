@@ -4,7 +4,6 @@ import unittest
 
 from manga_watch.discord_where import (
     StoredWhereContextStore,
-    WHERE_COMMAND,
     WHERE_NO_RESULTS_MESSAGE,
     WhereCommandHandler,
 )
@@ -88,9 +87,6 @@ class StaticAvailabilityResolver:
 
 
 class DiscordWhereTests(unittest.TestCase):
-    def test_where_command_name_is_exported(self):
-        self.assertEqual("where", WHERE_COMMAND)
-
     def test_start_searches_availability_sources_and_returns_select_menu(self):
         search_source = MultiSourceSearchSource(
             {
@@ -226,131 +222,141 @@ class DiscordWhereTests(unittest.TestCase):
         self.assertEqual("https://comic-walker.com/detail/selected", resolver.calls[0]["seed_url"])
         self.assertEqual("https://manga.nicovideo.jp/comic/selected", resolver.calls[1]["seed_url"])
 
-    def test_handle_component_loads_context_from_storage_across_handler_instances(self):
-        search_source = MultiSourceSearchSource(
-            {
-                "comic-walker": [
-                    SearchResult(
-                        source="comic-walker",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://comic-walker.com/detail/KC_004800_S",
-                    )
-                ],
-                "nicovideo-manga": [
-                    SearchResult(
-                        source="nicovideo-manga",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://manga.nicovideo.jp/comic/62782",
-                    )
-                ],
-            }
-        )
-        resolver = FakeAvailabilityResolver()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            state_path = str(Path(tmpdir) / "state.json")
-            first_handler = WhereCommandHandler(
-                search_source=search_source,
-                context_store=StoredWhereContextStore(state_path=state_path, backend="json"),
-            )
-            start_response = first_handler.start(query="ニセモノの錬金術師", episode="1話")
-            select = start_response["components"][0]["components"][0]
-            second_handler = WhereCommandHandler(
-                availability_resolver=resolver,
-                context_store=StoredWhereContextStore(state_path=state_path, backend="json"),
-            )
-
-            response = second_handler.handle_component(
-                {"custom_id": select["custom_id"], "values": ["0"]},
-            )
-
-        self.assertIn("ComicWalker: 今すぐ無料", response["content"])
-        self.assertIn("ニコニコ漫画: 今すぐ無料", response["content"])
-        self.assertEqual(
-            [
+    def test_where_context_store_lifecycle_matrix(self):
+        def run_loads_context_across_handler_instances(test):
+            search_source = MultiSourceSearchSource(
                 {
-                    "source": "comic-walker",
-                    "seed_url": "https://comic-walker.com/detail/KC_004800_S",
-                    "episode": "1話",
-                    "http_client": None,
-                },
-                {
-                    "source": "nicovideo-manga",
-                    "seed_url": "https://manga.nicovideo.jp/comic/62782",
-                    "episode": "1話",
-                    "http_client": None,
-                },
-            ],
-            resolver.calls,
-        )
-
-    def test_handle_component_deletes_storage_context_after_selection(self):
-        search_source = MultiSourceSearchSource(
-            {
-                "comic-walker": [
-                    SearchResult(
-                        source="comic-walker",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://comic-walker.com/detail/KC_004800_S",
-                    )
-                ],
-                "nicovideo-manga": [
-                    SearchResult(
-                        source="nicovideo-manga",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://manga.nicovideo.jp/comic/62782",
-                    )
-                ],
-            }
-        )
-        resolver = FakeAvailabilityResolver()
-        with tempfile.TemporaryDirectory() as tmpdir:
-            state_path = str(Path(tmpdir) / "state.json")
-            handler = WhereCommandHandler(
-                search_source=search_source,
-                availability_resolver=resolver,
-                context_store=StoredWhereContextStore(state_path=state_path, backend="json"),
+                    "comic-walker": [
+                        SearchResult(
+                            source="comic-walker",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://comic-walker.com/detail/KC_004800_S",
+                        )
+                    ],
+                    "nicovideo-manga": [
+                        SearchResult(
+                            source="nicovideo-manga",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://manga.nicovideo.jp/comic/62782",
+                        )
+                    ],
+                }
             )
-            start_response = handler.start(query="ニセモノの錬金術師", episode="1話")
-            select = start_response["components"][0]["components"][0]
+            resolver = FakeAvailabilityResolver()
+            with tempfile.TemporaryDirectory() as tmpdir:
+                state_path = str(Path(tmpdir) / "state.json")
+                first_handler = WhereCommandHandler(
+                    search_source=search_source,
+                    context_store=StoredWhereContextStore(state_path=state_path, backend="json"),
+                )
+                start_response = first_handler.start(query="ニセモノの錬金術師", episode="1話")
+                select = start_response["components"][0]["components"][0]
+                second_handler = WhereCommandHandler(
+                    availability_resolver=resolver,
+                    context_store=StoredWhereContextStore(state_path=state_path, backend="json"),
+                )
 
-            first_response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
-            second_response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
+                response = second_handler.handle_component(
+                    {"custom_id": select["custom_id"], "values": ["0"]},
+                )
 
-        self.assertIn("ComicWalker: 今すぐ無料", first_response["content"])
-        self.assertIn("有効期限が切れた", second_response["content"])
-
-    def test_start_generates_unique_context_token_for_identical_searches(self):
-        search_source = MultiSourceSearchSource(
-            {
-                "comic-walker": [
-                    SearchResult(
-                        source="comic-walker",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://comic-walker.com/detail/KC_004800_S",
-                    )
+            test.assertIn("ComicWalker: 今すぐ無料", response["content"])
+            test.assertIn("ニコニコ漫画: 今すぐ無料", response["content"])
+            test.assertEqual(
+                [
+                    {
+                        "source": "comic-walker",
+                        "seed_url": "https://comic-walker.com/detail/KC_004800_S",
+                        "episode": "1話",
+                        "http_client": None,
+                    },
+                    {
+                        "source": "nicovideo-manga",
+                        "seed_url": "https://manga.nicovideo.jp/comic/62782",
+                        "episode": "1話",
+                        "http_client": None,
+                    },
                 ],
-                "nicovideo-manga": [
-                    SearchResult(
-                        source="nicovideo-manga",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://manga.nicovideo.jp/comic/62782",
-                    )
-                ],
-            }
-        )
-        handler = WhereCommandHandler(search_source=search_source, availability_resolver=FakeAvailabilityResolver())
-        first_response = handler.start(query="ニセモノの錬金術師", episode="1話")
-        second_response = handler.start(query="ニセモノの錬金術師", episode="1話")
-        first_select = first_response["components"][0]["components"][0]
-        second_select = second_response["components"][0]["components"][0]
+                resolver.calls,
+            )
 
-        self.assertNotEqual(first_select["custom_id"], second_select["custom_id"])
+        def run_deletes_storage_context_after_selection(test):
+            search_source = MultiSourceSearchSource(
+                {
+                    "comic-walker": [
+                        SearchResult(
+                            source="comic-walker",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://comic-walker.com/detail/KC_004800_S",
+                        )
+                    ],
+                    "nicovideo-manga": [
+                        SearchResult(
+                            source="nicovideo-manga",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://manga.nicovideo.jp/comic/62782",
+                        )
+                    ],
+                }
+            )
+            resolver = FakeAvailabilityResolver()
+            with tempfile.TemporaryDirectory() as tmpdir:
+                state_path = str(Path(tmpdir) / "state.json")
+                handler = WhereCommandHandler(
+                    search_source=search_source,
+                    availability_resolver=resolver,
+                    context_store=StoredWhereContextStore(state_path=state_path, backend="json"),
+                )
+                start_response = handler.start(query="ニセモノの錬金術師", episode="1話")
+                select = start_response["components"][0]["components"][0]
 
-        first_result = handler.handle_component({"custom_id": first_select["custom_id"], "values": ["0"]})
-        second_result = handler.handle_component({"custom_id": second_select["custom_id"], "values": ["0"]})
+                first_response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
+                second_response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
 
-        self.assertIn("ComicWalker: 今すぐ無料", first_result["content"])
-        self.assertIn("ComicWalker: 今すぐ無料", second_result["content"])
+            test.assertIn("ComicWalker: 今すぐ無料", first_response["content"])
+            test.assertIn("有効期限が切れた", second_response["content"])
+
+        def run_unique_context_token_for_identical_searches(test):
+            search_source = MultiSourceSearchSource(
+                {
+                    "comic-walker": [
+                        SearchResult(
+                            source="comic-walker",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://comic-walker.com/detail/KC_004800_S",
+                        )
+                    ],
+                    "nicovideo-manga": [
+                        SearchResult(
+                            source="nicovideo-manga",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://manga.nicovideo.jp/comic/62782",
+                        )
+                    ],
+                }
+            )
+            handler = WhereCommandHandler(search_source=search_source, availability_resolver=FakeAvailabilityResolver())
+            first_response = handler.start(query="ニセモノの錬金術師", episode="1話")
+            second_response = handler.start(query="ニセモノの錬金術師", episode="1話")
+            first_select = first_response["components"][0]["components"][0]
+            second_select = second_response["components"][0]["components"][0]
+
+            test.assertNotEqual(first_select["custom_id"], second_select["custom_id"])
+
+            first_result = handler.handle_component({"custom_id": first_select["custom_id"], "values": ["0"]})
+            second_result = handler.handle_component({"custom_id": second_select["custom_id"], "values": ["0"]})
+
+            test.assertIn("ComicWalker: 今すぐ無料", first_result["content"])
+            test.assertIn("ComicWalker: 今すぐ無料", second_result["content"])
+
+        cases = [
+            ("loads_context_across_handler_instances", run_loads_context_across_handler_instances),
+            ("deletes_storage_context_after_selection", run_deletes_storage_context_after_selection),
+            ("unique_context_token_for_identical_searches", run_unique_context_token_for_identical_searches),
+        ]
+        for case, run in cases:
+            with self.subTest(case=case):
+                run(self)
 
     def test_start_returns_no_results_when_supported_sources_have_no_candidates(self):
         handler = WhereCommandHandler(search_source=MultiSourceSearchSource({}))
@@ -359,111 +365,121 @@ class DiscordWhereTests(unittest.TestCase):
 
         self.assertEqual({"content": WHERE_NO_RESULTS_MESSAGE, "components": []}, response)
 
-    def test_handle_component_renders_not_found_when_episode_is_missing(self):
-        search_source = MultiSourceSearchSource(
-            {
-                "comic-walker": [
-                    SearchResult(
-                        source="comic-walker",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://comic-walker.com/detail/KC_004800_S",
-                    )
-                ],
-                "nicovideo-manga": [
-                    SearchResult(
-                        source="nicovideo-manga",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://manga.nicovideo.jp/comic/62782",
-                    )
-                ],
-            }
-        )
-        resolver = StaticAvailabilityResolver(
-            {
-                "comic-walker": {"source": "comic-walker", "status": "not_found", "url": None},
-                "nicovideo-manga": {"source": "nicovideo-manga", "status": "not_found", "url": None},
-            }
-        )
-        handler = WhereCommandHandler(search_source=search_source, availability_resolver=resolver)
-        start_response = handler.start(query="ニセモノの錬金術師", episode="第99話")
-        select = start_response["components"][0]["components"][0]
-
-        response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
-
-        self.assertIn("ComicWalker: 見つからない", response["content"])
-        self.assertIn("ニコニコ漫画: 見つからない", response["content"])
-
-    def test_handle_component_renders_needs_check_for_failed_source_search(self):
-        search_source = FailingSourceSearchSource(
-            {
-                "nicovideo-manga": [
-                    SearchResult(
-                        source="nicovideo-manga",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://manga.nicovideo.jp/comic/62782",
-                    )
-                ],
-            },
-            failing_sources={"comic-walker"},
-        )
-        resolver = FakeAvailabilityResolver()
-        handler = WhereCommandHandler(search_source=search_source, availability_resolver=resolver)
-        start_response = handler.start(query="ニセモノの錬金術師", episode="1話")
-        select = start_response["components"][0]["components"][0]
-
-        response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
-
-        self.assertIn("ComicWalker: 要確認", response["content"])
-        self.assertIn("ニコニコ漫画: 今すぐ無料", response["content"])
-        self.assertEqual(
-            [
+    def test_handle_component_availability_render_matrix(self):
+        def run_not_found_when_episode_is_missing(test):
+            search_source = MultiSourceSearchSource(
                 {
-                    "source": "nicovideo-manga",
-                    "seed_url": "https://manga.nicovideo.jp/comic/62782",
-                    "episode": "1話",
-                    "http_client": None,
+                    "comic-walker": [
+                        SearchResult(
+                            source="comic-walker",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://comic-walker.com/detail/KC_004800_S",
+                        )
+                    ],
+                    "nicovideo-manga": [
+                        SearchResult(
+                            source="nicovideo-manga",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://manga.nicovideo.jp/comic/62782",
+                        )
+                    ],
                 }
-            ],
-            resolver.calls,
-        )
+            )
+            resolver = StaticAvailabilityResolver(
+                {
+                    "comic-walker": {"source": "comic-walker", "status": "not_found", "url": None},
+                    "nicovideo-manga": {"source": "nicovideo-manga", "status": "not_found", "url": None},
+                }
+            )
+            handler = WhereCommandHandler(search_source=search_source, availability_resolver=resolver)
+            start_response = handler.start(query="ニセモノの錬金術師", episode="第99話")
+            select = start_response["components"][0]["components"][0]
 
-    def test_handle_component_renders_needs_check_with_seed_url_when_resolution_fails(self):
-        search_source = MultiSourceSearchSource(
-            {
-                "comic-walker": [
-                    SearchResult(
-                        source="comic-walker",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://comic-walker.com/detail/KC_004800_S",
-                    )
-                ],
-                "nicovideo-manga": [
-                    SearchResult(
-                        source="nicovideo-manga",
-                        title="ニセモノの錬金術師",
-                        seed_url="https://manga.nicovideo.jp/comic/62782",
-                    )
-                ],
-            }
-        )
-        resolver = StaticAvailabilityResolver(
-            {
-                "comic-walker": RuntimeError("temporary fetch failure"),
-                "nicovideo-manga": {
-                    "source": "nicovideo-manga",
-                    "status": "free_now",
-                    "url": "https://manga.nicovideo.jp/watch/mg1000001",
+            response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
+
+            test.assertIn("ComicWalker: 見つからない", response["content"])
+            test.assertIn("ニコニコ漫画: 見つからない", response["content"])
+
+        def run_needs_check_for_failed_source_search(test):
+            search_source = FailingSourceSearchSource(
+                {
+                    "nicovideo-manga": [
+                        SearchResult(
+                            source="nicovideo-manga",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://manga.nicovideo.jp/comic/62782",
+                        )
+                    ],
                 },
-            }
-        )
-        handler = WhereCommandHandler(search_source=search_source, availability_resolver=resolver)
-        start_response = handler.start(query="ニセモノの錬金術師", episode="第1話")
-        select = start_response["components"][0]["components"][0]
+                failing_sources={"comic-walker"},
+            )
+            resolver = FakeAvailabilityResolver()
+            handler = WhereCommandHandler(search_source=search_source, availability_resolver=resolver)
+            start_response = handler.start(query="ニセモノの錬金術師", episode="1話")
+            select = start_response["components"][0]["components"][0]
 
-        response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
+            response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
 
-        self.assertIn("ComicWalker: 要確認", response["content"])
-        self.assertIn("https://comic-walker.com/detail/KC_004800_S", response["content"])
+            test.assertIn("ComicWalker: 要確認", response["content"])
+            test.assertIn("ニコニコ漫画: 今すぐ無料", response["content"])
+            test.assertEqual(
+                [
+                    {
+                        "source": "nicovideo-manga",
+                        "seed_url": "https://manga.nicovideo.jp/comic/62782",
+                        "episode": "1話",
+                        "http_client": None,
+                    }
+                ],
+                resolver.calls,
+            )
+
+        def run_needs_check_with_seed_url_when_resolution_fails(test):
+            search_source = MultiSourceSearchSource(
+                {
+                    "comic-walker": [
+                        SearchResult(
+                            source="comic-walker",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://comic-walker.com/detail/KC_004800_S",
+                        )
+                    ],
+                    "nicovideo-manga": [
+                        SearchResult(
+                            source="nicovideo-manga",
+                            title="ニセモノの錬金術師",
+                            seed_url="https://manga.nicovideo.jp/comic/62782",
+                        )
+                    ],
+                }
+            )
+            resolver = StaticAvailabilityResolver(
+                {
+                    "comic-walker": RuntimeError("temporary fetch failure"),
+                    "nicovideo-manga": {
+                        "source": "nicovideo-manga",
+                        "status": "free_now",
+                        "url": "https://manga.nicovideo.jp/watch/mg1000001",
+                    },
+                }
+            )
+            handler = WhereCommandHandler(search_source=search_source, availability_resolver=resolver)
+            start_response = handler.start(query="ニセモノの錬金術師", episode="第1話")
+            select = start_response["components"][0]["components"][0]
+
+            response = handler.handle_component({"custom_id": select["custom_id"], "values": ["0"]})
+
+            test.assertIn("ComicWalker: 要確認", response["content"])
+            test.assertIn("https://comic-walker.com/detail/KC_004800_S", response["content"])
+
+        cases = [
+            ("not_found", run_not_found_when_episode_is_missing),
+            ("failed_source_search", run_needs_check_for_failed_source_search),
+            ("resolution_failure", run_needs_check_with_seed_url_when_resolution_fails),
+        ]
+        for case, run in cases:
+            with self.subTest(case=case):
+                run(self)
 
 
 if __name__ == "__main__":

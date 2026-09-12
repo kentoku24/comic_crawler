@@ -146,26 +146,6 @@ class RunnerTests(unittest.TestCase):
         self.assertIn("[runner] configuration error:", result.stderr)
         self.assertIn("MANGA_WATCH_NOTIFIER_BACKENDS", result.stderr)
 
-    def test_run_once_records_run_summary_when_recorder_is_injected(self):
-        recorded = []
-
-        def checker(_watchlist_path):
-            return {"updates": [], "errors": {"sources": [], "run": []}}
-
-        outcome = run_once(
-            self.make_config(),
-            checker=checker,
-            state_loader=lambda: {"version": 2, "works": {}, "last_run_at": None, "notification_outbox": [], "discord_delivery": {"daily_notification": {"delivered_latest_keys": {}, "pending_messages": []}}},
-            state_saver=lambda _state: None,
-            run_recorder=lambda summary: recorded.append(dict(summary)) or "run-1",
-            report_logger=lambda _message: None,
-            error_logger=lambda _message: None,
-        )
-
-        self.assertEqual("run-1", outcome["runId"])
-        self.assertEqual(1, len(recorded))
-        self.assertTrue(recorded[0]["ok"])
-
     def make_config(self, *, with_discord=False):
         return RunnerConfig(
             timezone_name="Asia/Tokyo",
@@ -352,27 +332,30 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(session.calls))
         self.assertEqual(event.as_payload(), session.calls[0]["json"])
 
-    def test_webhook_notifier_raises_on_non_2xx(self):
-        event = build_update_event(
-            self.make_update(latest_key="episode-2"),
-            detected_at="2023-11-14T22:13:20Z",
-        )
-        session = FakeSession(responses=[FakeResponse(500, "server exploded")])
-        notifier = WebhookNotifier("https://example.com/hook", session=session)
+    def test_webhook_notifier_raises_on_delivery_failure(self):
+        cases = [
+            (
+                "non_2xx",
+                FakeSession(responses=[FakeResponse(500, "server exploded")]),
+                "Webhook returned HTTP 500",
+            ),
+            (
+                "transport_error",
+                FakeSession(error=requests.Timeout("timed out")),
+                "Webhook delivery failed",
+            ),
+        ]
 
-        with self.assertRaisesRegex(RuntimeError, "Webhook returned HTTP 500"):
-            notifier.send(event)
+        for case, session, expected_message in cases:
+            with self.subTest(case=case):
+                event = build_update_event(
+                    self.make_update(latest_key="episode-2"),
+                    detected_at="2023-11-14T22:13:20Z",
+                )
+                notifier = WebhookNotifier("https://example.com/hook", session=session)
 
-    def test_webhook_notifier_raises_on_transport_error(self):
-        event = build_update_event(
-            self.make_update(latest_key="episode-2"),
-            detected_at="2023-11-14T22:13:20Z",
-        )
-        session = FakeSession(error=requests.Timeout("timed out"))
-        notifier = WebhookNotifier("https://example.com/hook", session=session)
-
-        with self.assertRaisesRegex(RuntimeError, "Webhook delivery failed"):
-            notifier.send(event)
+                with self.assertRaisesRegex(RuntimeError, expected_message):
+                    notifier.send(event)
 
     def test_webhook_notifier_masks_webhook_url_in_transport_error(self):
         webhook_url = "https://discord.com/api/webhooks/123/secret"
@@ -458,15 +441,19 @@ class RunnerTests(unittest.TestCase):
             checker=lambda _: {"updates": [self.make_update()]},
             state_loader=self.make_state,
             state_saver=lambda _: None,
-            run_recorder=recorded.append,
+            run_recorder=lambda summary: recorded.append(dict(summary)) or "run-1",
             now_fn=lambda: 1_700_000_000,
             report_logger=lambda _: None,
             error_logger=lambda _: self.fail("unexpected error log"),
         )
 
         self.assertTrue(outcome["ok"])
+        self.assertEqual("run-1", outcome["runId"])
         self.assertEqual(1, len(recorded))
-        self.assertEqual(outcome, recorded[0])
+        self.assertTrue(recorded[0]["ok"])
+        expected_recorded = dict(outcome)
+        expected_recorded.pop("runId")
+        self.assertEqual(expected_recorded, recorded[0])
 
     def test_run_once_reports_failure_when_run_recorder_raises(self):
         reports = []
@@ -665,35 +652,6 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(errors))
         self.assertIn("巡回実行に失敗しました", errors[0])
         self.assertIn("notifier backend failed", errors[0])
-
-    def test_run_once_continues_delivering_valid_updates_when_one_payload_is_invalid(self):
-        notifier = FakeNotifier()
-        errors = []
-        invalid_update = self.make_update()
-        invalid_update["to"] = {
-            "series_title": "作品A",
-            "episode_title": "第2話",
-            "update_type": "main_story",
-            "default_notify": True,
-        }
-
-        outcome = run_once(
-            self.make_config(),
-            notifier=notifier,
-            checker=lambda _: {"updates": [invalid_update, self.make_update(latest_key="episode-3")]},
-            state_loader=self.make_state,
-            state_saver=lambda _: None,
-            now_fn=lambda: 1_700_000_000,
-            report_logger=lambda _: self.fail("unexpected report log"),
-            error_logger=errors.append,
-        )
-
-        self.assertFalse(outcome["ok"])
-        self.assertEqual(2, outcome["notifiedUpdateCount"])
-        self.assertEqual(1, len(notifier.events))
-        self.assertEqual("episode-3", notifier.events[0].latest_key)
-        self.assertEqual(1, len(errors))
-        self.assertIn("work-1: update event work-1 is missing latest_key", errors[0])
 
     def test_generic_notification_phase_continues_delivering_valid_updates_when_one_payload_is_invalid(self):
         notifier = FakeNotifier()
@@ -1131,7 +1089,15 @@ class RunnerTests(unittest.TestCase):
         self.assertEqual(1, len(reports))
         self.assertEqual([], notifier.events)
 
-    def test_run_coordinator_queues_startup_while_fetch_is_in_progress(self):
+    def test_run_coordinator_queues_second_trigger_while_fetch_is_in_progress(self):
+        for trigger_source, trigger_label in (
+            (TRIGGER_SOURCE_STARTUP, "startup"),
+            (TRIGGER_SOURCE_SCHEDULED, "scheduled"),
+        ):
+            with self.subTest(trigger_source=trigger_source):
+                self._assert_run_coordinator_queues_second_trigger(trigger_source, trigger_label)
+
+    def _assert_run_coordinator_queues_second_trigger(self, trigger_source, trigger_label):
         checker_started = threading.Event()
         allow_finish = threading.Event()
         reports = []
@@ -1159,61 +1125,19 @@ class RunnerTests(unittest.TestCase):
         self.assertTrue(fetch_outcome["accepted"])
         self.assertTrue(checker_started.wait(0.5))
 
-        startup_outcome = coordinator.run(TRIGGER_SOURCE_STARTUP)
+        second_outcome = coordinator.run(trigger_source)
 
-        self.assertTrue(startup_outcome["ok"])
-        self.assertTrue(startup_outcome["accepted"])
-        self.assertTrue(startup_outcome["queued"])
-        self.assertTrue(startup_outcome["serialized"])
-        self.assertEqual(TRIGGER_SOURCE_STARTUP, startup_outcome["triggerSource"])
-
-        allow_finish.set()
-        self.wait_until(lambda: not coordinator.is_running())
-        self.assertEqual(2, call_count["value"])
-        self.assertEqual(2, len(reports))
-        self.assertIn("トリガー: startup", reports[1])
-
-    def test_run_coordinator_queues_scheduled_while_fetch_is_in_progress(self):
-        checker_started = threading.Event()
-        allow_finish = threading.Event()
-        reports = []
-        call_count = {"value": 0}
-
-        def checker(_):
-            call_count["value"] += 1
-            if call_count["value"] == 1:
-                checker_started.set()
-                allow_finish.wait(1.0)
-            return {"updates": []}
-
-        coordinator = RunCoordinator(
-            self.make_config(),
-            notifier=FakeNotifier(),
-            checker=checker,
-            state_loader=self.make_state,
-            state_saver=lambda _: None,
-            now_fn=lambda: 1_700_000_000,
-            report_logger=reports.append,
-            error_logger=lambda _: self.fail("unexpected error log"),
-        )
-
-        fetch_outcome = start_fetch_run(coordinator)
-        self.assertTrue(fetch_outcome["accepted"])
-        self.assertTrue(checker_started.wait(0.5))
-
-        scheduled_outcome = coordinator.run(TRIGGER_SOURCE_SCHEDULED)
-
-        self.assertTrue(scheduled_outcome["ok"])
-        self.assertTrue(scheduled_outcome["accepted"])
-        self.assertTrue(scheduled_outcome["queued"])
-        self.assertTrue(scheduled_outcome["serialized"])
-        self.assertEqual(TRIGGER_SOURCE_SCHEDULED, scheduled_outcome["triggerSource"])
+        self.assertTrue(second_outcome["ok"])
+        self.assertTrue(second_outcome["accepted"])
+        self.assertTrue(second_outcome["queued"])
+        self.assertTrue(second_outcome["serialized"])
+        self.assertEqual(trigger_source, second_outcome["triggerSource"])
 
         allow_finish.set()
         self.wait_until(lambda: not coordinator.is_running())
         self.assertEqual(2, call_count["value"])
         self.assertEqual(2, len(reports))
-        self.assertIn("トリガー: scheduled", reports[1])
+        self.assertIn(f"トリガー: {trigger_label}", reports[1])
 
     def test_handle_fetch_trigger_accepts_again_after_failure(self):
         call_count = {"value": 0}

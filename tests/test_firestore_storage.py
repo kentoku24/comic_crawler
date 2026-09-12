@@ -1,4 +1,3 @@
-import json
 import os
 import unittest
 from unittest import mock
@@ -19,154 +18,7 @@ from manga_watch.storage import (
     validate_state,
     validate_watchlist,
 )
-
-
-def make_watchlist():
-    return {
-        "version": 2,
-        "works": [
-            {
-                "id": "work-1",
-                "source": "comic-walker",
-                "seed_url": "https://comic-walker.com/detail/work-1",
-                "enabled": True,
-                "notification_policy": {
-                    "mode": "all",
-                    "allowed_update_types": None,
-                },
-            }
-        ],
-    }
-
-
-def make_state():
-    return {
-        "version": 2,
-        "works": {
-            "work-1": {
-                "latest": {
-                    "series_title": "作品A",
-                    "episode_title": "第2話",
-                    "latest_key": "episode-2",
-                    "url": "https://example.com/episodes/2",
-                    "update_type": "main_story",
-                    "default_notify": True,
-                },
-                "history": [
-                    {
-                        "event_id": "event-1",
-                        "detected_at": "2023-11-14T22:13:20Z",
-                        "latest": {
-                            "series_title": "作品A",
-                            "episode_title": "第2話",
-                            "latest_key": "episode-2",
-                        },
-                    }
-                ],
-                "unread": {"event_ids": ["event-1"]},
-            }
-        },
-        "last_run_at": 1_700_000_000,
-        "notification_outbox": [
-            {
-                "event": {
-                    "schema_version": 1,
-                    "event_id": "event-1",
-                    "work_id": "work-1",
-                    "latest_key": "episode-2",
-                    "series_title": "作品A",
-                    "update_type": "main_story",
-                    "detected_at": "2023-11-14T22:13:20Z",
-                    "from": {"latest_key": "episode-1"},
-                    "to": {"latest_key": "episode-2"},
-                },
-                "pending_backends": ["stdout", "webhook"],
-                "attempt_count": 1,
-                "last_attempted_at": "2023-11-14T22:15:00Z",
-                "last_error": "webhook timeout",
-            }
-        ],
-        "discord_delivery": {
-            "daily_notification": {
-                "delivered_latest_keys": {
-                    "work-1": {
-                        "latest_key": "episode-2",
-                        "delivered_at": None,
-                    },
-                },
-                "pending_messages": [
-                    {
-                        "channel_id": "main-channel",
-                        "content": "pending daily message",
-                        "message_keys": [
-                            {
-                                "work_id": "work-1",
-                                "latest_key": "episode-2",
-                            }
-                        ],
-                        "created_at": "2023-11-14T22:13:20Z",
-                        "attempt_count": 0,
-                        "last_attempted_at": None,
-                        "last_error": None,
-                    }
-                ],
-            }
-        },
-    }
-
-
-class FakeSnapshot:
-    def __init__(self, doc_id, payload):
-        self.id = doc_id
-        self._payload = None if payload is None else json.loads(json.dumps(payload, ensure_ascii=False))
-
-    @property
-    def exists(self):
-        return self._payload is not None
-
-    def to_dict(self):
-        if self._payload is None:
-            return None
-        return json.loads(json.dumps(self._payload, ensure_ascii=False))
-
-
-class FakeDocument:
-    def __init__(self, store, collection_name, doc_id):
-        self.store = store
-        self.collection_name = collection_name
-        self.doc_id = doc_id
-
-    def get(self):
-        return FakeSnapshot(self.doc_id, self.store.get(self.collection_name, {}).get(self.doc_id))
-
-    def set(self, payload):
-        self.store.setdefault(self.collection_name, {})[self.doc_id] = json.loads(
-            json.dumps(payload, ensure_ascii=False)
-        )
-
-    def delete(self):
-        self.store.setdefault(self.collection_name, {}).pop(self.doc_id, None)
-
-
-class FakeCollection:
-    def __init__(self, store, collection_name):
-        self.store = store
-        self.collection_name = collection_name
-
-    def document(self, doc_id):
-        return FakeDocument(self.store, self.collection_name, doc_id)
-
-    def stream(self):
-        docs = self.store.setdefault(self.collection_name, {})
-        return [FakeSnapshot(doc_id, payload) for doc_id, payload in sorted(docs.items())]
-
-
-class FakeFirestoreClient:
-    def __init__(self):
-        self.store = {}
-
-    def collection(self, collection_name):
-        return FakeCollection(self.store, collection_name)
+from tests._firestore_fakes import FakeFirestoreClient, make_state, make_watchlist
 
 
 class FirestoreStorageTests(unittest.TestCase):
@@ -250,48 +102,39 @@ class FirestoreStorageTests(unittest.TestCase):
 
         self.assertEqual("work-1", loaded["works"][0]["id"])
 
-    def test_firestore_backend_round_trips_supertwins_search_sessions_by_token(self):
-        repository = self.make_repository()
+    def test_firestore_backend_round_trips_search_sessions_by_token(self):
+        session_cases = {
+            "supertwins": {
+                "save": save_supertwins_search_session,
+                "load": load_supertwins_search_session,
+                "delete": delete_supertwins_search_session,
+                "payload_a": {"root_work_id": "root-1", "selected_urls_by_value": {"u:a": "https://example.com/a"}},
+                "payload_b": {"root_work_id": "root-2", "selected_urls_by_value": {"u:b": "https://example.com/b"}},
+                "collection": "supertwins_search_sessions",
+                "field": "root_work_id",
+            },
+            "where": {
+                "save": save_where_session,
+                "load": load_where_session,
+                "delete": delete_where_session,
+                "payload_a": {"query": "作品A", "episode": "1話", "results": [{"source": "comic-walker"}]},
+                "payload_b": {"query": "作品B", "episode": "2話", "results": [{"source": "nicovideo-manga"}]},
+                "collection": "where_sessions",
+                "field": "query",
+            },
+        }
+        for session_kind, funcs in session_cases.items():
+            with self.subTest(session_kind=session_kind):
+                repository = self.make_repository()
 
-        with mock.patch("manga_watch.storage.get_firestore_repository", return_value=repository):
-            save_supertwins_search_session(
-                "session-a",
-                {"root_work_id": "root-1", "selected_urls_by_value": {"u:a": "https://example.com/a"}},
-                backend="firestore",
-            )
-            save_supertwins_search_session(
-                "session-b",
-                {"root_work_id": "root-2", "selected_urls_by_value": {"u:b": "https://example.com/b"}},
-                backend="firestore",
-            )
-            session_a = load_supertwins_search_session("session-a", backend="firestore")
-            session_b = load_supertwins_search_session("session-b", backend="firestore")
-            delete_supertwins_search_session("session-a", backend="firestore")
+                with mock.patch("manga_watch.storage.get_firestore_repository", return_value=repository):
+                    funcs["save"]("session-a", funcs["payload_a"], backend="firestore")
+                    funcs["save"]("session-b", funcs["payload_b"], backend="firestore")
+                    session_a = funcs["load"]("session-a", backend="firestore")
+                    session_b = funcs["load"]("session-b", backend="firestore")
+                    funcs["delete"]("session-a", backend="firestore")
 
-        self.assertEqual("root-1", session_a["root_work_id"])
-        self.assertEqual("root-2", session_b["root_work_id"])
-        self.assertIn("runtime:session-b", repository.client.store["supertwins_search_sessions"])
-        self.assertNotIn("runtime:session-a", repository.client.store["supertwins_search_sessions"])
-
-    def test_firestore_backend_round_trips_where_sessions_by_token(self):
-        repository = self.make_repository()
-
-        with mock.patch("manga_watch.storage.get_firestore_repository", return_value=repository):
-            save_where_session(
-                "session-a",
-                {"query": "作品A", "episode": "1話", "results": [{"source": "comic-walker"}]},
-                backend="firestore",
-            )
-            save_where_session(
-                "session-b",
-                {"query": "作品B", "episode": "2話", "results": [{"source": "nicovideo-manga"}]},
-                backend="firestore",
-            )
-            session_a = load_where_session("session-a", backend="firestore")
-            session_b = load_where_session("session-b", backend="firestore")
-            delete_where_session("session-a", backend="firestore")
-
-        self.assertEqual("作品A", session_a["query"])
-        self.assertEqual("作品B", session_b["query"])
-        self.assertIn("runtime:session-b", repository.client.store["where_sessions"])
-        self.assertNotIn("runtime:session-a", repository.client.store["where_sessions"])
+                self.assertEqual(funcs["payload_a"][funcs["field"]], session_a[funcs["field"]])
+                self.assertEqual(funcs["payload_b"][funcs["field"]], session_b[funcs["field"]])
+                self.assertIn("runtime:session-b", repository.client.store[funcs["collection"]])
+                self.assertNotIn("runtime:session-a", repository.client.store[funcs["collection"]])

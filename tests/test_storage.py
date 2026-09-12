@@ -226,66 +226,42 @@ class StorageTests(unittest.TestCase):
             self.assertIn(final_latest_key, written_keys)
             self.assertEqual(final_latest_key, json.loads(state_path.read_text(encoding="utf-8"))["works"]["work-1"]["latest"]["latest_key"])
 
-    def test_supertwins_search_sessions_round_trip_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            state_path = Path(tmpdir) / "state.json"
-            save_supertwins_search_session(
-                "session-a",
-                {"root_work_id": "root-1", "selected_urls_by_value": {"u:a": "https://example.com/a"}},
-                path=str(state_path),
-            )
-            save_supertwins_search_session(
-                "session-b",
-                {"root_work_id": "root-2", "selected_urls_by_value": {"u:b": "https://example.com/b"}},
-                path=str(state_path),
-            )
+    def test_search_sessions_round_trip_without_overwrite(self):
+        session_cases = {
+            "supertwins": {
+                "save": save_supertwins_search_session,
+                "load": load_supertwins_search_session,
+                "delete": delete_supertwins_search_session,
+                "payload_a": {"root_work_id": "root-1", "selected_urls_by_value": {"u:a": "https://example.com/a"}},
+                "payload_b": {"root_work_id": "root-2", "selected_urls_by_value": {"u:b": "https://example.com/b"}},
+            },
+            "where": {
+                "save": save_where_session,
+                "load": load_where_session,
+                "delete": delete_where_session,
+                "payload_a": {"query": "作品A", "episode": "1話", "results": [{"source": "comic-walker"}]},
+                "payload_b": {"query": "作品B", "episode": "2話", "results": [{"source": "nicovideo-manga"}]},
+            },
+        }
+        for session_kind, funcs in session_cases.items():
+            with self.subTest(session_kind=session_kind):
+                with tempfile.TemporaryDirectory() as tmpdir:
+                    state_path = Path(tmpdir) / "state.json"
+                    funcs["save"]("session-a", funcs["payload_a"], path=str(state_path))
+                    funcs["save"]("session-b", funcs["payload_b"], path=str(state_path))
 
-            session_a = load_supertwins_search_session("session-a", str(state_path))
-            session_b = load_supertwins_search_session("session-b", str(state_path))
-            delete_supertwins_search_session("session-a", str(state_path))
+                    session_a = funcs["load"]("session-a", str(state_path))
+                    session_b = funcs["load"]("session-b", str(state_path))
+                    funcs["delete"]("session-a", str(state_path))
 
-        self.assertEqual(
-            {"root_work_id": "root-1", "selected_urls_by_value": {"u:a": "https://example.com/a"}},
-            session_a,
-        )
-        self.assertEqual(
-            {"root_work_id": "root-2", "selected_urls_by_value": {"u:b": "https://example.com/b"}},
-            session_b,
-        )
-        with self.assertRaises(FileNotFoundError):
-            load_supertwins_search_session("session-a", str(state_path))
+                self.assertEqual(funcs["payload_a"], session_a)
+                self.assertEqual(funcs["payload_b"], session_b)
+                with self.assertRaises(FileNotFoundError):
+                    funcs["load"]("session-a", str(state_path))
 
-    def test_where_sessions_round_trip_without_overwrite(self):
-        with tempfile.TemporaryDirectory() as tmpdir:
-            state_path = Path(tmpdir) / "state.json"
-            save_where_session(
-                "session-a",
-                {"query": "作品A", "episode": "1話", "results": [{"source": "comic-walker"}]},
-                path=str(state_path),
-            )
-            save_where_session(
-                "session-b",
-                {"query": "作品B", "episode": "2話", "results": [{"source": "nicovideo-manga"}]},
-                path=str(state_path),
-            )
-
-            session_a = load_where_session("session-a", str(state_path))
-            session_b = load_where_session("session-b", str(state_path))
-            delete_where_session("session-a", str(state_path))
-
-        self.assertEqual(
-            {"query": "作品A", "episode": "1話", "results": [{"source": "comic-walker"}]},
-            session_a,
-        )
-        self.assertEqual(
-            {"query": "作品B", "episode": "2話", "results": [{"source": "nicovideo-manga"}]},
-            session_b,
-        )
-        with self.assertRaises(FileNotFoundError):
-            load_where_session("session-a", str(state_path))
-
-    def test_validate_watchlist_normalizes_hidden_to_boolean(self):
-        normalized = validate_watchlist(
+    def test_validate_watchlist_hidden_boolean_matrix(self):
+        with self.subTest(case="missing_and_true_normalize_to_boolean"):
+            normalized = validate_watchlist(
             {
                 "version": 2,
                 "works": [
@@ -311,23 +287,23 @@ class StorageTests(unittest.TestCase):
         self.assertFalse(normalized["works"][0]["hidden"])
         self.assertTrue(normalized["works"][1]["hidden"])
 
-    def test_validate_watchlist_rejects_non_boolean_hidden(self):
-        with self.assertRaisesRegex(ValueError, "watchlist entry work-1 hidden must be boolean"):
-            validate_watchlist(
-                {
-                    "version": 2,
-                    "works": [
-                        {
-                            "id": "work-1",
-                            "source": "comic-walker",
-                            "seed_url": "https://example.com/work-1",
-                            "enabled": True,
-                            "hidden": "yes",
-                            "notification_policy": {"mode": "all", "allowed_update_types": None},
-                        }
-                    ],
-                }
-            )
+        with self.subTest(case="non_boolean_hidden_rejected"):
+            with self.assertRaisesRegex(ValueError, "watchlist entry work-1 hidden must be boolean"):
+                validate_watchlist(
+                    {
+                        "version": 2,
+                        "works": [
+                            {
+                                "id": "work-1",
+                                "source": "comic-walker",
+                                "seed_url": "https://example.com/work-1",
+                                "enabled": True,
+                                "hidden": "yes",
+                                "notification_policy": {"mode": "all", "allowed_update_types": None},
+                            }
+                        ],
+                    }
+                )
 
 
 if __name__ == "__main__":
