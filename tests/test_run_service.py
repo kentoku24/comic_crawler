@@ -162,6 +162,5 @@ class RunServiceTests(unittest.TestCase):
 
         self.assertEqual(2, exit_code)
 
-
 if __name__ == "__main__":
     unittest.main()
