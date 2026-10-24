@@ -24,6 +24,29 @@ Issue Brief
   - ...
 ```
 
+## Capability Matrix
+
+広い対象語を含む Issue では Issue Brief に追加する。
+
+```text
+Capability Matrix
+- Target universe:
+  - ...
+- Explicit exclusions:
+  - ...
+- Per-target capability:
+  - <target>:
+      - included: yes | no
+      - searchable / discoverable: yes | no | n/a
+      - resolvable / executable: yes | no | partial
+      - confidence / limitation:
+      - fallback behavior:
+- False-negative prevention:
+  - ...
+- Acceptance criteria linked to matrix:
+  - ...
+```
+
 ## Maker Packet
 
 ```text
@@ -75,6 +98,49 @@ PR Reviewer Review Packet
 - Known gaps:
   - ...
 - Requested decision: APPROVE | NG
+```
+
+## Review Thread Inventory
+
+```text
+Review Thread Inventory
+- PR:
+- Thread count:
+- Threads:
+  - URL:
+    Reviewer claim:
+    Verified conclusion:
+    Code/test evidence:
+    Resolved: yes | no
+    Remaining action:
+```
+
+## Bounded Gate Packet
+
+reviewer / merger agent が timeout し続ける場合だけ使う。成果物を gate comment と URL に絞る。
+
+```text
+Bounded Gate Packet
+- Gate: gh-pr-reviewer | merger
+- PR:
+- Head:
+- Issue:
+- Changed files:
+  - ...
+- Scope summary:
+  - ...
+- Verification evidence:
+  - ...
+- Required checks:
+  - ...
+- Required comment:
+  - literal signature: `$gh-pr-reviewer` | `$merger`
+  - final line: APPROVE | NG
+- Merge requested: true | false
+- Return only:
+  - Decision:
+  - PR comment URL:
+  - Blocker if NG:
 ```
 
 ## PR Reviewer Gate
