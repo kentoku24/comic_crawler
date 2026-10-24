@@ -1,13 +1,20 @@
 from __future__ import annotations
 
 import os
+import secrets
 from pathlib import Path
 
 
 BASE_DIR = Path(__file__).resolve().parents[2]
-SECRET_KEY = os.environ.get("WEB_ADMIN_SECRET_KEY", "web-admin-development-secret-key")
+SECRET_KEY = os.environ.get("WEB_ADMIN_SECRET_KEY") or secrets.token_urlsafe(50)
 DEBUG = os.environ.get("WEB_ADMIN_DEBUG", "").strip().lower() in {"1", "true", "yes", "on"}
-ALLOWED_HOSTS = [host.strip() for host in os.environ.get("WEB_ADMIN_ALLOWED_HOSTS", "*").split(",") if host.strip()]
+ALLOWED_HOSTS = [
+    host.strip()
+    for host in os.environ.get(
+        "WEB_ADMIN_ALLOWED_HOSTS", "127.0.0.1,localhost,[::1],testserver"
+    ).split(",")
+    if host.strip()
+]
 
 INSTALLED_APPS = [
     "django.contrib.auth",

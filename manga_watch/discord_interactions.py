@@ -424,7 +424,10 @@ class DiscordInteractionService:
         if not isinstance(payload, Mapping):
             return text_response(400, "invalid interaction payload")
 
-        interaction_type = int(payload.get("type") or 0)
+        try:
+            interaction_type = int(payload.get("type") or 0)
+        except (TypeError, ValueError):
+            return text_response(400, "invalid interaction type")
         if interaction_type == INTERACTION_TYPE_PING:
             return json_response(200, {"type": INTERACTION_RESPONSE_TYPE_PONG})
         if interaction_type == INTERACTION_TYPE_APPLICATION_COMMAND:

@@ -119,6 +119,14 @@ class DiscordInteractionServiceTests(unittest.TestCase):
         self.assertEqual(200, response.status_code)
         self.assertEqual({"type": 1}, json.loads(response.body))
 
+    def test_non_numeric_interaction_type_returns_400(self):
+        service, signing_key = self.make_service()
+        headers, body = self.signed_request({"type": "abc"}, signing_key)
+
+        response = service.handle_request(method="POST", path="/", headers=headers, body=body)
+
+        self.assertEqual(400, response.status_code)
+
     def test_latest_command_returns_200_when_signature_is_valid(self):
         service, signing_key = self.make_service()
         headers, body = self.signed_request({"type": 2, "data": {"name": "latest"}}, signing_key)

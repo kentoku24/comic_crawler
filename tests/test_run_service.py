@@ -1,3 +1,4 @@
+import io
 import os
 import unittest
 from unittest import mock
@@ -136,6 +137,60 @@ class RunServiceTests(unittest.TestCase):
         self.assertEqual(("0.0.0.0", 8123), FakeServer.instances[0].address)
         self.assertTrue(FakeServer.instances[0].closed)
         register_mock.assert_called_once_with()
+
+    def _build_handler(self, service, *, headers=None, body=b""):
+        handler_cls = run_service.build_request_handler(service)
+        handler = handler_cls.__new__(handler_cls)
+        handler.command = "POST"
+        handler.path = "/"
+        handler.headers = dict(headers or {})
+        handler.rfile = io.BytesIO(body)
+        return handler
+
+    def test_handler_rejects_non_numeric_content_length(self):
+        service = FakeInteractionService()
+        handler = self._build_handler(service, headers={"Content-Length": "abc"})
+
+        response = handler._response_for_request()
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual([], service.calls)
+
+    def test_handler_rejects_negative_content_length(self):
+        service = FakeInteractionService()
+        handler = self._build_handler(service, headers={"Content-Length": "-5"})
+
+        response = handler._response_for_request()
+
+        self.assertEqual(400, response.status_code)
+        self.assertEqual([], service.calls)
+
+    def test_handler_rejects_oversized_content_length(self):
+        service = FakeInteractionService()
+        handler = self._build_handler(
+            service,
+            headers={"Content-Length": str(run_service.MAX_REQUEST_BODY_BYTES + 1)},
+        )
+
+        response = handler._response_for_request()
+
+        self.assertEqual(413, response.status_code)
+        self.assertEqual([], service.calls)
+
+    def test_handler_delegates_valid_request(self):
+        service = FakeInteractionService()
+        body = b'{"type":1}'
+        handler = self._build_handler(
+            service,
+            headers={"Content-Length": str(len(body))},
+            body=body,
+        )
+
+        response = handler._response_for_request()
+
+        self.assertEqual(200, response.status_code)
+        self.assertEqual(1, len(service.calls))
+        self.assertEqual(body, service.calls[0]["body"])
 
     def test_main_returns_configuration_error_when_startup_registration_fails(self):
         public_key = SigningKey.generate().verify_key.encode().hex()
