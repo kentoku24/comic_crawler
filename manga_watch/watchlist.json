@@ -90,6 +90,16 @@
         "mode": "all",
         "allowed_update_types": null
       }
+    },
+    {
+      "id": "bibibi-comic:41de76fc8df5f",
+      "source": "bibibi-comic",
+      "seed_url": "https://bibibi-comic.com/series/41de76fc8df5f",
+      "enabled": true,
+      "notification_policy": {
+        "mode": "all",
+        "allowed_update_types": null
+      }
     }
   ]
 }

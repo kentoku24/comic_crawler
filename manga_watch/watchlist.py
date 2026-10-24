@@ -145,6 +145,16 @@ SOURCE_CAPABILITIES = (
         ),
     ),
     SourceCapability(
+        source="bibibi-comic",
+        domains=("bibibi-comic.com",),
+        input_labels=("episode URL", "series URL", "series RSS URL"),
+        examples=(
+            "https://bibibi-comic.com/episodes/0123456789ab",
+            "https://bibibi-comic.com/series/0123456789ab",
+            "https://bibibi-comic.com/series/0123456789ab/rss",
+        ),
+    ),
+    SourceCapability(
         source="kakuyomu",
         domains=("kakuyomu.jp",),
         input_labels=("work URL", "episode URL"),

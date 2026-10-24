@@ -1,6 +1,7 @@
 from typing import Optional, Sequence, Tuple
 
 from .base import HttpClient, LatestEpisode, RequestsHttpClient, SourceAdapter, WorkDescriptor
+from .bibibi_comic import BibibiComicAdapter
 from .bookwalker import BookwalkerAdapter
 from .champion_cross import ChampionCrossAdapter
 from .comic_action import ComicActionAdapter
@@ -35,6 +36,7 @@ REGISTERED_ADAPTERS = (
     MagapokeAdapter(),
     FirecrossAdapter(),
     TakecomicAdapter(),
+    BibibiComicAdapter(),
     NicovideoMangaAdapter(),
     KakuyomuAdapter(),
     GaugauAdapter(),

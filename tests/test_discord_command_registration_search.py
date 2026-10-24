@@ -36,6 +36,7 @@ class DiscordSearchCommandRegistrationTests(unittest.TestCase):
                         {"name": "magapoke", "value": "magapoke"},
                         {"name": "firecross", "value": "firecross"},
                         {"name": "takecomic", "value": "takecomic"},
+                        {"name": "bibibi-comic", "value": "bibibi-comic"},
                         {"name": "nicovideo-manga", "value": "nicovideo-manga"},
                         {"name": "kakuyomu", "value": "kakuyomu"},
                         {"name": "gaugau", "value": "gaugau"},

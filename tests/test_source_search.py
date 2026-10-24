@@ -93,6 +93,7 @@ class SourceSearchTests(unittest.TestCase):
                 "magapoke",
                 "firecross",
                 "takecomic",
+                "bibibi-comic",
                 "nicovideo-manga",
                 "kakuyomu",
                 "gaugau",
