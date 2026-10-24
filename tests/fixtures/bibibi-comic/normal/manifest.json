@@ -1,0 +1,53 @@
+{
+  "seedUrl": "https://bibibi-comic.com/series/41de76fc8df5f",
+  "expectedWork": {
+    "source": "bibibi-comic",
+    "kind": "bibibi-comic",
+    "workId": "bibibi-comic:41de76fc8df5f",
+    "seedUrl": "https://bibibi-comic.com/series/41de76fc8df5f",
+    "series": "bibibi-comic:41de76fc8df5f",
+    "seriesHash": "41de76fc8df5f"
+  },
+  "steps": [
+    {
+      "url": "https://bibibi-comic.com/series/41de76fc8df5f/rss",
+      "response": "01-rss.xml"
+    },
+    {
+      "url": "https://bibibi-comic.com/episodes/6186aa5c73da4",
+      "response": "02-episode.html"
+    }
+  ],
+  "expectedCheckedUrls": [
+    "https://bibibi-comic.com/series/41de76fc8df5f",
+    "https://bibibi-comic.com/series/41de76fc8df5f/rss"
+  ],
+  "expectedObservations": [
+    {
+      "name": "series_hash",
+      "value": "41de76fc8df5f"
+    },
+    {
+      "name": "series_title",
+      "value": "超かぐやメシ！"
+    },
+    {
+      "name": "latest_episode_url",
+      "value": "https://bibibi-comic.com/episodes/6186aa5c73da4"
+    },
+    {
+      "name": "latest_episode_title",
+      "value": "2話「かぐやのガチビリヤニ！」"
+    }
+  ],
+  "expectedLatest": {
+    "source": "bibibi-comic",
+    "workId": "bibibi-comic:41de76fc8df5f",
+    "latestKey": "https://bibibi-comic.com/episodes/6186aa5c73da4",
+    "url": "https://bibibi-comic.com/episodes/6186aa5c73da4",
+    "series": "bibibi-comic:41de76fc8df5f",
+    "seriesTitle": "超かぐやメシ！",
+    "episodeTitle": "2話「かぐやのガチビリヤニ！」",
+    "nextUpdateLabel": "金曜更新"
+  }
+}

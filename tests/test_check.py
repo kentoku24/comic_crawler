@@ -459,6 +459,13 @@ class CheckTests(unittest.TestCase):
         self.assertEqual("champion-cross:4756324e1c1b1", entry["id"])
         self.assertEqual("champion-cross", entry["source"])
 
+    def test_build_watchlist_entry_uses_stable_bibibi_comic_work_id(self):
+        entry = check.build_watchlist_entry("https://bibibi-comic.com/series/41de76fc8df5f")
+
+        self.assertEqual("bibibi-comic:41de76fc8df5f", entry["id"])
+        self.assertEqual("bibibi-comic", entry["source"])
+        self.assertEqual("https://bibibi-comic.com/series/41de76fc8df5f", entry["seed_url"])
+
     def test_validate_watchlist_rejects_unknown_notification_policy_mode(self):
         with self.assertRaisesRegex(ValueError, "notification_policy.mode must be one of"):
             validate_watchlist(

@@ -65,6 +65,12 @@ REPRESENTATIVE_SEARCH_CASES = (
         "expected_seed_url": "https://takecomic.jp/series/bb237f85f48a3",
     },
     {
+        "source": "bibibi-comic",
+        "query": "超かぐやメシ",
+        "expected_title": "超かぐやメシ！",
+        "expected_seed_url": "https://bibibi-comic.com/series/41de76fc8df5f",
+    },
+    {
         "source": "nicovideo-manga",
         "query": "ダンジョンの中のひと",
         "expected_title": "ダンジョンの中のひと",

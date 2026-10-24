@@ -27,6 +27,7 @@ from manga_watch.sources.piccoma import PiccomaAdapter
 from manga_watch.sources.shonenjumpplus import ShonenJumpPlusAdapter
 from manga_watch.sources.util import html_title
 from manga_watch.sources.takecomic import TakecomicAdapter
+from manga_watch.sources.bibibi_comic import BibibiComicAdapter
 
 FIXTURES_ROOT = Path(__file__).parent / "fixtures"
 SOURCE_CASES = {
@@ -90,6 +91,9 @@ SOURCE_CASES = {
     "takecomic": (
         "days_of_week_json_only",
         "genre_tag_before_update_label",
+        "normal",
+    ),
+    "bibibi-comic": (
         "normal",
     ),
     "nicovideo-manga": (
@@ -165,6 +169,9 @@ EXPECTED_LATEST_CLASSIFICATIONS = {
         "days_of_week_json_only": "main_story",
         "genre_tag_before_update_label": "main_story",
         "normal": "main_story",
+    },
+    "bibibi-comic": {
+        "normal": "unknown",
     },
     "nicovideo-manga": {
         "normal": "main_story",
@@ -283,6 +290,7 @@ class SourceAdapterTests(unittest.TestCase):
                 "magapoke",
                 "firecross",
                 "takecomic",
+                "bibibi-comic",
                 "nicovideo-manga",
                 "kakuyomu",
                 "gaugau",
@@ -345,6 +353,9 @@ class SourceAdapterTests(unittest.TestCase):
 
     def test_takecomic_fixtures(self):
         self._assert_fixture_matrix("takecomic")
+
+    def test_bibibi_comic_fixtures(self):
+        self._assert_fixture_matrix("bibibi-comic")
 
     def test_nicovideo_manga_fixtures(self):
         self._assert_fixture_matrix("nicovideo-manga")
@@ -1073,6 +1084,21 @@ class SourceAdapterTests(unittest.TestCase):
             work.to_dict(),
         )
 
+    def test_bibibi_comic_normalize_accepts_series_url(self):
+        work = BibibiComicAdapter().normalize("https://bibibi-comic.com/series/41de76fc8df5f/?ref=top")
+
+        self.assertEqual(
+            {
+                "source": "bibibi-comic",
+                "kind": "bibibi-comic",
+                "workId": "bibibi-comic:41de76fc8df5f",
+                "seedUrl": "https://bibibi-comic.com/series/41de76fc8df5f",
+                "series": "bibibi-comic:41de76fc8df5f",
+                "seriesHash": "41de76fc8df5f",
+            },
+            work.to_dict(),
+        )
+
     def test_firecross_normalize_accepts_reader_url(self):
         adapter = ADAPTERS["firecross"]()
         work = adapter.normalize("https://firecross.jp/reader/19386?trial=0&token=temp&vertical=0")
@@ -1607,6 +1633,49 @@ class SourceAdapterTests(unittest.TestCase):
             [
                 "https://takecomic.jp/series/3f846451aff2d/rss",
                 "https://takecomic.jp/episodes/abc12345",
+            ],
+            client.calls,
+        )
+
+    def test_bibibi_comic_fetch_latest_accepts_series_url(self):
+        adapter = BibibiComicAdapter()
+        work = adapter.normalize("https://bibibi-comic.com/series/41de76fc8df5f/")
+        client = StaticHttpClient(
+            {
+                "https://bibibi-comic.com/series/41de76fc8df5f/rss": """
+                <rss>
+                  <channel>
+                    <title>超かぐやメシ！</title>
+                    <item>
+                      <title><![CDATA[2話「かぐやのガチビリヤニ！」]]></title>
+                      <link>https://bibibi-comic.com/episodes/6186aa5c73da4?from=rss</link>
+                    </item>
+                  </channel>
+                </rss>
+                """,
+                "https://bibibi-comic.com/episodes/6186aa5c73da4": """
+                <html>
+                  <body>
+                    <a href="/category/manga?type=連載中&amp;day=金" class="series-h-day-of-week-link">
+                      <span class="series-h-tag-label">金曜更新</span>
+                    </a>
+                  </body>
+                </html>
+                """,
+            }
+        )
+
+        latest = adapter.fetch_latest(work, client).to_dict()
+
+        self.assertEqual("bibibi-comic:41de76fc8df5f", latest["workId"])
+        self.assertEqual("https://bibibi-comic.com/episodes/6186aa5c73da4", latest["latestKey"])
+        self.assertEqual("超かぐやメシ！", latest["seriesTitle"])
+        self.assertEqual("2話「かぐやのガチビリヤニ！」", latest["episodeTitle"])
+        self.assertEqual("金曜更新", latest["nextUpdateLabel"])
+        self.assertEqual(
+            [
+                "https://bibibi-comic.com/series/41de76fc8df5f/rss",
+                "https://bibibi-comic.com/episodes/6186aa5c73da4",
             ],
             client.calls,
         )

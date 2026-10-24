@@ -70,6 +70,10 @@ _SOURCE_SEARCH_CONFIG: Dict[str, Dict[str, object]] = {
         "search_url": "https://takecomic.jp/search?keyword={query}",
         "allowed_domains": ("takecomic.jp", "www.takecomic.jp"),
     },
+    "bibibi-comic": {
+        "search_url": "https://bibibi-comic.com/search?keyword={query}",
+        "allowed_domains": ("bibibi-comic.com", "www.bibibi-comic.com"),
+    },
     "nicovideo-manga": {
         "search_url": "https://manga.nicovideo.jp/search?q={query}",
         "allowed_domains": ("manga.nicovideo.jp", "sp.manga.nicovideo.jp"),
@@ -767,8 +771,8 @@ def _extract_anchor_results(
             continue
 
         title = _extract_anchor_title(match.group(0), match.group(2))
-        if source == "takecomic":
-            title = _normalize_takecomic_search_title(title)
+        if source in _UPDATE_LABEL_TITLE_SOURCES:
+            title = _normalize_update_label_search_title(title)
         if not title:
             title = canonical_seed_url
 
@@ -1036,7 +1040,10 @@ def _normalize_anchor_text(text: str) -> str:
     return normalized
 
 
-def _normalize_takecomic_search_title(title: str) -> str:
+_UPDATE_LABEL_TITLE_SOURCES = {"takecomic", "bibibi-comic"}
+
+
+def _normalize_update_label_search_title(title: str) -> str:
     return re.sub(r"^更新\s*", "", title or "").strip()
 
 

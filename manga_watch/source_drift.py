@@ -9,6 +9,12 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from .sources import HttpClient, RequestsHttpClient, registered_sources
 from .sources.base import SourceParseError
+from .sources.bibibi_comic import (
+    BibibiComicAdapter,
+    canonical_bibibi_comic_series_rss_url,
+    extract_bibibi_comic_series_hash,
+    parse_bibibi_comic_rss_latest,
+)
 from .sources.bookwalker import BookwalkerAdapter
 from .sources.champion_cross import (
     ChampionCrossAdapter,
@@ -311,6 +317,16 @@ DEFAULT_SOURCE_CANARY_CONTRACTS: Dict[str, SourceCanaryContract] = {
         source="takecomic",
         seed_url="https://takecomic.jp/series/3f846451aff2d",
         fixture_bundle="tests/fixtures/takecomic/normal",
+        monitored_signals=(
+            "series page keeps a stable series hash",
+            "series RSS feed keeps the latest episode URL",
+            "series RSS feed keeps the latest episode title",
+        ),
+    ),
+    "bibibi-comic": SourceCanaryContract(
+        source="bibibi-comic",
+        seed_url="https://bibibi-comic.com/series/41de76fc8df5f",
+        fixture_bundle="tests/fixtures/bibibi-comic/normal",
         monitored_signals=(
             "series page keeps a stable series hash",
             "series RSS feed keeps the latest episode URL",
@@ -885,6 +901,37 @@ def _takecomic_canary(
     )
 
 
+def _bibibi_comic_canary(
+    contract: SourceCanaryContract,
+    http_client: HttpClient,
+) -> Tuple[Tuple[str, ...], Tuple[CanaryObservation, ...]]:
+    adapter = BibibiComicAdapter()
+    work = adapter.normalize(contract.seed_url)
+
+    series_hash = str(work.metadata.get("seriesHash") or "")
+    if not series_hash:
+        series_html = http_client.get_text(work.seed_url)
+        series_hash = extract_bibibi_comic_series_hash(series_html) or ""
+    if not series_hash:
+        raise SourceParseError("bibibi-comic: series hash not found")
+
+    rss_url = canonical_bibibi_comic_series_rss_url(series_hash)
+    feed_text = http_client.get_text(rss_url)
+    latest_url, latest_title, series_title = parse_bibibi_comic_rss_latest(feed_text)
+    if not latest_title:
+        raise SourceParseError("bibibi-comic: latest episode title not found")
+
+    return (
+        (work.seed_url, rss_url),
+        (
+            CanaryObservation("series_hash", series_hash),
+            CanaryObservation("series_title", series_title or ""),
+            CanaryObservation("latest_episode_url", latest_url),
+            CanaryObservation("latest_episode_title", latest_title),
+        ),
+    )
+
+
 def _firecross_canary(
     contract: SourceCanaryContract,
     http_client: HttpClient,
@@ -1035,6 +1082,7 @@ CANARY_RUNNERS = {
     "gaugau": _gaugau_canary,
     "piccoma": _piccoma_canary,
     "takecomic": _takecomic_canary,
+    "bibibi-comic": _bibibi_comic_canary,
     "bookwalker": _bookwalker_canary,
 }
 
