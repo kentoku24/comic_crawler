@@ -11,6 +11,9 @@ from manga_watch.discord_interactions import build_interaction_service_from_env,
 
 HEALTH_CHECK_PATH = "/healthz"
 HEALTH_CHECK_BODY = "ok"
+# Discord interaction payloads are small JSON bodies; cap reads to avoid
+# unbounded buffering on malformed or hostile requests.
+MAX_REQUEST_BODY_BYTES = 1024 * 1024
 
 
 def build_http_response(service, *, method, path, headers, body):
@@ -40,21 +43,31 @@ def build_request_handler(service):
             self._handle()
 
         def _handle(self) -> None:
-            content_length = int(self.headers.get("Content-Length") or 0)
-            body = self.rfile.read(content_length)
-            response = build_http_response(
-                service,
-                method=self.command,
-                path=self.path,
-                headers={key: value for key, value in self.headers.items()},
-                body=body,
-            )
+            response = self._response_for_request()
             self.send_response(response.status_code)
             self.send_header("Content-Type", response.content_type)
             self.send_header("Content-Length", str(len(response.body)))
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(response.body)
+
+        def _response_for_request(self):
+            try:
+                content_length = int(self.headers.get("Content-Length") or 0)
+            except (TypeError, ValueError):
+                return text_response(400, "invalid content length")
+            if content_length < 0:
+                return text_response(400, "invalid content length")
+            if content_length > MAX_REQUEST_BODY_BYTES:
+                return text_response(413, "request body too large")
+            body = self.rfile.read(content_length)
+            return build_http_response(
+                service,
+                method=self.command,
+                path=self.path,
+                headers={key: value for key, value in self.headers.items()},
+                body=body,
+            )
 
     return DiscordInteractionRequestHandler
 
