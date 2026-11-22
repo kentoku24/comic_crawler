@@ -1,7 +1,9 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta, timezone
 from typing import Callable, Dict, Mapping, Optional, Protocol
+from urllib.parse import urlparse
 
 from manga_watch.github_issue_reporting import build_unsupported_source_issue_reporter_from_env
 from manga_watch.watchlist import WatchlistAddError, add_watchlist_url
@@ -12,6 +14,8 @@ ADD_MISSING_URL_MESSAGE = "追加する作品URLを `url` オプションで指�
 UNSUPPORTED_SOURCE_REPORTED_MESSAGE = "未対応媒体として記録しました"
 UNSUPPORTED_SOURCE_ALREADY_REPORTED_MESSAGE = "未対応媒体として既に記録済みです"
 UNSUPPORTED_SOURCE_REPORT_FAILURE_MESSAGE = "未対応媒体の記録に失敗しました。サーバーログを確認してください。"
+UNSUPPORTED_SOURCE_REPORT_RATE_LIMIT_MESSAGE = "未対応媒体の記録は一定時間ごとに行います"
+DEFAULT_UNSUPPORTED_SOURCE_REPORT_COOLDOWN_SECONDS = 3600
 
 
 class UnsupportedSourceReporter(Protocol):
@@ -49,6 +53,9 @@ def format_watchlist_add_error(exc: WatchlistAddError) -> str:
 class AddCommandHandler:
     add_subscription: Callable[..., Mapping[str, object]] = add_watchlist_url
     unsupported_source_reporter: Optional[UnsupportedSourceReporter] = None
+    unsupported_source_report_cooldown_seconds: int = DEFAULT_UNSUPPORTED_SOURCE_REPORT_COOLDOWN_SECONDS
+    now: Callable[[], datetime] = lambda: datetime.now(timezone.utc)
+    _last_reported_hosts: Dict[str, datetime] = field(default_factory=dict)
 
     @classmethod
     def from_env(cls) -> "AddCommandHandler":
@@ -78,11 +85,24 @@ class AddCommandHandler:
 
     def _report_unsupported_source(self, url: str, exc: WatchlistAddError) -> Dict[str, object]:
         lines = [format_watchlist_add_error(exc)]
+        host = str(urlparse(url).hostname or "").strip().lower() or str(url).strip().lower()
+        current_time = self.now().astimezone(timezone.utc)
+        last_reported_at = self._last_reported_hosts.get(host)
+        if (
+            self.unsupported_source_report_cooldown_seconds > 0
+            and last_reported_at is not None
+            and (current_time - last_reported_at)
+            < timedelta(seconds=self.unsupported_source_report_cooldown_seconds)
+        ):
+            lines.append(UNSUPPORTED_SOURCE_REPORT_RATE_LIMIT_MESSAGE)
+            return {"content": "\n".join(lines)}
+
         try:
             outcome = self.unsupported_source_reporter.report_unsupported_source(url=url, error=exc)
         except Exception:
             lines.append(UNSUPPORTED_SOURCE_REPORT_FAILURE_MESSAGE)
             return {"content": "\n".join(lines)}
+        self._last_reported_hosts[host] = current_time
 
         issue_number = str(outcome.get("issue_number") or "").strip()
         issue_url = str(outcome.get("issue_url") or "").strip()
