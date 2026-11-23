@@ -10,3 +10,4 @@ __pycache__/
 # If you want to commit state.json, remove the next line.
 # manga_watch/state.json
 .codex/orchestrator-runs/
+.worktrees/
